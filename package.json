@@ -1,0 +1,28 @@
+{
+  "name": "lisk-dex",
+  "version": "1.0.0",
+  "description": "Decentralized exchange module.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jondubois/lisk-dex.git"
+  },
+  "keywords": [
+    "dex",
+    "decentralized",
+    "exchange",
+    "module"
+  ],
+  "author": "Jonathan Gros-Dubois",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "lisk-framework": "^0.4.0-alpha.0"
+  },
+  "bugs": {
+    "url": "https://github.com/jondubois/lisk-dex/issues"
+  },
+  "homepage": "https://github.com/jondubois/lisk-dex#readme"
+}
