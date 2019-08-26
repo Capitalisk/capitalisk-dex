@@ -1,2 +1,2 @@
-# dex
-Decentralized exchange module
+# lisk-dex
+Decentralized exchange module for the Lisk network.
