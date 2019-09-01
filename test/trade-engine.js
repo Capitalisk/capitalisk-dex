@@ -16,10 +16,11 @@ describe('TradeEngine unit tests', async () => {
     it('Bid order is made with greater size but same price as ask', async () => {
       let result;
 
-      tradeEngine.addOrder({
+      result = tradeEngine.addOrder({
         id: 'order0',
         type: 'limit',
         price: .1,
+        targetChain: 'chain',
         targetWalletAddress: '22245678912345678222L',
         side: 'ask',
         size: 100
@@ -29,6 +30,7 @@ describe('TradeEngine unit tests', async () => {
         id: 'order1',
         type: 'limit',
         price: .1,
+        targetChain: 'capitalisk',
         targetWalletAddress: '11145678912345678111L',
         side: 'bid',
         size: 1000
@@ -43,7 +45,7 @@ describe('TradeEngine unit tests', async () => {
     it('Bid order is made with greater size and higher price as ask', async () => {
       let result;
 
-      tradeEngine.addOrder({
+      result = tradeEngine.addOrder({
         id: 'order0',
         type: 'limit',
         price: .1,

@@ -11,6 +11,7 @@ class TradeEngine {
 
   addOrder(order) {
     let limitOrder = new LimitOrder(order.id, order.side, order.price, order.size);
+    limitOrder.targetChain = order.targetChain;
     limitOrder.targetWalletAddress = order.targetWalletAddress;
     return this.orderBook.add(limitOrder);
   }

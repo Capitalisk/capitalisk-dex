@@ -6,14 +6,18 @@ module.exports = {
     chain: {
       database: 'lisk_test',
       walletAddress: '',
-      sharedEncryptedPassphrase: '',
-      participants: []
+      // sharedEncryptedPassphrase: '', // TODO 2: Use encrypted passphrase
+      sharedPassphrase: '',
+      // encryptedPassphrase: '' // TODO 2: Use encrypted passphrase
+      passphrase: ''
     },
     capitalisk: {
       database: 'capitalisk_test',
       walletAddress: '',
-      sharedEncryptedPassphrase: '',
-      participants: []
+      // sharedEncryptedPassphrase: '', // TODO 2: Use encrypted passphrase
+      sharedPassphrase: '',
+      // encryptedPassphrase: '' // TODO 2: Use encrypted passphrase
+      passphrase: ''
     }
   }
 };

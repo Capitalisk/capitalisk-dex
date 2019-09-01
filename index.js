@@ -6,6 +6,7 @@ const BaseModule = require('lisk-framework/src/modules/base_module');
 const { createStorageComponent } = require('lisk-framework/src/components/storage');
 const { createLoggerComponent } = require('lisk-framework/src/components/logger');
 const TradeEngine = require('./trade-engine');
+const LiskAdapter = require('./lisk-adapter');
 
 const MODULE_ALIAS = 'lisk_dex';
 
@@ -26,6 +27,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 			baseCurrency: this.options.baseChain,
 			quoteCurrency: this.chainNames.find(chain => chain !== this.options.baseChain)
 		});
+		this.liskAdapter = new LiskAdapter();
 	}
 
 	static get alias() {
@@ -79,10 +81,10 @@ module.exports = class LiskDEXModule extends BaseModule {
   			...storageConfigOptions,
   			database: chainOptions.database,
   		};
-			// console.log('**************RESULT:', storageConfig); // TODO 2-----
       let storage = createStorageComponent(storageConfig, this.logger); // TODO 2: Is this logger needed?
 			await storage.bootstrap();
 
+			// TODO 2: Use stream with for-await-of loop to guarantee that events are always processed sequentially to completion.
       channel.subscribe(`${chainName}:blocks:change`, async (event) => {
 				let block = event.data;
         let targetHeight = parseInt(block.height) - this.options.requiredConfirmations;
@@ -123,14 +125,15 @@ module.exports = class LiskDEXModule extends BaseModule {
 					if (dataParts[0] === 'limit' && isSupportedChain) {
 						orderTxn.type = 'limit';
 						orderTxn.price = parseInt(dataParts[2]);
+						orderTxn.targetChain = targetChain;
 						orderTxn.targetWalletAddress = dataParts[3];
 						let amount = parseInt(orderTxn.amount);
 						if (chainName === this.options.baseChain) {
 							orderTxn.side = 'bid';
-							orderTxn.size = Math.floor(amount / orderTxn.price); // TODO 2: Use BitInt instead.
+							orderTxn.size = Math.floor(amount / orderTxn.price); // TODO 2: Use BigInt instead.
 						} else {
 							orderTxn.side = 'ask';
-							orderTxn.size = amount; // TODO 2: Use BitInt instead.
+							orderTxn.size = amount; // TODO 2: Use BigInt instead.
 						}
 					} else {
 						this.logger.debug(
@@ -143,10 +146,32 @@ module.exports = class LiskDEXModule extends BaseModule {
 					return orderTxn.type === 'limit';
 				});
 
-				orders.forEach((orderTxn) => {
-					let result = this.tradeEngine.addOrder(orderTxn);
-					// TODO 222: IMPLEMENT NOW
-				});
+				await Promise.all(
+					orders.map(async (orderTxn) => {
+						let result = this.tradeEngine.addOrder(orderTxn);
+						if (result.takeSize > 0) {
+							let takerChain = result.taker.targetChain;
+							let takerAddress = result.taker.targetWalletAddress;
+							let takerTxn = {
+								amount: result.takeSize,
+								recipient: takerAddress
+							};
+							// TODO 222: Make sure it supports multisignature transactions
+							let signedTakerTxn = this.liskAdapter.signTransaction(takerTxn, chainOptions.sharedPassphrase);
+							// TODO 222: Send txn to the network via the Network module.
+
+							await Promise.all(
+								result.makers.map((makerOrder) => {
+									let makerChain = makerOrder.targetChain;
+									let makerAddress = makerOrder.targetWalletAddress;
+									// makerOrder.valueRemoved
+
+									// TODO 222: Implement
+								})
+							);
+						}
+					})
+				);
       });
     });
 		channel.publish(`${MODULE_ALIAS}:bootstrap`);
