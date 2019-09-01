@@ -1,16 +1,19 @@
 module.exports = {
   database: 'lisk_dex_main',
   requiredConfirmations: 101,
+  baseChain: 'chain',
   chains: {
     chain: {
       database: 'lisk_test',
       walletAddress: '',
-      witnesses: []
+      sharedEncryptedPassphrase: '',
+      participants: []
     },
     capitalisk: {
       database: 'capitalisk_test',
       walletAddress: '',
-      witnesses: []
+      sharedEncryptedPassphrase: '',
+      participants: []
     }
   }
 };

@@ -4,7 +4,7 @@
   "description": "Decentralized exchange module.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "mocha --reporter spec --timeout 3000 --slow 3000"
   },
   "repository": {
     "type": "git",
@@ -19,7 +19,9 @@
   "author": "Jonathan Gros-Dubois",
   "license": "UNLICENSED",
   "dependencies": {
-    "lisk-framework": "^0.4.0-alpha.0"
+    "limit-order-book": "^0.3.0",
+    "lisk-framework": "^0.4.0-alpha.0",
+    "mocha": "^6.2.0"
   },
   "bugs": {
     "url": "https://github.com/jondubois/lisk-dex/issues"
