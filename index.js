@@ -123,6 +123,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 					if (dataParts[0] === 'limit' && isSupportedChain) {
 						orderTxn.type = 'limit';
 						orderTxn.price = parseInt(dataParts[2]);
+						orderTxn.targetWalletAddress = dataParts[3];
 						let amount = parseInt(orderTxn.amount);
 						if (chainName === this.options.baseChain) {
 							orderTxn.side = 'bid';
@@ -143,7 +144,8 @@ module.exports = class LiskDEXModule extends BaseModule {
 				});
 
 				orders.forEach((orderTxn) => {
-
+					let result = this.tradeEngine.addOrder(orderTxn);
+					// TODO 222: IMPLEMENT NOW
 				});
       });
     });

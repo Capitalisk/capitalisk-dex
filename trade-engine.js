@@ -6,12 +6,13 @@ class TradeEngine {
     this.baseCurrency = options.baseCurrency;
     this.quoteCurrency = options.quoteCurrency;
     this.market = `${this.quoteCurrency}/${this.baseCurrency}`;
-    this._orderBook = new LimitOrderBook();
+    this.orderBook = new LimitOrderBook();
   }
 
   addOrder(order) {
     let limitOrder = new LimitOrder(order.id, order.side, order.price, order.size);
-    return this._orderBook.add(limitOrder);
+    limitOrder.targetWalletAddress = order.targetWalletAddress;
+    return this.orderBook.add(limitOrder);
   }
 
   // TODO: Implement.
