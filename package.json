@@ -23,7 +23,8 @@
     "@liskhq/lisk-transactions": "^2.3.1",
     "limit-order-book": "^0.3.0",
     "lisk-framework": "^0.4.0-alpha.0",
-    "mocha": "^6.2.0"
+    "mocha": "^6.2.0",
+    "writable-consumable-stream": "^1.1.1"
   },
   "bugs": {
     "url": "https://github.com/jondubois/lisk-dex/issues"

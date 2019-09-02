@@ -6,10 +6,14 @@ const BaseModule = require('lisk-framework/src/modules/base_module');
 const { createStorageComponent } = require('lisk-framework/src/components/storage');
 const { createLoggerComponent } = require('lisk-framework/src/components/logger');
 const TradeEngine = require('./trade-engine');
-const LiskAdapter = require('./lisk-adapter');
+const liskTransactions = require('@liskhq/lisk-transactions');
+const liskCryptography = require('@liskhq/lisk-cryptography');
+
+const WritableConsumableStream = require('writable-consumable-stream');
 
 const MODULE_ALIAS = 'lisk_dex';
 
+// TODO 2: Add a way to sync with the chain from any height in the past in an idempotent way.
 /**
  * Lisk DEX module specification
  *
@@ -23,11 +27,12 @@ module.exports = class LiskDEXModule extends BaseModule {
 		if (this.chainNames.length !== 2) {
 			throw new Error('The DEX module must operate on exactly 2 chains only');
 		}
+		this.baseChainName = this.options.baseChain;
+		this.quoteChainName = this.chainNames.find(chain => chain !== this.baseChainName);
 		this.tradeEngine = new TradeEngine({
-			baseCurrency: this.options.baseChain,
-			quoteCurrency: this.chainNames.find(chain => chain !== this.options.baseChain)
+			baseCurrency: this.baseChainName,
+			quoteCurrency: this.quoteChainName
 		});
-		this.liskAdapter = new LiskAdapter();
 	}
 
 	static get alias() {
@@ -84,94 +89,135 @@ module.exports = class LiskDEXModule extends BaseModule {
       let storage = createStorageComponent(storageConfig, this.logger); // TODO 2: Is this logger needed?
 			await storage.bootstrap();
 
-			// TODO 2: Use stream with for-await-of loop to guarantee that events are always processed sequentially to completion.
-      channel.subscribe(`${chainName}:blocks:change`, async (event) => {
-				let block = event.data;
-        let targetHeight = parseInt(block.height) - this.options.requiredConfirmations;
-        let blockData = (
-					await storage.adapter.db.query(
-						'select blocks.id, blocks."numberOfTransactions" from blocks where height = $1',
-						[targetHeight],
-					)
-				)[0];
+			let blockChangeStream = new WritableConsumableStream();
 
-				if (!blockData) {
-					this.logger.error(
-						`Failed to fetch block at height ${targetHeight}`
-					);
+			(async () => {
+				for await (let event of blockChangeStream) {
+					let block = event.data;
+	        let targetHeight = parseInt(block.height) - this.options.requiredConfirmations;
+	        let blockData = (
+						await storage.adapter.db.query(
+							'select blocks.id, blocks."numberOfTransactions" from blocks where height = $1',
+							[targetHeight],
+						)
+					)[0];
 
-					return;
-				}
-				if (!blockData.numberOfTransactions) {
-					this.logger.trace(
-						`No transactions in block ${blockData.id} at height ${targetHeight}`
-					);
-
-					return;
-				}
-				let orders = await storage.adapter.db.query(
-					'select trs.id, trs."senderId", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."transferData" is not null and trs."recipientId" = $2',
-					[blockData.id, chainOptions.walletAddress],
-				)
-				.map((txn) => {
-					// let dataString = Buffer.from(txn.transferData.replace(/^\\x/, ''), 'hex').toString('utf8')
-					// TODO 2: Check that this is the correct way to read bytea type from Postgres.
-					let transferDataString = txn.transferData.toString('utf8');
-					let dataParts = transferDataString.split(',');
-					let orderTxn = {...txn};
-					let targetChain = dataParts[1];
-					let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainName;
-
-					if (dataParts[0] === 'limit' && isSupportedChain) {
-						orderTxn.type = 'limit';
-						orderTxn.price = parseInt(dataParts[2]);
-						orderTxn.targetChain = targetChain;
-						orderTxn.targetWalletAddress = dataParts[3];
-						let amount = parseInt(orderTxn.amount);
-						if (chainName === this.options.baseChain) {
-							orderTxn.side = 'bid';
-							orderTxn.size = Math.floor(amount / orderTxn.price); // TODO 2: Use BigInt instead.
-						} else {
-							orderTxn.side = 'ask';
-							orderTxn.size = amount; // TODO 2: Use BigInt instead.
-						}
-					} else {
-						this.logger.debug(
-							`Incoming transaction ${txn.id} is not a valid limit order`
+					if (!blockData) {
+						this.logger.error(
+							`Failed to fetch block at height ${targetHeight}`
 						);
+
+						return;
 					}
-					return orderTxn;
-				})
-				.filter((orderTxn) => {
-					return orderTxn.type === 'limit';
-				});
+					if (!blockData.numberOfTransactions) {
+						this.logger.trace(
+							`No transactions in block ${blockData.id} at height ${targetHeight}`
+						);
 
-				await Promise.all(
-					orders.map(async (orderTxn) => {
-						let result = this.tradeEngine.addOrder(orderTxn);
-						if (result.takeSize > 0) {
-							let takerChain = result.taker.targetChain;
-							let takerAddress = result.taker.targetWalletAddress;
-							let takerTxn = {
-								amount: result.takeSize,
-								recipient: takerAddress
-							};
-							// TODO 222: Make sure it supports multisignature transactions
-							let signedTakerTxn = this.liskAdapter.signTransaction(takerTxn, chainOptions.sharedPassphrase);
-							// TODO 222: Send txn to the network via the Network module.
+						return;
+					}
+					let orders = await storage.adapter.db.query(
+						'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."transferData" is not null and trs."recipientId" = $2',
+						[blockData.id, chainOptions.walletAddress],
+					)
+					.map((txn) => {
+						// TODO 2: Check that this is the correct way to read bytea type from Postgres.
+						let transferDataString = txn.transferData.toString('utf8');
+						let dataParts = transferDataString.split(',');
+						let orderTxn = {...txn};
+						let targetChain = dataParts[1];
+						let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainName;
 
-							await Promise.all(
-								result.makers.map((makerOrder) => {
-									let makerChain = makerOrder.targetChain;
-									let makerAddress = makerOrder.targetWalletAddress;
-									// makerOrder.valueRemoved
-
-									// TODO 222: Implement
-								})
+						if (dataParts[0] === 'limit' && isSupportedChain) {
+							orderTxn.type = 'limit';
+							orderTxn.price = parseInt(dataParts[2]);
+							orderTxn.targetChain = targetChain;
+							orderTxn.targetWalletAddress = dataParts[3];
+							let amount = parseInt(orderTxn.amount);
+							if (chainName === this.options.baseChain) {
+								orderTxn.side = 'bid';
+								orderTxn.size = Math.floor(amount / orderTxn.price); // TODO 2: Use BigInt instead.
+							} else {
+								orderTxn.side = 'ask';
+								orderTxn.size = amount; // TODO 2: Use BigInt instead.
+							}
+						} else {
+							this.logger.debug(
+								`Incoming transaction ${txn.id} is not a valid limit order`
 							);
 						}
+						return orderTxn;
 					})
-				);
+					.filter((orderTxn) => {
+						return orderTxn.type === 'limit';
+					});
+
+					let baseChainOptions = this.options.chains[this.baseChainName];
+					let quoteChainOptions = this.options.chains[this.quoteChainName];
+
+					await Promise.all(
+						orders.map(async (orderTxn) => {
+							let result = this.tradeEngine.addOrder(orderTxn);
+							if (result.takeSize > 0) {
+								let takerAddress = result.taker.targetWalletAddress;
+								let takerTxn = {
+									type: 0,
+									amount: result.takeSize,
+									recipientId: takerAddress,
+									fee: liskTransactions.constants.TRANSFER_FEE.toString(),
+									asset: {},
+									timestamp: orderTxn.timestamp,
+									senderPublicKey: liskCryptography.getAddressAndPublicKeyFromPassphrase(quoteChainOptions.sharedPassphrase).publicKey
+								};
+								let takerSignedTxn = liskTransactions.utils.prepareTransaction(takerTxn, quoteChainOptions.sharedPassphrase);
+								let takerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(takerSignedTxn, quoteChainOptions.passphrase);
+
+								try {
+									await channel.invoke(`${this.quoteChainName}:postTransaction`, { transaction: takerSignedTxn });
+									await channel.invoke(`${this.quoteChainName}:postSignature`, { signature: takerMultiSigTxnSignature });
+								} catch (error) {
+									this.logger.error(
+										`Failed to post multisig transaction of taker ${takerAddress} on chain ${this.quoteChainName} because of error: ${error.message}`
+									);
+									return;
+								}
+
+								await Promise.all(
+									result.makers.map(async (makerOrder) => {
+										let makerAddress = makerOrder.targetWalletAddress;
+
+										let makerTxn = {
+											type: 0,
+											amount: makerOrder.valueRemoved,
+											recipientId: makerAddress,
+											fee: liskTransactions.constants.TRANSFER_FEE.toString(),
+											asset: {},
+											timestamp: orderTxn.timestamp,
+											senderPublicKey: liskCryptography.getAddressAndPublicKeyFromPassphrase(baseChainOptions.sharedPassphrase).publicKey
+										};
+										let makerSignedTxn = liskTransactions.utils.prepareTransaction(makerTxn, baseChainOptions.sharedPassphrase);
+										let makerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(makerSignedTxn, baseChainOptions.passphrase);
+
+										try {
+											await channel.invoke(`${this.baseChainName}:postTransaction`, { transaction: makerSignedTxn });
+											await channel.invoke(`${this.baseChainName}:postSignature`, { signature: makerMultiSigTxnSignature });
+										} catch (error) {
+											this.logger.error(
+												`Failed to post multisig transaction of maker ${makerAddress} on chain ${this.baseChainName} because of error: ${error.message}`
+											);
+											return;
+										}
+									})
+								);
+							}
+						})
+					);
+				}
+			})();
+
+			// TODO 2: Use stream with for-await-of loop to guarantee that events are always processed sequentially to completion.
+      channel.subscribe(`${chainName}:blocks:change`, (event) => {
+				blockChangeStream.write(event);
       });
     });
 		channel.publish(`${MODULE_ALIAS}:bootstrap`);
