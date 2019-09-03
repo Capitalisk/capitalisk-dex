@@ -107,14 +107,14 @@ module.exports = class LiskDEXModule extends BaseModule {
 							`Failed to fetch block at height ${targetHeight}`
 						);
 
-						return;
+						continue;
 					}
 					if (!blockData.numberOfTransactions) {
 						this.logger.trace(
 							`No transactions in block ${blockData.id} at height ${targetHeight}`
 						);
 
-						return;
+						continue;
 					}
 					let orders = await storage.adapter.db.query(
 						'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."transferData" is not null and trs."recipientId" = $2',
