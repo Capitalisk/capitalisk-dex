@@ -29,8 +29,6 @@ module.exports = class LiskDEXModule extends BaseModule {
     }
     this.baseChainSymbol = this.options.baseChain;
     this.quoteChainSymbol = this.chainSymbols.find(chain => chain !== this.baseChainSymbol);
-    this.baseChainModuleAlias = this.options.chains[this.baseChainSymbol].moduleAlias;
-    this.quoteChainModuleAlias = this.options.chains[this.quoteChainSymbol].moduleAlias;
     this.tradeEngine = new TradeEngine({
       baseCurrency: this.baseChainSymbol,
       quoteCurrency: this.quoteChainSymbol
@@ -133,7 +131,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
             if (dataParts[0] === 'limit' && isSupportedChain) {
               orderTxn.type = 'limit';
-              orderTxn.price = parseInt(dataParts[2]);
+              orderTxn.price = parseFloat(dataParts[2]);
               orderTxn.targetChain = targetChain;
               orderTxn.targetWalletAddress = dataParts[3];
               let amount = parseInt(orderTxn.amount);
@@ -162,10 +160,11 @@ module.exports = class LiskDEXModule extends BaseModule {
             orders.map(async (orderTxn) => {
               let result = this.tradeEngine.addOrder(orderTxn);
               if (result.takeSize > 0) {
+                let takerTargetChainModuleAlias = this.options.chains[result.taker.targetChain].moduleAlias;
                 let takerAddress = result.taker.targetWalletAddress;
                 let takerTxn = {
                   type: 0,
-                  amount: result.takeSize,
+                  amount: result.taker.targetChain === this.baseChainSymbol ? result.takeValue.toString() : result.takeSize.toString(),
                   recipientId: takerAddress,
                   fee: liskTransactions.constants.TRANSFER_FEE.toString(),
                   asset: {},
@@ -176,8 +175,8 @@ module.exports = class LiskDEXModule extends BaseModule {
                 let takerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(takerSignedTxn, quoteChainOptions.passphrase);
 
                 try {
-                  await channel.invoke(`${this.quoteChainModuleAlias}:postTransaction`, { transaction: takerSignedTxn });
-                  await channel.invoke(`${this.quoteChainModuleAlias}:postSignature`, { signature: takerMultiSigTxnSignature });
+                  await channel.invoke(`${takerTargetChainModuleAlias}:postTransaction`, { transaction: takerSignedTxn });
+                  await channel.invoke(`${takerTargetChainModuleAlias}:postSignature`, { signature: takerMultiSigTxnSignature });
                 } catch (error) {
                   this.logger.error(
                     `Failed to post multisig transaction of taker ${takerAddress} on chain ${this.quoteChainSymbol} because of error: ${error.message}`
@@ -187,11 +186,14 @@ module.exports = class LiskDEXModule extends BaseModule {
 
                 await Promise.all(
                   result.makers.map(async (makerOrder) => {
+                    let makerTargetChainModuleAlias = this.options.chains[makerOrder.targetChain].moduleAlias;
                     let makerAddress = makerOrder.targetWalletAddress;
 
                     let makerTxn = {
                       type: 0,
-                      amount: makerOrder.valueRemoved,
+                      amount: makerOrder.targetChain === this.baseChainSymbol ?
+                        Math.floor(makerOrder.valueRemoved).toString() :
+                        Math.floor(makerOrder.size - makerOrder.sizeRemaining).toString(),
                       recipientId: makerAddress,
                       fee: liskTransactions.constants.TRANSFER_FEE.toString(),
                       asset: {},
@@ -202,8 +204,8 @@ module.exports = class LiskDEXModule extends BaseModule {
                     let makerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(makerSignedTxn, baseChainOptions.passphrase);
 
                     try {
-                      await channel.invoke(`${this.baseChainModuleAlias}:postTransaction`, { transaction: makerSignedTxn });
-                      await channel.invoke(`${this.baseChainModuleAlias}:postSignature`, { signature: makerMultiSigTxnSignature });
+                      await channel.invoke(`${makerTargetChainModuleAlias}:postTransaction`, { transaction: makerSignedTxn });
+                      await channel.invoke(`${makerTargetChainModuleAlias}:postSignature`, { signature: makerMultiSigTxnSignature });
                     } catch (error) {
                       this.logger.error(
                         `Failed to post multisig transaction of maker ${makerAddress} on chain ${this.baseChainSymbol} because of error: ${error.message}`
