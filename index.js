@@ -96,6 +96,11 @@ module.exports = class LiskDEXModule extends BaseModule {
         for await (let event of blockChangeStream) {
           let block = event.data;
           let targetHeight = parseInt(block.height) - this.options.requiredConfirmations;
+
+          this.logger.trace(
+            `Processing block at height ${targetHeight}`
+          );
+
           let blockData = (
             await storage.adapter.db.query(
               'select blocks.id, blocks."numberOfTransactions" from blocks where height = $1',
@@ -153,14 +158,12 @@ module.exports = class LiskDEXModule extends BaseModule {
             return orderTxn.type === 'limit';
           });
 
-          let baseChainOptions = this.options.chains[this.baseChainSymbol];
-          let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
-
           await Promise.all(
             orders.map(async (orderTxn) => {
               let result = this.tradeEngine.addOrder(orderTxn);
               if (result.takeSize > 0) {
-                let takerTargetChainModuleAlias = this.options.chains[result.taker.targetChain].moduleAlias;
+                let takerChainOptions = this.options.chains[result.taker.targetChain];
+                let takerTargetChainModuleAlias = takerChainOptions.moduleAlias;
                 let takerAddress = result.taker.targetWalletAddress;
                 let takerTxn = {
                   type: 0,
@@ -169,14 +172,20 @@ module.exports = class LiskDEXModule extends BaseModule {
                   fee: liskTransactions.constants.TRANSFER_FEE.toString(),
                   asset: {},
                   timestamp: orderTxn.timestamp,
-                  senderPublicKey: liskCryptography.getAddressAndPublicKeyFromPassphrase(quoteChainOptions.sharedPassphrase).publicKey
+                  senderPublicKey: liskCryptography.getAddressAndPublicKeyFromPassphrase(takerChainOptions.sharedPassphrase).publicKey
                 };
-                let takerSignedTxn = liskTransactions.utils.prepareTransaction(takerTxn, quoteChainOptions.sharedPassphrase);
-                let takerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(takerSignedTxn, quoteChainOptions.passphrase);
+                let takerSignedTxn = liskTransactions.utils.prepareTransaction(takerTxn, takerChainOptions.sharedPassphrase);
+                let takerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(takerSignedTxn, takerChainOptions.passphrase);
 
                 try {
                   await channel.invoke(`${takerTargetChainModuleAlias}:postTransaction`, { transaction: takerSignedTxn });
-                  await channel.invoke(`${takerTargetChainModuleAlias}:postSignature`, { signature: takerMultiSigTxnSignature });
+                  await channel.invoke(`${takerTargetChainModuleAlias}:postSignature`, {
+                    signature: {
+                      transactionId: takerSignedTxn.id,
+                      publicKey: takerSignedTxn.senderPublicKey,
+                      signature: takerMultiSigTxnSignature
+                    }
+                  });
                 } catch (error) {
                   this.logger.error(
                     `Failed to post multisig transaction of taker ${takerAddress} on chain ${this.quoteChainSymbol} because of error: ${error.message}`
@@ -186,7 +195,8 @@ module.exports = class LiskDEXModule extends BaseModule {
 
                 await Promise.all(
                   result.makers.map(async (makerOrder) => {
-                    let makerTargetChainModuleAlias = this.options.chains[makerOrder.targetChain].moduleAlias;
+                    let makerChainOptions = this.options.chains[makerOrder.targetChain];
+                    let makerTargetChainModuleAlias = makerChainOptions.moduleAlias;
                     let makerAddress = makerOrder.targetWalletAddress;
 
                     let makerTxn = {
@@ -198,17 +208,23 @@ module.exports = class LiskDEXModule extends BaseModule {
                       fee: liskTransactions.constants.TRANSFER_FEE.toString(),
                       asset: {},
                       timestamp: orderTxn.timestamp,
-                      senderPublicKey: liskCryptography.getAddressAndPublicKeyFromPassphrase(baseChainOptions.sharedPassphrase).publicKey
+                      senderPublicKey: liskCryptography.getAddressAndPublicKeyFromPassphrase(makerChainOptions.sharedPassphrase).publicKey
                     };
-                    let makerSignedTxn = liskTransactions.utils.prepareTransaction(makerTxn, baseChainOptions.sharedPassphrase);
-                    let makerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(makerSignedTxn, baseChainOptions.passphrase);
+                    let makerSignedTxn = liskTransactions.utils.prepareTransaction(makerTxn, makerChainOptions.sharedPassphrase);
+                    let makerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(makerSignedTxn, makerChainOptions.passphrase);
 
                     try {
                       await channel.invoke(`${makerTargetChainModuleAlias}:postTransaction`, { transaction: makerSignedTxn });
-                      await channel.invoke(`${makerTargetChainModuleAlias}:postSignature`, { signature: makerMultiSigTxnSignature });
+                      await channel.invoke(`${makerTargetChainModuleAlias}:postSignature`, {
+                        signature: {
+                          transactionId: makerSignedTxn.id,
+                          publicKey: makerSignedTxn.senderPublicKey,
+                          signature: makerMultiSigTxnSignature
+                        }
+                      });
                     } catch (error) {
                       this.logger.error(
-                        `Failed to post multisig transaction of maker ${makerAddress} on chain ${this.baseChainSymbol} because of error: ${error.message}`
+                        `Failed to post multisig transaction of maker ${makerAddress} on chain ${makerOrder.targetChain} because of error: ${error.message}`
                       );
                       return;
                     }
