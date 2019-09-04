@@ -20,7 +20,7 @@ describe('TradeEngine unit tests', async () => {
         id: 'order0',
         type: 'limit',
         price: .1,
-        targetChain: 'chain',
+        targetChain: 'lsk',
         targetWalletAddress: '22245678912345678222L',
         side: 'ask',
         size: 100
@@ -30,7 +30,7 @@ describe('TradeEngine unit tests', async () => {
         id: 'order1',
         type: 'limit',
         price: .1,
-        targetChain: 'capitalisk',
+        targetChain: 'clsk',
         targetWalletAddress: '11145678912345678111L',
         side: 'bid',
         size: 1000
@@ -49,6 +49,7 @@ describe('TradeEngine unit tests', async () => {
         id: 'order0',
         type: 'limit',
         price: .1,
+        targetChain: 'lsk',
         targetWalletAddress: '22245678912345678222L',
         side: 'ask',
         size: 100
@@ -58,6 +59,7 @@ describe('TradeEngine unit tests', async () => {
         id: 'order1',
         type: 'limit',
         price: .2,
+        targetChain: 'clsk',
         targetWalletAddress: '11145678912345678111L',
         side: 'bid',
         size: 1000
