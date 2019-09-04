@@ -176,13 +176,14 @@ module.exports = class LiskDEXModule extends BaseModule {
                 };
                 let takerSignedTxn = liskTransactions.utils.prepareTransaction(takerTxn, takerChainOptions.sharedPassphrase);
                 let takerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(takerSignedTxn, takerChainOptions.passphrase);
+                let takerPublicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(takerChainOptions.passphrase).publicKey;
 
                 try {
                   await channel.invoke(`${takerTargetChainModuleAlias}:postTransaction`, { transaction: takerSignedTxn });
                   await channel.invoke(`${takerTargetChainModuleAlias}:postSignature`, {
                     signature: {
                       transactionId: takerSignedTxn.id,
-                      publicKey: takerSignedTxn.senderPublicKey,
+                      publicKey: takerPublicKey,
                       signature: takerMultiSigTxnSignature
                     }
                   });
@@ -212,13 +213,14 @@ module.exports = class LiskDEXModule extends BaseModule {
                     };
                     let makerSignedTxn = liskTransactions.utils.prepareTransaction(makerTxn, makerChainOptions.sharedPassphrase);
                     let makerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(makerSignedTxn, makerChainOptions.passphrase);
+                    let makerPublicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(makerChainOptions.passphrase).publicKey;
 
                     try {
                       await channel.invoke(`${makerTargetChainModuleAlias}:postTransaction`, { transaction: makerSignedTxn });
                       await channel.invoke(`${makerTargetChainModuleAlias}:postSignature`, {
                         signature: {
                           transactionId: makerSignedTxn.id,
-                          publicKey: makerSignedTxn.senderPublicKey,
+                          publicKey: makerPublicKey,
                           signature: makerMultiSigTxnSignature
                         }
                       });
