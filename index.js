@@ -23,15 +23,17 @@ const MODULE_ALIAS = 'lisk_dex';
 module.exports = class LiskDEXModule extends BaseModule {
 	constructor(options) {
 		super({...defaultConfig, ...options});
-    this.chainNames = Object.keys(this.options.chains);
-		if (this.chainNames.length !== 2) {
+		this.chainSymbols = Object.keys(this.options.chains);
+		if (this.chainSymbols.length !== 2) {
 			throw new Error('The DEX module must operate on exactly 2 chains only');
 		}
-		this.baseChainName = this.options.baseChain;
-		this.quoteChainName = this.chainNames.find(chain => chain !== this.baseChainName);
+		this.baseChainSymbol = this.options.baseChain;
+		this.quoteChainSymbol = this.chainSymbols.find(chain => chain !== this.baseChainSymbol);
+		this.baseChainModuleAlias = this.options.chains[this.baseChainSymbol].moduleAlias;
+		this.quoteChainModuleAlias = this.options.chains[this.quoteChainSymbol].moduleAlias;
 		this.tradeEngine = new TradeEngine({
-			baseCurrency: this.baseChainName,
-			quoteCurrency: this.quoteChainName
+			baseCurrency: this.baseChainSymbol,
+			quoteCurrency: this.quoteChainSymbol
 		});
 	}
 
@@ -80,8 +82,9 @@ module.exports = class LiskDEXModule extends BaseModule {
       'app:getComponentConfig',
       'storage',
     );
-    this.chainNames.forEach(async (chainName) => {
-			let chainOptions = this.options.chains[chainName];
+    this.chainSymbols.forEach(async (chainSymbol) => {
+			let chainOptions = this.options.chains[chainSymbol];
+			let chainModuleAlias = chainOptions.moduleAlias;
       let storageConfig = {
   			...storageConfigOptions,
   			database: chainOptions.database,
@@ -126,7 +129,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 						let dataParts = transferDataString.split(',');
 						let orderTxn = {...txn};
 						let targetChain = dataParts[1];
-						let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainName;
+						let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainSymbol;
 
 						if (dataParts[0] === 'limit' && isSupportedChain) {
 							orderTxn.type = 'limit';
@@ -134,7 +137,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 							orderTxn.targetChain = targetChain;
 							orderTxn.targetWalletAddress = dataParts[3];
 							let amount = parseInt(orderTxn.amount);
-							if (chainName === this.options.baseChain) {
+							if (chainSymbol === this.options.baseChain) {
 								orderTxn.side = 'bid';
 								orderTxn.size = Math.floor(amount / orderTxn.price); // TODO 2: Use BigInt instead.
 							} else {
@@ -152,8 +155,8 @@ module.exports = class LiskDEXModule extends BaseModule {
 						return orderTxn.type === 'limit';
 					});
 
-					let baseChainOptions = this.options.chains[this.baseChainName];
-					let quoteChainOptions = this.options.chains[this.quoteChainName];
+					let baseChainOptions = this.options.chains[this.baseChainSymbol];
+					let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
 
 					await Promise.all(
 						orders.map(async (orderTxn) => {
@@ -173,11 +176,11 @@ module.exports = class LiskDEXModule extends BaseModule {
 								let takerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(takerSignedTxn, quoteChainOptions.passphrase);
 
 								try {
-									await channel.invoke(`${this.quoteChainName}:postTransaction`, { transaction: takerSignedTxn });
-									await channel.invoke(`${this.quoteChainName}:postSignature`, { signature: takerMultiSigTxnSignature });
+									await channel.invoke(`${this.quoteChainModuleAlias}:postTransaction`, { transaction: takerSignedTxn });
+									await channel.invoke(`${this.quoteChainModuleAlias}:postSignature`, { signature: takerMultiSigTxnSignature });
 								} catch (error) {
 									this.logger.error(
-										`Failed to post multisig transaction of taker ${takerAddress} on chain ${this.quoteChainName} because of error: ${error.message}`
+										`Failed to post multisig transaction of taker ${takerAddress} on chain ${this.quoteChainSymbol} because of error: ${error.message}`
 									);
 									return;
 								}
@@ -199,11 +202,11 @@ module.exports = class LiskDEXModule extends BaseModule {
 										let makerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(makerSignedTxn, baseChainOptions.passphrase);
 
 										try {
-											await channel.invoke(`${this.baseChainName}:postTransaction`, { transaction: makerSignedTxn });
-											await channel.invoke(`${this.baseChainName}:postSignature`, { signature: makerMultiSigTxnSignature });
+											await channel.invoke(`${this.baseChainModuleAlias}:postTransaction`, { transaction: makerSignedTxn });
+											await channel.invoke(`${this.baseChainModuleAlias}:postSignature`, { signature: makerMultiSigTxnSignature });
 										} catch (error) {
 											this.logger.error(
-												`Failed to post multisig transaction of maker ${makerAddress} on chain ${this.baseChainName} because of error: ${error.message}`
+												`Failed to post multisig transaction of maker ${makerAddress} on chain ${this.baseChainSymbol} because of error: ${error.message}`
 											);
 											return;
 										}
@@ -215,8 +218,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 				}
 			})();
 
-			// TODO 2: Use stream with for-await-of loop to guarantee that events are always processed sequentially to completion.
-      channel.subscribe(`${chainName}:blocks:change`, (event) => {
+      channel.subscribe(`${chainModuleAlias}:blocks:change`, (event) => {
 				blockChangeStream.write(event);
       });
     });

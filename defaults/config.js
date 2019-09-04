@@ -1,17 +1,19 @@
 module.exports = {
   requiredConfirmations: 101,
-  baseChain: 'chain',
+  baseChain: 'lsk',
   chains: {
-    chain: {
+    lsk: {
       database: 'lisk_test',
+      moduleAlias: 'chain',
       walletAddress: '',
       // sharedEncryptedPassphrase: '', // TODO 2: Use encrypted passphrase
       sharedPassphrase: '',
       // encryptedPassphrase: '' // TODO 2: Use encrypted passphrase
       passphrase: ''
     },
-    capitalisk: {
+    clsk: {
       database: 'capitalisk_test',
+      moduleAlias: 'capitalisk',
       walletAddress: '',
       // sharedEncryptedPassphrase: '', // TODO 2: Use encrypted passphrase
       sharedPassphrase: '',
