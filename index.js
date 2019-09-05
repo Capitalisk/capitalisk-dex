@@ -1,7 +1,6 @@
 'use strict';
 
 const defaultConfig = require('./defaults/config');
-// const { migrations } = require('./migrations');
 const BaseModule = require('lisk-framework/src/modules/base_module');
 const { createStorageComponent } = require('lisk-framework/src/components/storage');
 const { createLoggerComponent } = require('lisk-framework/src/components/logger');
@@ -13,7 +12,7 @@ const WritableConsumableStream = require('writable-consumable-stream');
 
 const MODULE_ALIAS = 'lisk_dex';
 
-// TODO 2: Add a way to sync with the chain from any height in the past in an idempotent way.
+// TODO: Add a way to sync with the chain from any height in the past in an idempotent way.
 /**
  * Lisk DEX module specification
  *
@@ -62,11 +61,8 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   get actions() {
-    return {
-      // calculateSupply: {
-      //   handler: action => this.chain.actions.calculateSupply(action),
-      // },
-    };
+    // TODO: Expose actions for HTTP API.
+    return {};
   }
 
   async load(channel) {
@@ -87,7 +83,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         ...storageConfigOptions,
         database: chainOptions.database,
       };
-      let storage = createStorageComponent(storageConfig, this.logger); // TODO 2: Is this logger needed?
+      let storage = createStorageComponent(storageConfig, this.logger);
       await storage.bootstrap();
 
       let blockChangeStream = new WritableConsumableStream();
@@ -127,7 +123,6 @@ module.exports = class LiskDEXModule extends BaseModule {
             [blockData.id, chainOptions.walletAddress],
           )
           .map((txn) => {
-            // TODO 2: Check that this is the correct way to read bytea type from Postgres.
             let transferDataString = txn.transferData.toString('utf8');
             let dataParts = transferDataString.split(',');
             let orderTxn = {...txn};
@@ -142,10 +137,10 @@ module.exports = class LiskDEXModule extends BaseModule {
               let amount = parseInt(orderTxn.amount);
               if (chainSymbol === this.options.baseChain) {
                 orderTxn.side = 'bid';
-                orderTxn.size = Math.floor(amount / orderTxn.price); // TODO 2: Use BigInt instead.
+                orderTxn.size = Math.floor(amount / orderTxn.price); // TODO: Consider switching to BigInt.
               } else {
                 orderTxn.side = 'ask';
-                orderTxn.size = amount; // TODO 2: Use BigInt instead.
+                orderTxn.size = amount; // TODO: Consider switching to BigInt.
               }
             } else {
               this.logger.debug(
@@ -178,21 +173,24 @@ module.exports = class LiskDEXModule extends BaseModule {
                 let takerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(takerSignedTxn, takerChainOptions.passphrase);
                 let takerPublicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(takerChainOptions.passphrase).publicKey;
 
-                try {
-                  await channel.invoke(`${takerTargetChainModuleAlias}:postTransaction`, { transaction: takerSignedTxn });
-                  await channel.invoke(`${takerTargetChainModuleAlias}:postSignature`, {
-                    signature: {
-                      transactionId: takerSignedTxn.id,
-                      publicKey: takerPublicKey,
-                      signature: takerMultiSigTxnSignature
-                    }
-                  });
-                } catch (error) {
-                  this.logger.error(
-                    `Failed to post multisig transaction of taker ${takerAddress} on chain ${this.quoteChainSymbol} because of error: ${error.message}`
-                  );
-                  return;
-                }
+                (async () => {
+                  try {
+                    await channel.invoke(`${takerTargetChainModuleAlias}:postTransaction`, { transaction: takerSignedTxn });
+                    await wait(this.options.signatureBroadcastDelay);
+                    await channel.invoke(`${takerTargetChainModuleAlias}:postSignature`, {
+                      signature: {
+                        transactionId: takerSignedTxn.id,
+                        publicKey: takerPublicKey,
+                        signature: takerMultiSigTxnSignature
+                      }
+                    });
+                  } catch (error) {
+                    this.logger.error(
+                      `Failed to post multisig transaction of taker ${takerAddress} on chain ${this.quoteChainSymbol} because of error: ${error.message}`
+                    );
+                    return;
+                  }
+                })();
 
                 await Promise.all(
                   result.makers.map(async (makerOrder) => {
@@ -215,21 +213,24 @@ module.exports = class LiskDEXModule extends BaseModule {
                     let makerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(makerSignedTxn, makerChainOptions.passphrase);
                     let makerPublicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(makerChainOptions.passphrase).publicKey;
 
-                    try {
-                      await channel.invoke(`${makerTargetChainModuleAlias}:postTransaction`, { transaction: makerSignedTxn });
-                      await channel.invoke(`${makerTargetChainModuleAlias}:postSignature`, {
-                        signature: {
-                          transactionId: makerSignedTxn.id,
-                          publicKey: makerPublicKey,
-                          signature: makerMultiSigTxnSignature
-                        }
-                      });
-                    } catch (error) {
-                      this.logger.error(
-                        `Failed to post multisig transaction of maker ${makerAddress} on chain ${makerOrder.targetChain} because of error: ${error.message}`
-                      );
-                      return;
-                    }
+                    (async () => {
+                      try {
+                        await channel.invoke(`${makerTargetChainModuleAlias}:postTransaction`, { transaction: makerSignedTxn });
+                        await wait(this.options.signatureBroadcastDelay);
+                        await channel.invoke(`${makerTargetChainModuleAlias}:postSignature`, {
+                          signature: {
+                            transactionId: makerSignedTxn.id,
+                            publicKey: makerPublicKey,
+                            signature: makerMultiSigTxnSignature
+                          }
+                        });
+                      } catch (error) {
+                        this.logger.error(
+                          `Failed to post multisig transaction of maker ${makerAddress} on chain ${makerOrder.targetChain} because of error: ${error.message}`
+                        );
+                        return;
+                      }
+                    })();
                   })
                 );
               }
@@ -248,3 +249,9 @@ module.exports = class LiskDEXModule extends BaseModule {
   async unload() {
   }
 };
+
+function wait(duration) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, duration);
+  });
+}

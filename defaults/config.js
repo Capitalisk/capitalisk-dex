@@ -1,5 +1,6 @@
 module.exports = {
   requiredConfirmations: 101,
+  signatureBroadcastDelay: 15000,
   baseChain: 'lsk',
   chains: {
     lsk: {
