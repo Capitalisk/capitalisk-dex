@@ -13,6 +13,7 @@ const WritableConsumableStream = require('writable-consumable-stream');
 const MODULE_ALIAS = 'lisk_dex';
 
 // TODO: Add a way to sync with the chain from any height in the past in an idempotent way.
+// TODO 2: Take out transaction fees.
 /**
  * Lisk DEX module specification
  *
@@ -135,7 +136,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               orderTxn.targetChain = targetChain;
               orderTxn.targetWalletAddress = dataParts[3];
               let amount = parseInt(orderTxn.amount);
-              if (chainSymbol === this.options.baseChain) {
+              if (chainSymbol === this.baseChainSymbol) {
                 orderTxn.side = 'bid';
                 orderTxn.size = Math.floor(amount / orderTxn.price); // TODO: Consider switching to BigInt.
               } else {
@@ -201,14 +202,15 @@ module.exports = class LiskDEXModule extends BaseModule {
                     let makerTxn = {
                       type: 0,
                       amount: makerOrder.targetChain === this.baseChainSymbol ?
-                        Math.floor(makerOrder.valueRemoved).toString() :
-                        Math.floor(makerOrder.size - makerOrder.sizeRemaining).toString(),
+                        Math.floor(makerOrder.valueTaken).toString() :
+                        Math.floor(makerOrder.sizeTaken).toString(),
                       recipientId: makerAddress,
                       fee: liskTransactions.constants.TRANSFER_FEE.toString(),
                       asset: {},
                       timestamp: orderTxn.timestamp,
                       senderPublicKey: liskCryptography.getAddressAndPublicKeyFromPassphrase(makerChainOptions.sharedPassphrase).publicKey
                     };
+
                     let makerSignedTxn = liskTransactions.utils.prepareTransaction(makerTxn, makerChainOptions.sharedPassphrase);
                     let makerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(makerSignedTxn, makerChainOptions.passphrase);
                     let makerPublicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(makerChainOptions.passphrase).publicKey;

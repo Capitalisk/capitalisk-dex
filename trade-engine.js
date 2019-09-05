@@ -13,7 +13,16 @@ class TradeEngine {
     let limitOrder = new LimitOrder(order.id, order.side, order.price, order.size);
     limitOrder.targetChain = order.targetChain;
     limitOrder.targetWalletAddress = order.targetWalletAddress;
-    return this.orderBook.add(limitOrder);
+    let result = this.orderBook.add(limitOrder);
+    result.makers.forEach((makerOrder) => {
+      makerOrder.valueTaken = makerOrder.valueRemoved;
+      makerOrder.sizeTaken = makerOrder.size - makerOrder.sizeRemaining;
+
+      // These need to be reset for the next time or else they will accumulate.
+      makerOrder.valueRemoved = 0;
+      makerOrder.size = makerOrder.sizeRemaining;
+    });
+    return result;
   }
 
   // TODO: Implement.
