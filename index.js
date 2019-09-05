@@ -161,9 +161,21 @@ module.exports = class LiskDEXModule extends BaseModule {
                 let takerChainOptions = this.options.chains[result.taker.targetChain];
                 let takerTargetChainModuleAlias = takerChainOptions.moduleAlias;
                 let takerAddress = result.taker.targetWalletAddress;
+                let takerAmount = result.taker.targetChain === this.baseChainSymbol ? result.takeValue : result.takeSize;
+                takerAmount -= takerChainOptions.exchangeFeeBase;
+                takerAmount -= takerAmount * takerChainOptions.exchangeFeeRate;
+                takerAmount = Math.floor(takerAmount);
+
+                if (takerAmount <= 0) {
+                  this.logger.error(
+                    `Failed to take the trade order ${orderTxn.id} because the amount after fees was less than or equal to 0`
+                  );
+                  return;
+                }
+
                 let takerTxn = {
                   type: 0,
-                  amount: result.taker.targetChain === this.baseChainSymbol ? result.takeValue.toString() : result.takeSize.toString(),
+                  amount: takerAmount.toString(),
                   recipientId: takerAddress,
                   fee: liskTransactions.constants.TRANSFER_FEE.toString(),
                   asset: {},
@@ -198,12 +210,22 @@ module.exports = class LiskDEXModule extends BaseModule {
                     let makerChainOptions = this.options.chains[makerOrder.targetChain];
                     let makerTargetChainModuleAlias = makerChainOptions.moduleAlias;
                     let makerAddress = makerOrder.targetWalletAddress;
+                    let makerAmount = makerOrder.targetChain === this.baseChainSymbol ?
+                      makerOrder.valueTaken : makerOrder.sizeTaken;
+                    makerAmount -= makerChainOptions.exchangeFeeBase;
+                    makerAmount -= makerAmount * makerChainOptions.exchangeFeeRate;
+                    makerAmount = Math.floor(makerAmount);
+
+                    if (makerAmount <= 0) {
+                      this.logger.error(
+                        `Failed to make the trade order ${makerOrder.id} because the amount after fees was less than or equal to 0`
+                      );
+                      return;
+                    }
 
                     let makerTxn = {
                       type: 0,
-                      amount: makerOrder.targetChain === this.baseChainSymbol ?
-                        Math.floor(makerOrder.valueTaken).toString() :
-                        Math.floor(makerOrder.sizeTaken).toString(),
+                      amount: makerAmount.toString(),
                       recipientId: makerAddress,
                       fee: liskTransactions.constants.TRANSFER_FEE.toString(),
                       asset: {},

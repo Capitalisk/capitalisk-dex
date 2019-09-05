@@ -10,7 +10,9 @@ module.exports = {
       // sharedEncryptedPassphrase: '', // TODO 2: Use encrypted passphrase
       sharedPassphrase: '',
       // encryptedPassphrase: '' // TODO 2: Use encrypted passphrase
-      passphrase: ''
+      passphrase: '',
+      exchangeFeeBase: 10000000,
+      exchangeFeeRate: .001
     },
     clsk: {
       database: 'capitalisk_test',
@@ -19,7 +21,9 @@ module.exports = {
       // sharedEncryptedPassphrase: '', // TODO 2: Use encrypted passphrase
       sharedPassphrase: '',
       // encryptedPassphrase: '' // TODO 2: Use encrypted passphrase
-      passphrase: ''
+      passphrase: '',
+      exchangeFeeBase: 10000000,
+      exchangeFeeRate: .001
     }
   }
 };
