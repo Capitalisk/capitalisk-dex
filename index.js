@@ -7,13 +7,15 @@ const { createLoggerComponent } = require('lisk-framework/src/components/logger'
 const TradeEngine = require('./trade-engine');
 const liskTransactions = require('@liskhq/lisk-transactions');
 const liskCryptography = require('@liskhq/lisk-cryptography');
+const fs = require('fs');
+const util = require('util');
+const writeFile = util.promisify(fs.writeFile);
+const readFile = util.promisify(fs.readFile);
 
 const WritableConsumableStream = require('writable-consumable-stream');
 
 const MODULE_ALIAS = 'lisk_dex';
 
-// TODO: Add a way to sync with the chain from any height in the past in an idempotent way.
-// TODO 2: Take out transaction fees.
 /**
  * Lisk DEX module specification
  *
@@ -27,6 +29,15 @@ module.exports = class LiskDEXModule extends BaseModule {
     if (this.chainSymbols.length !== 2) {
       throw new Error('The DEX module must operate on exactly 2 chains only');
     }
+    this.progressingChains = {};
+    this.currentProcessedHeights = {};
+    this.lastSnapshotHeights = {};
+    this.chainSymbols.forEach((chainSymbol) => {
+      this.currentProcessedHeights[chainSymbol] = 0;
+      this.lastSnapshotHeights[chainSymbol] = 0;
+      this.progressingChains[chainSymbol] = true;
+    });
+
     this.baseChainSymbol = this.options.baseChain;
     this.quoteChainSymbol = this.chainSymbols.find(chain => chain !== this.baseChainSymbol);
     this.tradeEngine = new TradeEngine({
@@ -72,6 +83,13 @@ module.exports = class LiskDEXModule extends BaseModule {
       'logger',
     );
     this.logger = createLoggerComponent(loggerConfig);
+    try {
+      await this.loadSnapshot();
+    } catch (error) {
+      this.logger.error(
+        `Failed to load initial snapshot because of error: ${error.message} - DEX node will start with an empty order book.`
+      );
+    }
 
     let storageConfigOptions = await channel.invoke(
       'app:getComponentConfig',
@@ -87,12 +105,12 @@ module.exports = class LiskDEXModule extends BaseModule {
       let storage = createStorageComponent(storageConfig, this.logger);
       await storage.bootstrap();
 
-      let blockChangeStream = new WritableConsumableStream();
+      let blockProcessingStream = new WritableConsumableStream();
 
       (async () => {
-        for await (let event of blockChangeStream) {
-          let block = event.data;
-          let targetHeight = parseInt(block.height) - this.options.requiredConfirmations;
+        for await (let event of blockProcessingStream) {
+          let blockHeight = this.currentProcessedHeights[chainSymbol];
+          let targetHeight = blockHeight - this.options.requiredConfirmations;
 
           this.logger.trace(
             `Processing block at height ${targetHeight}`
@@ -163,6 +181,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                 this.logger.error(error);
                 return;
               }
+
               if (result.takeSize > 0) {
                 let takerChainOptions = this.options.chains[result.taker.targetChain];
                 let takerTargetChainModuleAlias = takerChainOptions.moduleAlias;
@@ -266,14 +285,90 @@ module.exports = class LiskDEXModule extends BaseModule {
               }
             })
           );
+
+          this.currentProcessedHeights[chainSymbol] = targetHeight;
+          if (chainSymbol === this.baseChainSymbol) {
+            let lastSnapshotHeight = this.lastSnapshotHeights[chainSymbol];
+            if (targetHeight > lastSnapshotHeight + this.options.orderBookSnapshotFinality) {
+              try {
+                await this.saveSnapshot();
+              } catch (error) {
+                this.logger.error(`Failed to save snapshot because of error: ${error.message}`);
+              }
+            }
+          }
         }
       })();
 
+      let lastSeenChainHeight = 0;
+      let needToCatchUp = false;
+
       channel.subscribe(`${chainModuleAlias}:blocks:change`, (event) => {
-        blockChangeStream.write(event);
+        let chainHeight = parseInt(event.data.height);
+
+        if (chainHeight > lastSeenChainHeight) {
+          this.progressingChains[chainSymbol] = true;
+        } else {
+          this.progressingChains[chainSymbol] = false;
+        }
+        lastSeenChainHeight = chainHeight;
+
+        if (!this.currentProcessedHeights[chainSymbol]) {
+          this.currentProcessedHeights[chainSymbol] = chainHeight;
+        }
+
+        let areAllChainsProgressing = this.areAllChainsProgressing();
+
+        if (areAllChainsProgressing) {
+          if (needToCatchUp) {
+            if (this.lastSnapshot) {
+              this.revertToLastSnapshot();
+            } else {
+              this.currentProcessedHeights[chainSymbol] = chainHeight - 1;
+            }
+            let heightsBehind = chainHeight - this.currentProcessedHeights[chainSymbol];
+            for (let i = 0; i < heightsBehind; i++) {
+              blockProcessingStream.write({});
+            }
+            needToCatchUp = false;
+          } else {
+            blockProcessingStream.write({});
+          }
+        } else {
+          needToCatchUp = true;
+        }
       });
     });
     channel.publish(`${MODULE_ALIAS}:bootstrap`);
+  }
+
+  async loadSnapshot() {
+    let serializedSnapshot = await readFile(this.options.orderBookSnapshotFilePath, {encoding: 'utf8'});
+    let snapshot = JSON.parse(serializedSnapshot);
+    this.lastSnapshot = snapshot;
+    this.tradeEngine.setSnapshot(snapshot.orderBook);
+    this.lastSnapshotHeights = snapshot.chainHeights;
+    this.currentProcessedHeights = {...this.lastSnapshotHeights};
+  }
+
+  async revertToLastSnapshot() {
+    this.tradeEngine.setSnapshot(this.lastSnapshot.orderBook);
+    this.lastSnapshotHeights = this.lastSnapshot.chainHeights;
+    this.currentProcessedHeights = {...this.lastSnapshotHeights};
+  }
+
+  async saveSnapshot() {
+    let snapshot = {};
+    snapshot.orderBook = this.tradeEngine.getSnapshot();
+    snapshot.chainHeights = {...this.currentProcessedHeights};
+    this.lastSnapshot = snapshot;
+    let serializedSnapshot = JSON.stringify(snapshot);
+    await writeFile(this.options.orderBookSnapshotFilePath, serializedSnapshot);
+    this.lastSnapshotHeights = snapshot.chainHeights;
+  }
+
+  areAllChainsProgressing() {
+    return Object.keys(this.progressingChains).every((chainSymbol) => this.progressingChains[chainSymbol]);
   }
 
   async unload() {
