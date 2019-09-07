@@ -350,19 +350,32 @@ module.exports = class LiskDEXModule extends BaseModule {
     this.lastSnapshot = snapshot;
     this.tradeEngine.setSnapshot(snapshot.orderBook);
     this.lastSnapshotHeights = snapshot.chainHeights;
-    this.currentProcessedHeights = {...this.lastSnapshotHeights};
+    this.currentProcessedHeights = {};
+    Object.keys(this.lastSnapshotHeights).forEach((chainSymbol) => {
+      this.currentProcessedHeights[chainSymbol] = this.lastSnapshotHeights[chainSymbol] + this.options.requiredConfirmations;
+    });
   }
 
   async revertToLastSnapshot() {
     this.tradeEngine.setSnapshot(this.lastSnapshot.orderBook);
     this.lastSnapshotHeights = this.lastSnapshot.chainHeights;
-    this.currentProcessedHeights = {...this.lastSnapshotHeights};
+    this.currentProcessedHeights = {};
+    Object.keys(this.lastSnapshotHeights).forEach((chainSymbol) => {
+      this.currentProcessedHeights[chainSymbol] = this.lastSnapshotHeights[chainSymbol] + this.options.requiredConfirmations;
+    });
   }
 
   async saveSnapshot() {
     let snapshot = {};
     snapshot.orderBook = this.tradeEngine.getSnapshot();
-    snapshot.chainHeights = {...this.currentProcessedHeights};
+    snapshot.chainHeights = {};
+    Object.keys(this.currentProcessedHeights).forEach((chainSymbol) => {
+      let targetHeight = this.currentProcessedHeights[chainSymbol] - this.options.requiredConfirmations;
+      if (targetHeight < 0) {
+        targetHeight = 0;
+      }
+      snapshot.chainHeights[chainSymbol] = targetHeight;
+    });
     this.lastSnapshot = snapshot;
     let serializedSnapshot = JSON.stringify(snapshot);
     await writeFile(this.options.orderBookSnapshotFilePath, serializedSnapshot);
