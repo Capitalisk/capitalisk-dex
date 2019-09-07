@@ -121,5 +121,38 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(result.makers[0].valueTaken, 6);
     });
 
+    it('Order with the same ID is not added', async () => {
+      let result;
+
+      result = tradeEngine.addOrder({
+        id: 'order0',
+        type: 'limit',
+        price: .1,
+        targetChain: 'lsk',
+        targetWalletAddress: '22245678912345678222L',
+        side: 'ask',
+        size: 100
+      });
+
+      let error = null;
+
+      try {
+        result = tradeEngine.addOrder({
+          id: 'order0',
+          type: 'limit',
+          price: .1,
+          targetChain: 'lsk',
+          targetWalletAddress: '22245678912345678222L',
+          side: 'ask',
+          size: 100
+        });
+      } catch (err) {
+        error = err;
+      }
+
+      assert.notEqual(error, null);
+      assert.equal(error.name, 'DuplicateOrderError');
+    });
+
   });
 });

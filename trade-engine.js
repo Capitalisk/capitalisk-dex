@@ -10,6 +10,16 @@ class TradeEngine {
   }
 
   addOrder(order) {
+    let limitQueue = order.side === 'ask' ? this.orderBook.askLimits : this.orderBook.bidLimits;
+    let limit = limitQueue.map[order.price] || {map: {}};
+    let existingOrder = limit.map[order.id];
+
+    if (existingOrder) {
+      let error = new Error(`An order with ID ${order.id} already exists`);
+      error.name = 'DuplicateOrderError';
+      throw error;
+    }
+
     let limitOrder = new LimitOrder(order.id, order.side, order.price, order.size);
     limitOrder.targetChain = order.targetChain;
     limitOrder.targetWalletAddress = order.targetWalletAddress;

@@ -156,7 +156,13 @@ module.exports = class LiskDEXModule extends BaseModule {
 
           await Promise.all(
             orders.map(async (orderTxn) => {
-              let result = this.tradeEngine.addOrder(orderTxn);
+              let result;
+              try {
+                result = this.tradeEngine.addOrder(orderTxn);
+              } catch (error) {
+                this.logger.error(error);
+                return;
+              }
               if (result.takeSize > 0) {
                 let takerChainOptions = this.options.chains[result.taker.targetChain];
                 let takerTargetChainModuleAlias = takerChainOptions.moduleAlias;
