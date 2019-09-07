@@ -105,6 +105,20 @@ module.exports = class LiskDEXModule extends BaseModule {
       let storage = createStorageComponent(storageConfig, this.logger);
       await storage.bootstrap();
 
+      async function finishProcessing() {
+        this.currentProcessedHeights[chainSymbol]++;
+        if (chainSymbol === this.baseChainSymbol) {
+          let lastSnapshotHeight = this.lastSnapshotHeights[chainSymbol];
+          if (targetHeight > lastSnapshotHeight + this.options.orderBookSnapshotFinality) {
+            try {
+              await this.saveSnapshot();
+            } catch (error) {
+              this.logger.error(`Failed to save snapshot because of error: ${error.message}`);
+            }
+          }
+        }
+      }
+
       let blockProcessingStream = new WritableConsumableStream();
 
       (async () => {
@@ -128,7 +142,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               `Failed to fetch block at height ${targetHeight}`
             );
 
-            this.currentProcessedHeights[chainSymbol]++;
+            await finishProcessing();
             continue;
           }
           if (!blockData.numberOfTransactions) {
@@ -136,7 +150,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               `No transactions in block ${blockData.id} at height ${targetHeight}`
             );
 
-            this.currentProcessedHeights[chainSymbol]++;
+            await finishProcessing();
             continue;
           }
           let orders = await storage.adapter.db.query(
@@ -288,17 +302,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             })
           );
 
-          this.currentProcessedHeights[chainSymbol]++;
-          if (chainSymbol === this.baseChainSymbol) {
-            let lastSnapshotHeight = this.lastSnapshotHeights[chainSymbol];
-            if (targetHeight > lastSnapshotHeight + this.options.orderBookSnapshotFinality) {
-              try {
-                await this.saveSnapshot();
-              } catch (error) {
-                this.logger.error(`Failed to save snapshot because of error: ${error.message}`);
-              }
-            }
-          }
+          await finishProcessing();
         }
       })();
 
