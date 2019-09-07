@@ -105,26 +105,26 @@ module.exports = class LiskDEXModule extends BaseModule {
       let storage = createStorageComponent(storageConfig, this.logger);
       await storage.bootstrap();
 
-      async function finishProcessing() {
-        this.currentProcessedHeights[chainSymbol]++;
-        if (chainSymbol === this.baseChainSymbol) {
-          let lastSnapshotHeight = this.lastSnapshotHeights[chainSymbol];
-          if (targetHeight > lastSnapshotHeight + this.options.orderBookSnapshotFinality) {
-            try {
-              await this.saveSnapshot();
-            } catch (error) {
-              this.logger.error(`Failed to save snapshot because of error: ${error.message}`);
-            }
-          }
-        }
-      }
-
       let blockProcessingStream = new WritableConsumableStream();
 
       (async () => {
         for await (let event of blockProcessingStream) {
           let blockHeight = this.currentProcessedHeights[chainSymbol];
           let targetHeight = blockHeight - this.options.requiredConfirmations;
+
+          let finishProcessing = async () => {
+            this.currentProcessedHeights[chainSymbol]++;
+            if (chainSymbol === this.baseChainSymbol) {
+              let lastSnapshotHeight = this.lastSnapshotHeights[chainSymbol];
+              if (targetHeight > lastSnapshotHeight + this.options.orderBookSnapshotFinality) {
+                try {
+                  await this.saveSnapshot();
+                } catch (error) {
+                  this.logger.error(`Failed to save snapshot because of error: ${error.message}`);
+                }
+              }
+            }
+          };
 
           this.logger.trace(
             `Processing block at height ${targetHeight}`
