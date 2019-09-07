@@ -35,6 +35,47 @@ class TradeEngine {
     return result;
   }
 
+  getSnapshot() {
+    let askLimitOrders = [];
+    let askLimitsMap = this.orderBook.askLimits.map;
+    Object.keys(askLimitsMap).forEach((price) => {
+      let limit = askLimitsMap[price];
+      let limitMap = limit.map;
+      Object.keys(limitMap).forEach((orderId) => {
+        askLimitOrders.push(limitMap[orderId]);
+      });
+    });
+
+    let bidLimitOrders = [];
+    let bidLimitsMap = this.orderBook.bidLimits.map;
+    Object.keys(bidLimitsMap).forEach((price) => {
+      let limit = bidLimitsMap[price];
+      let limitMap = limit.map;
+      Object.keys(limitMap).forEach((orderId) => {
+        bidLimitOrders.push(limitMap[orderId]);
+      });
+    });
+
+    return {
+      askLimitOrders,
+      bidLimitOrders
+    };
+  }
+
+  setSnapshot(snapshot) {
+    this.clear();
+    snapshot.askLimitOrders.forEach((order) => {
+      this.addOrder(order);
+    });
+    snapshot.bidLimitOrders.forEach((order) => {
+      this.addOrder(order);
+    });
+  }
+
+  clear() {
+    this.orderBook.clear();
+  }
+
   // TODO: Implement.
   cancelOrder() {
 

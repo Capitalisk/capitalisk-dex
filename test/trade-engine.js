@@ -154,5 +154,73 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(error.name, 'DuplicateOrderError');
     });
 
+    it('Can get and set snapshot of the order book', async () => {
+      let result;
+
+      result = tradeEngine.addOrder({
+        id: 'order0',
+        type: 'limit',
+        price: .5,
+        targetChain: 'lsk',
+        targetWalletAddress: '22245678912345678222L',
+        side: 'ask',
+        size: 100
+      });
+
+      result = tradeEngine.addOrder({
+        id: 'order1',
+        type: 'limit',
+        price: .5,
+        targetChain: 'clsk',
+        targetWalletAddress: '11145678912345678111L',
+        side: 'bid',
+        size: 8
+      });
+
+      result = tradeEngine.addOrder({
+        id: 'order2',
+        type: 'limit',
+        price: .5,
+        targetChain: 'clsk',
+        targetWalletAddress: '11145678912345678111L',
+        side: 'bid',
+        size: 40
+      });
+
+      let snapshot = tradeEngine.getSnapshot();
+      tradeEngine.clear();
+
+      let snapshotAfterClear = tradeEngine.getSnapshot();
+
+      assert.equal(JSON.stringify(snapshotAfterClear.askLimitOrders), '[]');
+      assert.equal(JSON.stringify(snapshotAfterClear.bidLimitOrders), '[]');
+
+      tradeEngine.setSnapshot(snapshot);
+
+      result = tradeEngine.addOrder({
+        id: 'order3',
+        type: 'limit',
+        price: .5,
+        targetChain: 'clsk',
+        targetWalletAddress: '11145678912345678111L',
+        side: 'bid',
+        size: 12
+      });
+
+      assert.equal(result.makers[0].valueTaken, 6);
+
+      result = tradeEngine.addOrder({
+        id: 'order4',
+        type: 'limit',
+        price: .5,
+        targetChain: 'clsk',
+        targetWalletAddress: '11145678912345678111L',
+        side: 'bid',
+        size: 50
+      });
+
+      assert.equal(result.makers[0].valueTaken, 20);
+    });
+
   });
 });
