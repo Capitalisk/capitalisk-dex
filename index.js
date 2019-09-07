@@ -128,6 +128,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               `Failed to fetch block at height ${targetHeight}`
             );
 
+            this.currentProcessedHeights[chainSymbol]++;
             continue;
           }
           if (!blockData.numberOfTransactions) {
@@ -135,6 +136,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               `No transactions in block ${blockData.id} at height ${targetHeight}`
             );
 
+            this.currentProcessedHeights[chainSymbol]++;
             continue;
           }
           let orders = await storage.adapter.db.query(
@@ -286,7 +288,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             })
           );
 
-          this.currentProcessedHeights[chainSymbol] = targetHeight;
+          this.currentProcessedHeights[chainSymbol]++;
           if (chainSymbol === this.baseChainSymbol) {
             let lastSnapshotHeight = this.lastSnapshotHeights[chainSymbol];
             if (targetHeight > lastSnapshotHeight + this.options.orderBookSnapshotFinality) {
