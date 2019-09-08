@@ -162,62 +162,55 @@ module.exports = class LiskDEXModule extends BaseModule {
             .map((txn) => {
               let transferDataString = txn.transferData.toString('utf8');
               let dataParts = transferDataString.split(',');
+
               let orderTxn = {...txn};
+              let targetChain = dataParts[0];
+              let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainSymbol;
+              if (!isSupportedChain) {
+                orderTxn.type = 'unknown';
+                orderTxn.targetChain = targetChain;
+                this.logger.debug(
+                  `Incoming order ${orderTxn.id} has an invalid target chain ${targetChain}`
+                );
+                return orderTxn;
+              }
 
-              if (dataParts[0] === 'limit') {
-                // E.g. limit,clsk,.5,9205805648791671841L
-                let targetChain = dataParts[1];
-                let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainSymbol;
-
-                if (isSupportedChain) {
-                  orderTxn.type = 'limit';
-                  orderTxn.height = targetHeight;
-                  orderTxn.price = parseFloat(dataParts[2]);
-                  orderTxn.targetChain = targetChain;
-                  orderTxn.targetWalletAddress = dataParts[3];
-                  let amount = parseInt(orderTxn.amount);
-                  if (chainSymbol === this.baseChainSymbol) {
-                    orderTxn.side = 'bid';
-                    orderTxn.size = Math.floor(amount / orderTxn.price); // TODO: Consider switching to BigInt.
-                  } else {
-                    orderTxn.side = 'ask';
-                    orderTxn.size = amount; // TODO: Consider switching to BigInt.
-                  }
+              if (dataParts[1] === 'limit') {
+                // E.g. clsk,limit,.5,9205805648791671841L
+                orderTxn.type = 'limit';
+                orderTxn.height = targetHeight;
+                orderTxn.price = parseFloat(dataParts[2]);
+                orderTxn.targetChain = targetChain;
+                orderTxn.targetWalletAddress = dataParts[3];
+                let amount = parseInt(orderTxn.amount);
+                if (chainSymbol === this.baseChainSymbol) {
+                  orderTxn.side = 'bid';
+                  orderTxn.size = Math.floor(amount / orderTxn.price); // TODO: Consider switching to BigInt.
                 } else {
-                  this.logger.debug(
-                    `Incoming limit order ${orderTxn.id} has an invalid target chain ${targetChain}`
-                  );
+                  orderTxn.side = 'ask';
+                  orderTxn.size = amount; // TODO: Consider switching to BigInt.
                 }
-              } else if (dataParts[0] === 'market') {
-                // E.g. market,clsk,9205805648791671841L
-                let targetChain = dataParts[1];
-                let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainSymbol;
-
-                if (isSupportedChain) {
-                  orderTxn.type = 'market';
-                  orderTxn.height = targetHeight;
-                  orderTxn.targetChain = targetChain;
-                  orderTxn.targetWalletAddress = dataParts[2];
-                  let amount = parseInt(orderTxn.amount);
-                  if (chainSymbol === this.baseChainSymbol) {
-                    orderTxn.side = 'bid';
-                    orderTxn.size = -1;
-                    orderTxn.funds = amount; // TODO: Consider switching to BigInt.
-                  } else {
-                    orderTxn.side = 'ask';
-                    orderTxn.size = amount; // TODO: Consider switching to BigInt.
-                    orderTxn.funds = -1;
-                  }
+              } else if (dataParts[1] === 'market') {
+                // E.g. clsk,market,9205805648791671841L
+                orderTxn.type = 'market';
+                orderTxn.height = targetHeight;
+                orderTxn.targetChain = targetChain;
+                orderTxn.targetWalletAddress = dataParts[2];
+                let amount = parseInt(orderTxn.amount);
+                if (chainSymbol === this.baseChainSymbol) {
+                  orderTxn.side = 'bid';
+                  orderTxn.size = -1;
+                  orderTxn.funds = amount; // TODO: Consider switching to BigInt.
                 } else {
-                  this.logger.debug(
-                    `Incoming market order ${orderTxn.id} has an invalid target chain ${targetChain}`
-                  );
+                  orderTxn.side = 'ask';
+                  orderTxn.size = amount; // TODO: Consider switching to BigInt.
+                  orderTxn.funds = -1;
                 }
-              } else if (dataParts[0] === 'cancel') {
-                // E.g. cancel,1787318409505302601
+              } else if (dataParts[1] === 'cancel') {
+                // E.g. clsk,cancel,1787318409505302601
                 orderTxn.type = 'cancel';
                 orderTxn.height = targetHeight;
-                orderTxn.orderIdToCancel = dataParts[1];
+                orderTxn.orderIdToCancel = dataParts[2];
               } else {
                 this.logger.debug(
                   `Incoming transaction ${txn.id} is not a supported DEX order`
