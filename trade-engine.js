@@ -35,6 +35,18 @@ class TradeEngine {
     return result;
   }
 
+  cancelOrder(side, price, orderId) {
+    return this.orderBook.remove(side, price, orderId);
+  }
+
+  peekBids() {
+    return this.orderBook.bidLimits.peek();
+  }
+
+  peekAsks() {
+    return this.orderBook.askLimits.peek();
+  }
+
   getSnapshot() {
     let askLimitOrders = [];
     let askLimitsMap = this.orderBook.askLimits.map;
@@ -74,11 +86,6 @@ class TradeEngine {
 
   clear() {
     this.orderBook.clear();
-  }
-
-  // TODO: Implement.
-  cancelOrder() {
-
   }
 }
 

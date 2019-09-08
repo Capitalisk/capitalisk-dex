@@ -42,7 +42,7 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(result.taker.size, 1000);
     });
 
-    it('Bid order is made with greater size and higher price as ask', async () => {
+    it('Bid order is made with greater size and higher price than ask', async () => {
       let result;
 
       result = tradeEngine.addOrder({
