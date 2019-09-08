@@ -3,6 +3,7 @@ module.exports = {
   signatureBroadcastDelay: 15000,
   orderBookSnapshotFinality: 101,
   orderBookSnapshotFilePath: './lisk-dex-orderbook-snapshot.json',
+  orderHeightExpiry: 8640,
   baseChain: 'lsk',
   chains: {
     lsk: {

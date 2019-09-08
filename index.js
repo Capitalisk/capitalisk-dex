@@ -171,6 +171,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
                 if (isSupportedChain) {
                   orderTxn.type = 'limit';
+                  orderTxn.height = targetHeight;
                   orderTxn.price = parseFloat(dataParts[2]);
                   orderTxn.targetChain = targetChain;
                   orderTxn.targetWalletAddress = dataParts[3];
@@ -188,10 +189,10 @@ module.exports = class LiskDEXModule extends BaseModule {
                   );
                 }
               } else if (dataParts[0] === 'cancel') {
-                // E.g. cancel,1787318409505302601,.5
+                // E.g. cancel,1787318409505302601
                 orderTxn.type = 'cancel';
-                orderTxn.orderId = dataParts[1];
-                orderTxn.price = parseFloat(dataParts[2]);
+                orderTxn.height = targetHeight;
+                orderTxn.orderIdToCancel = dataParts[1];
               } else {
                 this.logger.debug(
                   `Incoming transaction ${txn.id} is not a supported DEX order`
@@ -208,13 +209,34 @@ module.exports = class LiskDEXModule extends BaseModule {
               return orderTxn.type === 'limit';
             });
 
+            let heightExpiryThreshold = targetHeight - this.options.orderHeightExpiry;
+            if (heightExpiryThreshold > 0) {
+              let expiredOrders = this.tradeEngine.expireOrders(heightExpiryThreshold);
+              expiredOrders.forEach((expiredOrder) => {
+                this.logger.trace(
+                  `Order ${expiredOrder.id} at height ${expiredOrder.height} expired`
+                );
+              });
+            }
+
             await Promise.all(
               cancelOrders.map(async (orderTxn) => {
-                let side = chainSymbol === this.baseChainSymbol ? 'bid' : 'ask';
-                let price = orderTxn.price;
+                let targetOrder = this.tradeEngine.getOrder(orderTxn.orderIdToCancel);
+                if (!targetOrder) {
+                  this.logger.error(
+                    `Failed to cancel order with ID ${orderTxn.orderIdToCancel} because it could not be found`
+                  );
+                  return;
+                }
+                if (targetOrder.senderId !== orderTxn.senderId) {
+                  this.logger.error(
+                    `Could not cancel order ID ${orderTxn.orderIdToCancel} because it belongs to a different account`
+                  );
+                  return;
+                }
                 let result;
                 try {
-                  result = this.tradeEngine.cancelOrder(side, price, orderTxn.orderId);
+                  result = this.tradeEngine.cancelOrder(orderTxn.orderIdToCancel);
                 } catch (error) {
                   this.logger.error(error);
                   return;
