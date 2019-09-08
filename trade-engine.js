@@ -1,4 +1,5 @@
 const LimitOrder = require('limit-order-book').LimitOrder;
+const MarketOrder = require('limit-order-book').MarketOrder;
 const LimitOrderBook = require('limit-order-book').LimitOrderBook;
 
 class TradeEngine {
@@ -61,12 +62,19 @@ class TradeEngine {
     }
 
     this._addToExpiryList(order);
+    let newOrder;
 
-    let limitOrder = new LimitOrder(order.id, order.side, order.price, order.size);
-    limitOrder.targetChain = order.targetChain;
-    limitOrder.targetWalletAddress = order.targetWalletAddress;
-    limitOrder.senderId = order.senderId;
-    let result = this.orderBook.add(limitOrder);
+    if (order.type === 'market') {
+      newOrder = new MarketOrder(order.id, order.side, order.size, order.funds);
+    } else {
+      newOrder = new LimitOrder(order.id, order.side, order.price, order.size);
+    }
+
+    newOrder.type = order.type;
+    newOrder.targetChain = order.targetChain;
+    newOrder.targetWalletAddress = order.targetWalletAddress;
+    newOrder.senderId = order.senderId;
+    let result = this.orderBook.add(newOrder);
 
     result.makers.forEach((makerOrder) => {
       makerOrder.valueTaken = makerOrder.valueRemoved;

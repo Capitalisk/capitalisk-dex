@@ -188,6 +188,31 @@ module.exports = class LiskDEXModule extends BaseModule {
                     `Incoming limit order ${orderTxn.id} has an invalid target chain ${targetChain}`
                   );
                 }
+              } else if (dataParts[0] === 'market') {
+                // E.g. market,clsk,9205805648791671841L
+                let targetChain = dataParts[1];
+                let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainSymbol;
+
+                if (isSupportedChain) {
+                  orderTxn.type = 'market';
+                  orderTxn.height = targetHeight;
+                  orderTxn.targetChain = targetChain;
+                  orderTxn.targetWalletAddress = dataParts[2];
+                  let amount = parseInt(orderTxn.amount);
+                  if (chainSymbol === this.baseChainSymbol) {
+                    orderTxn.side = 'bid';
+                    orderTxn.size = -1;
+                    orderTxn.funds = amount; // TODO: Consider switching to BigInt.
+                  } else {
+                    orderTxn.side = 'ask';
+                    orderTxn.size = amount; // TODO: Consider switching to BigInt.
+                    orderTxn.funds = -1;
+                  }
+                } else {
+                  this.logger.debug(
+                    `Incoming market order ${orderTxn.id} has an invalid target chain ${targetChain}`
+                  );
+                }
               } else if (dataParts[0] === 'cancel') {
                 // E.g. cancel,1787318409505302601
                 orderTxn.type = 'cancel';
@@ -205,8 +230,8 @@ module.exports = class LiskDEXModule extends BaseModule {
               return orderTxn.type === 'cancel';
             });
 
-            let limitOrders = orders.filter((orderTxn) => {
-              return orderTxn.type === 'limit';
+            let limitAndMarketOrders = orders.filter((orderTxn) => {
+              return orderTxn.type === 'limit' || orderTxn.type === 'market';
             });
 
             let heightExpiryThreshold = targetHeight - this.options.orderHeightExpiry;
@@ -245,7 +270,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             );
 
             await Promise.all(
-              limitOrders.map(async (orderTxn) => {
+              limitAndMarketOrders.map(async (orderTxn) => {
                 let result;
                 try {
                   result = this.tradeEngine.addOrder(orderTxn);
