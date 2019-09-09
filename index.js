@@ -168,6 +168,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               let dataParts = transferDataString.split(',');
 
               let orderTxn = {...txn};
+              orderTxn.orderId = orderTxn.id;
               let amount = parseInt(orderTxn.amount);
               if (amount > Number.MAX_SAFE_INTEGER) {
                 orderTxn.type = 'invalid';
@@ -320,7 +321,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   return;
                 }
                 try {
-                  await this.makeRefundTransaction(targetOrder);
+                  await this.makeRefundTransaction(targetOrder, orderTxn.timestamp);
                 } catch (error) {
                   this.logger.error(
                     `Failed to post multisig refund transaction for canceled order ID ${
@@ -352,7 +353,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   let takerChainOptions = this.options.chains[takerTargetChain];
                   let takerTargetChainModuleAlias = takerChainOptions.moduleAlias;
                   let takerAddress = result.taker.targetWalletAddress;
-                  let takerAmount = takerTargetChain === this.baseChainSymbol ? result.takeValue : result.takeSize;
+                  let takerAmount = takerTargetChain === this.baseChainSymbol ? result.takeSize * result.taker.price : result.takeSize;
                   takerAmount -= takerChainOptions.exchangeFeeBase;
                   takerAmount -= takerAmount * takerChainOptions.exchangeFeeRate;
                   takerAmount = Math.floor(takerAmount);
@@ -388,7 +389,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                       let makerTargetChainModuleAlias = makerChainOptions.moduleAlias;
                       let makerAddress = makerOrder.targetWalletAddress;
                       let makerAmount = makerOrder.targetChain === this.baseChainSymbol ?
-                      makerOrder.valueTaken : makerOrder.sizeTaken;
+                        makerOrder.valueTaken : makerOrder.sizeTaken;
                       makerAmount -= makerChainOptions.exchangeFeeBase;
                       makerAmount -= makerAmount * makerChainOptions.exchangeFeeRate;
                       makerAmount = Math.floor(makerAmount);
@@ -476,7 +477,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     let refundTxn = {
       amount: refundAmount.toString(),
       recipientId: orderTxn.sourceWalletAddress,
-      timestamp: timestamp == null ? orderTxn.timestamp : timestamp
+      timestamp
     };
     await this.makeMultiSigTransaction(
       orderTxn.sourceChain,

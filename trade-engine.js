@@ -24,7 +24,7 @@ class TradeEngine {
     };
     this._expiryLinkedListTail.prev = newNode;
     newNode.prev.next = newNode;
-    this._orderNodeLookup[order.id] = newNode;
+    this._orderNodeLookup[order.orderId] = newNode;
   }
 
   _removeFromExpiryList(orderId) {
@@ -38,11 +38,17 @@ class TradeEngine {
     node.next = null;
   }
 
+  _clearExpiryList() {
+    this._orderNodeLookup = {};
+    this._expiryLinkedListHead.next = this._expiryLinkedListTail;
+    this._expiryLinkedListTail.prev = this._expiryLinkedListHead;
+  }
+
   expireOrders(heightThreshold) {
     let currentNode = this._expiryLinkedListHead.next;
     let expiredOrders = [];
     while (currentNode && currentNode.order && currentNode.order.height < heightThreshold) {
-      let orderId = currentNode.order.id;
+      let orderId = currentNode.order.orderId;
       currentNode = currentNode.next;
       expiredOrders.push(currentNode.order);
       this._removeFromExpiryList(orderId);
@@ -53,22 +59,17 @@ class TradeEngine {
   addOrder(order) {
     let limitQueue = order.side === 'ask' ? this.orderBook.askLimits : this.orderBook.bidLimits;
     let limit = limitQueue.map[order.price] || {map: {}};
-    let existingOrder = limit.map[order.id];
+    let existingOrder = limit.map[order.orderId];
 
     if (existingOrder) {
-      let error = new Error(`An order with ID ${order.id} already exists`);
+      let error = new Error(`An order with ID ${order.orderId} already exists`);
       error.name = 'DuplicateOrderError';
       throw error;
     }
 
     this._addToExpiryList(order);
-    let newOrder;
 
-    if (order.type === 'market') {
-      newOrder = new MarketOrder(order.id, order.side, order.size, order.funds);
-    } else {
-      newOrder = new LimitOrder(order.id, order.side, order.price, order.size);
-    }
+    let newOrder = this._createOrderInstance(order);
 
     newOrder.type = order.type;
     newOrder.targetChain = order.targetChain;
@@ -82,15 +83,12 @@ class TradeEngine {
     let result = this.orderBook.add(newOrder);
 
     result.makers.forEach((makerOrder) => {
-      makerOrder.valueTaken = makerOrder.valueRemoved;
-      makerOrder.sizeTaken = makerOrder.size - makerOrder.sizeRemaining;
-
-      // These need to be reset for the next time or else they will accumulate.
-      makerOrder.valueRemoved = 0;
-      makerOrder.size = makerOrder.sizeRemaining;
+      makerOrder.sizeTaken = makerOrder.lastSize == null ? makerOrder.size - makerOrder.sizeRemaining : makerOrder.lastSize - makerOrder.sizeRemaining;
+      makerOrder.valueTaken = makerOrder.sizeTaken * makerOrder.price;
+      makerOrder.lastSize = makerOrder.sizeRemaining;
 
       if (makerOrder.sizeRemaining <= 0) {
-        this._removeFromExpiryList(order.id);
+        this._removeFromExpiryList(order.orderId);
       }
     });
     return result;
@@ -153,17 +151,38 @@ class TradeEngine {
     };
   }
 
+  _createOrderInstance(order) {
+    let newOrder;
+    if (order.type === 'market') {
+      newOrder = new MarketOrder(order.orderId, order.side, order.size, order.funds);
+    } else {
+      newOrder = new LimitOrder(order.orderId, order.side, order.price, order.size);
+    }
+    return newOrder;
+  }
+
   setSnapshot(snapshot) {
     this.clear();
     snapshot.askLimitOrders.forEach((order) => {
-      this.addOrder(order);
+      this._addToExpiryList(order);
+      let newOrder = this._createOrderInstance(order);
+      Object.keys(order).forEach((key) => {
+        newOrder[key] = order[key];
+      });
+      this.orderBook.askLimits.addOrder(newOrder);
     });
     snapshot.bidLimitOrders.forEach((order) => {
-      this.addOrder(order);
+      this._addToExpiryList(order);
+      let newOrder = this._createOrderInstance(order);
+      Object.keys(order).forEach((key) => {
+        newOrder[key] = order[key];
+      });
+      this.orderBook.bidLimits.addOrder(newOrder);
     });
   }
 
   clear() {
+    this._clearExpiryList();
     this.orderBook.clear();
   }
 }

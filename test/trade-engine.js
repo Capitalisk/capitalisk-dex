@@ -17,7 +17,7 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        id: 'order0',
+        orderId: 'order0',
         type: 'limit',
         price: .1,
         targetChain: 'lsk',
@@ -28,7 +28,7 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        id: 'order1',
+        orderId: 'order1',
         type: 'limit',
         price: .1,
         targetChain: 'clsk',
@@ -48,7 +48,7 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        id: 'order0',
+        orderId: 'order0',
         type: 'limit',
         price: .1,
         targetChain: 'lsk',
@@ -59,7 +59,7 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        id: 'order1',
+        orderId: 'order1',
         type: 'limit',
         price: .2,
         targetChain: 'clsk',
@@ -79,7 +79,7 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        id: 'order0',
+        orderId: 'order0',
         type: 'limit',
         price: .5,
         targetChain: 'lsk',
@@ -90,7 +90,7 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        id: 'order1',
+        orderId: 'order1',
         type: 'limit',
         price: .5,
         targetChain: 'clsk',
@@ -103,7 +103,7 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(result.makers[0].valueTaken, 4);
 
       result = tradeEngine.addOrder({
-        id: 'order2',
+        orderId: 'order2',
         type: 'limit',
         price: .5,
         targetChain: 'clsk',
@@ -116,7 +116,7 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(result.makers[0].valueTaken, 20);
 
       result = tradeEngine.addOrder({
-        id: 'order3',
+        orderId: 'order3',
         type: 'limit',
         price: .5,
         targetChain: 'clsk',
@@ -133,7 +133,7 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        id: 'order0',
+        orderId: 'order0',
         type: 'limit',
         price: .1,
         targetChain: 'lsk',
@@ -147,7 +147,7 @@ describe('TradeEngine unit tests', async () => {
 
       try {
         result = tradeEngine.addOrder({
-          id: 'order0',
+          orderId: 'order0',
           type: 'limit',
           price: .1,
           targetChain: 'lsk',
@@ -168,7 +168,7 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        id: 'order0',
+        orderId: 'order0',
         type: 'limit',
         price: .5,
         targetChain: 'lsk',
@@ -179,7 +179,7 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        id: 'order1',
+        orderId: 'order1',
         type: 'limit',
         price: .5,
         targetChain: 'clsk',
@@ -190,7 +190,7 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        id: 'order2',
+        orderId: 'order2',
         type: 'limit',
         price: .5,
         targetChain: 'clsk',
@@ -211,7 +211,7 @@ describe('TradeEngine unit tests', async () => {
       tradeEngine.setSnapshot(snapshot);
 
       result = tradeEngine.addOrder({
-        id: 'order3',
+        orderId: 'order3',
         type: 'limit',
         price: .5,
         targetChain: 'clsk',
@@ -224,7 +224,7 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(result.makers[0].valueTaken, 6);
 
       result = tradeEngine.addOrder({
-        id: 'order4',
+        orderId: 'order4',
         type: 'limit',
         price: .5,
         targetChain: 'clsk',
@@ -233,7 +233,6 @@ describe('TradeEngine unit tests', async () => {
         side: 'bid',
         size: 50
       });
-
       assert.equal(result.makers[0].valueTaken, 20);
     });
 
@@ -241,7 +240,7 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        id: 'order0',
+        orderId: 'order0',
         type: 'limit',
         price: .5,
         targetChain: 'lsk',
@@ -252,7 +251,7 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        id: 'order1',
+        orderId: 'order1',
         type: 'market',
         targetChain: 'clsk',
         targetWalletAddress: '11145678912345678111L',
@@ -272,7 +271,7 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        id: 'order0',
+        orderId: 'order0',
         type: 'limit',
         price: .5,
         targetChain: 'clsk',
@@ -283,7 +282,7 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        id: 'order1',
+        orderId: 'order1',
         type: 'market',
         targetChain: 'lsk',
         targetWalletAddress: '11145678912345678111L',
@@ -292,7 +291,7 @@ describe('TradeEngine unit tests', async () => {
         size: 50,
         funds: -1
       });
-      
+
       assert.equal(result.takeSize, 50);
       assert.equal(result.takeValue, 25);
       assert.equal(result.taker.orderId, 'order1');
