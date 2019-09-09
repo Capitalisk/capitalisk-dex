@@ -78,6 +78,8 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   async load(channel) {
+    this.channel = channel;
+
     let loggerConfig = await channel.invoke(
       'app:getComponentConfig',
       'logger',
@@ -492,9 +494,9 @@ module.exports = class LiskDEXModule extends BaseModule {
     let multiSigTxnSignature = liskTransactions.utils.multiSignTransaction(signedTxn, chainOptions.passphrase);
     let publicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(chainOptions.passphrase).publicKey;
 
-    await channel.invoke(`${targetModuleAlias}:postTransaction`, { transaction: signedTxn });
+    await this.channel.invoke(`${targetModuleAlias}:postTransaction`, { transaction: signedTxn });
     await wait(this.options.signatureBroadcastDelay);
-    await channel.invoke(`${targetModuleAlias}:postSignature`, {
+    await this.channel.invoke(`${targetModuleAlias}:postSignature`, {
       signature: {
         transactionId: signedTxn.id,
         publicKey: publicKey,
