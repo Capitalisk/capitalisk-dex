@@ -269,7 +269,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             let heightExpiryThreshold = targetHeight - this.options.orderHeightExpiry;
             if (heightExpiryThreshold > 0) {
               let expiredOrders = this.tradeEngine.expireOrders(heightExpiryThreshold);
-              expiredOrders.forEach((expiredOrder) => {
+              expiredOrders.forEach(async (expiredOrder) => {
                 try {
                   await this.makeRefundTransaction(expiredOrder, latestBlockTimestamp);
                 } catch (error) {
