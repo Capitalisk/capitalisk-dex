@@ -467,6 +467,12 @@ module.exports = class LiskDEXModule extends BaseModule {
     // Refunds do not charge the exchangeFeeRate.
     refundAmount = Math.floor(refundAmount);
 
+    if (refundAmount <= 0) {
+      throw new Error(
+        'Failed to make refund because amount was less than 0'
+      );
+    }
+
     let refundTxn = {
       amount: refundAmount.toString(),
       recipientId: orderTxn.sourceWalletAddress,
