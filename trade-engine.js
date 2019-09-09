@@ -74,6 +74,11 @@ class TradeEngine {
     newOrder.targetChain = order.targetChain;
     newOrder.targetWalletAddress = order.targetWalletAddress;
     newOrder.senderId = order.senderId;
+    newOrder.sourceChain = order.sourceChain;
+    newOrder.sourceChainAmount = order.sourceChainAmount;
+    newOrder.sourceWalletAddress = order.sourceWalletAddress;
+    newOrder.timestamp = order.timestamp;
+
     let result = this.orderBook.add(newOrder);
 
     result.makers.forEach((makerOrder) => {

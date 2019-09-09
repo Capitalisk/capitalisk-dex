@@ -134,7 +134,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
             let blockData = (
               await storage.adapter.db.query(
-                'select blocks.id, blocks."numberOfTransactions" from blocks where height = $1',
+                'select blocks.id, blocks."numberOfTransactions", blocks.timestamp from blocks where height = $1',
                 [targetHeight],
               )
             )[0];
@@ -155,6 +155,8 @@ module.exports = class LiskDEXModule extends BaseModule {
               await finishProcessing();
               continue;
             }
+            let latestBlockTimestamp = blockData.timestamp;
+
             let orders = await storage.adapter.db.query(
               'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."transferData" is not null and trs."recipientId" = $2',
               [blockData.id, chainOptions.walletAddress],
@@ -164,10 +166,24 @@ module.exports = class LiskDEXModule extends BaseModule {
               let dataParts = transferDataString.split(',');
 
               let orderTxn = {...txn};
+              let amount = parseInt(orderTxn.amount);
+              if (amount > Number.MAX_SAFE_INTEGER) {
+                orderTxn.type = 'invalid';
+                orderTxn.targetChain = targetChain;
+                this.logger.debug(
+                  `Incoming order ${orderTxn.id} amount ${amount} was too large - Maximum order amount is ${Number.MAX_SAFE_INTEGER}`
+                );
+                return orderTxn;
+              }
+
+              orderTxn.sourceChain = chainSymbol;
+              orderTxn.sourceChainAmount = amount; // TODO: Consider switching to BigInt.
+              orderTxn.sourceWalletAddress = orderTxn.senderId;
+
               let targetChain = dataParts[0];
               let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainSymbol;
               if (!isSupportedChain) {
-                orderTxn.type = 'unknown';
+                orderTxn.type = 'invalid';
                 orderTxn.targetChain = targetChain;
                 this.logger.debug(
                   `Incoming order ${orderTxn.id} has an invalid target chain ${targetChain}`
@@ -182,7 +198,6 @@ module.exports = class LiskDEXModule extends BaseModule {
                 orderTxn.price = parseFloat(dataParts[2]);
                 orderTxn.targetChain = targetChain;
                 orderTxn.targetWalletAddress = dataParts[3];
-                let amount = parseInt(orderTxn.amount);
                 if (chainSymbol === this.baseChainSymbol) {
                   orderTxn.side = 'bid';
                   orderTxn.size = Math.floor(amount / orderTxn.price); // TODO: Consider switching to BigInt.
@@ -196,7 +211,6 @@ module.exports = class LiskDEXModule extends BaseModule {
                 orderTxn.height = targetHeight;
                 orderTxn.targetChain = targetChain;
                 orderTxn.targetWalletAddress = dataParts[2];
-                let amount = parseInt(orderTxn.amount);
                 if (chainSymbol === this.baseChainSymbol) {
                   orderTxn.side = 'bid';
                   orderTxn.size = -1;
@@ -204,7 +218,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                 } else {
                   orderTxn.side = 'ask';
                   orderTxn.size = amount; // TODO: Consider switching to BigInt.
-                  orderTxn.funds = -1;
+                  orderTxn.funds = -1; // TODO: Consider switching to BigInt.
                 }
               } else if (dataParts[1] === 'cancel') {
                 // E.g. clsk,cancel,1787318409505302601
@@ -212,6 +226,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                 orderTxn.height = targetHeight;
                 orderTxn.orderIdToCancel = dataParts[2];
               } else {
+                orderTxn.type = 'invalid';
                 this.logger.debug(
                   `Incoming transaction ${txn.id} is not a supported DEX order`
                 );
@@ -227,10 +242,49 @@ module.exports = class LiskDEXModule extends BaseModule {
               return orderTxn.type === 'limit' || orderTxn.type === 'market';
             });
 
+            let invalidOrders = orders.filter((orderTxn) => {
+              return orderTxn.type === 'invalid';
+            });
+
+            await Promise.all(
+              invalidOrders.map(async (orderTxn) => {
+                try {
+                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp);
+                } catch (error) {
+                  this.logger.error(
+                    `Failed to post multisig refund transaction for invalid order ID ${
+                      orderTxn.id
+                    } to ${
+                      orderTxn.sourceWalletAddress
+                    } on chain ${
+                      orderTxn.sourceChain
+                    } because of error: ${
+                      error.message
+                    }`
+                  );
+                }
+              })
+            );
+
             let heightExpiryThreshold = targetHeight - this.options.orderHeightExpiry;
             if (heightExpiryThreshold > 0) {
               let expiredOrders = this.tradeEngine.expireOrders(heightExpiryThreshold);
               expiredOrders.forEach((expiredOrder) => {
+                try {
+                  await this.makeRefundTransaction(expiredOrder, latestBlockTimestamp);
+                } catch (error) {
+                  this.logger.error(
+                    `Failed to post multisig refund transaction for expired order ID ${
+                      expiredOrder.id
+                    } to ${
+                      expiredOrder.sourceWalletAddress
+                    } on chain ${
+                      expiredOrder.sourceChain
+                    } because of error: ${
+                      error.message
+                    }`
+                  );
+                }
                 this.logger.trace(
                   `Order ${expiredOrder.id} at height ${expiredOrder.height} expired`
                 );
@@ -246,18 +300,37 @@ module.exports = class LiskDEXModule extends BaseModule {
                   );
                   return;
                 }
-                if (targetOrder.senderId !== orderTxn.senderId) {
+                if (targetOrder.sourceWalletAddress !== orderTxn.sourceWalletAddress) {
                   this.logger.error(
                     `Could not cancel order ID ${orderTxn.orderIdToCancel} because it belongs to a different account`
                   );
                   return;
                 }
+                targetOrder = {...targetOrder};
+                // Also send back any amount which was sent as part of the cancel order.
+                targetOrder.sourceChainAmount += orderTxn.sourceChainAmount;
+
                 let result;
                 try {
                   result = this.tradeEngine.cancelOrder(orderTxn.orderIdToCancel);
                 } catch (error) {
                   this.logger.error(error);
                   return;
+                }
+                try {
+                  await this.makeRefundTransaction(targetOrder);
+                } catch (error) {
+                  this.logger.error(
+                    `Failed to post multisig refund transaction for canceled order ID ${
+                      targetOrder.id
+                    } to ${
+                      targetOrder.sourceWalletAddress
+                    } on chain ${
+                      targetOrder.sourceChain
+                    } because of error: ${
+                      error.message
+                    }`
+                  );
                 }
               })
             );
@@ -273,10 +346,11 @@ module.exports = class LiskDEXModule extends BaseModule {
                 }
 
                 if (result.takeSize > 0) {
-                  let takerChainOptions = this.options.chains[result.taker.targetChain];
+                  let takerTargetChain = result.taker.targetChain;
+                  let takerChainOptions = this.options.chains[takerTargetChain];
                   let takerTargetChainModuleAlias = takerChainOptions.moduleAlias;
                   let takerAddress = result.taker.targetWalletAddress;
-                  let takerAmount = result.taker.targetChain === this.baseChainSymbol ? result.takeValue : result.takeSize;
+                  let takerAmount = takerTargetChain === this.baseChainSymbol ? result.takeValue : result.takeSize;
                   takerAmount -= takerChainOptions.exchangeFeeBase;
                   takerAmount -= takerAmount * takerChainOptions.exchangeFeeRate;
                   takerAmount = Math.floor(takerAmount);
@@ -288,35 +362,21 @@ module.exports = class LiskDEXModule extends BaseModule {
                     return;
                   }
 
-                  let takerTxn = {
-                    type: 0,
-                    amount: takerAmount.toString(),
-                    recipientId: takerAddress,
-                    fee: liskTransactions.constants.TRANSFER_FEE.toString(),
-                    asset: {},
-                    timestamp: orderTxn.timestamp,
-                    senderPublicKey: liskCryptography.getAddressAndPublicKeyFromPassphrase(takerChainOptions.sharedPassphrase).publicKey
-                  };
-                  let takerSignedTxn = liskTransactions.utils.prepareTransaction(takerTxn, takerChainOptions.sharedPassphrase);
-                  let takerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(takerSignedTxn, takerChainOptions.passphrase);
-                  let takerPublicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(takerChainOptions.passphrase).publicKey;
-
                   (async () => {
+                    let takerTxn = {
+                      amount: takerAmount.toString(),
+                      recipientId: takerAddress,
+                      timestamp: orderTxn.timestamp
+                    };
                     try {
-                      await channel.invoke(`${takerTargetChainModuleAlias}:postTransaction`, { transaction: takerSignedTxn });
-                      await wait(this.options.signatureBroadcastDelay);
-                      await channel.invoke(`${takerTargetChainModuleAlias}:postSignature`, {
-                        signature: {
-                          transactionId: takerSignedTxn.id,
-                          publicKey: takerPublicKey,
-                          signature: takerMultiSigTxnSignature
-                        }
-                      });
+                      await this.makeMultiSigTransaction(
+                        takerTargetChain,
+                        takerTxn
+                      );
                     } catch (error) {
                       this.logger.error(
-                        `Failed to post multisig transaction of taker ${takerAddress} on chain ${this.quoteChainSymbol} because of error: ${error.message}`
+                        `Failed to post multisig transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
                       );
-                      return;
                     }
                   })();
 
@@ -338,36 +398,21 @@ module.exports = class LiskDEXModule extends BaseModule {
                         return;
                       }
 
-                      let makerTxn = {
-                        type: 0,
-                        amount: makerAmount.toString(),
-                        recipientId: makerAddress,
-                        fee: liskTransactions.constants.TRANSFER_FEE.toString(),
-                        asset: {},
-                        timestamp: orderTxn.timestamp,
-                        senderPublicKey: liskCryptography.getAddressAndPublicKeyFromPassphrase(makerChainOptions.sharedPassphrase).publicKey
-                      };
-
-                      let makerSignedTxn = liskTransactions.utils.prepareTransaction(makerTxn, makerChainOptions.sharedPassphrase);
-                      let makerMultiSigTxnSignature = liskTransactions.utils.multiSignTransaction(makerSignedTxn, makerChainOptions.passphrase);
-                      let makerPublicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(makerChainOptions.passphrase).publicKey;
-
                       (async () => {
+                        let makerTxn = {
+                          amount: makerAmount.toString(),
+                          recipientId: makerAddress,
+                          timestamp: orderTxn.timestamp
+                        };
                         try {
-                          await channel.invoke(`${makerTargetChainModuleAlias}:postTransaction`, { transaction: makerSignedTxn });
-                          await wait(this.options.signatureBroadcastDelay);
-                          await channel.invoke(`${makerTargetChainModuleAlias}:postSignature`, {
-                            signature: {
-                              transactionId: makerSignedTxn.id,
-                              publicKey: makerPublicKey,
-                              signature: makerMultiSigTxnSignature
-                            }
-                          });
+                          await this.makeMultiSigTransaction(
+                            makerOrder.targetChain,
+                            makerTxn
+                          );
                         } catch (error) {
                           this.logger.error(
                             `Failed to post multisig transaction of maker ${makerAddress} on chain ${makerOrder.targetChain} because of error: ${error.message}`
                           );
-                          return;
                         }
                       })();
                     })
@@ -411,6 +456,51 @@ module.exports = class LiskDEXModule extends BaseModule {
       });
     });
     channel.publish(`${MODULE_ALIAS}:bootstrap`);
+  }
+
+  async makeRefundTransaction(orderTxn, timestamp) {
+    let refundChainOptions = this.options.chains[orderTxn.sourceChain];
+    let refundAmount = orderTxn.sourceChainAmount;
+    refundAmount -= refundChainOptions.exchangeFeeBase;
+    // Refunds do not charge the exchangeFeeRate.
+    refundAmount = Math.floor(refundAmount);
+
+    let refundTxn = {
+      amount: refundAmount.toString(),
+      recipientId: orderTxn.sourceWalletAddress,
+      timestamp: timestamp == null ? orderTxn.timestamp : timestamp
+    };
+    await this.makeMultiSigTransaction(
+      orderTxn.sourceChain,
+      refundTxn
+    );
+  }
+
+  async makeMultiSigTransaction(targetChain, transactionData) {
+    let chainOptions = this.options.chains[targetChain];
+    let targetModuleAlias = chainOptions.moduleAlias;
+    let txn = {
+      type: 0,
+      amount: transactionData.amount.toString(),
+      recipientId: transactionData.recipientId,
+      fee: liskTransactions.constants.TRANSFER_FEE.toString(),
+      asset: {},
+      timestamp: transactionData.timestamp,
+      senderPublicKey: liskCryptography.getAddressAndPublicKeyFromPassphrase(chainOptions.sharedPassphrase).publicKey
+    };
+    let signedTxn = liskTransactions.utils.prepareTransaction(txn, chainOptions.sharedPassphrase);
+    let multiSigTxnSignature = liskTransactions.utils.multiSignTransaction(signedTxn, chainOptions.passphrase);
+    let publicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(chainOptions.passphrase).publicKey;
+
+    await channel.invoke(`${targetModuleAlias}:postTransaction`, { transaction: signedTxn });
+    await wait(this.options.signatureBroadcastDelay);
+    await channel.invoke(`${targetModuleAlias}:postSignature`, {
+      signature: {
+        transactionId: signedTxn.id,
+        publicKey: publicKey,
+        signature: multiSigTxnSignature
+      }
+    });
   }
 
   async loadSnapshot() {
