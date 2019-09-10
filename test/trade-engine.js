@@ -298,5 +298,34 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(result.taker.sizeRemaining, 0);
     });
 
+    it('Large market ask order', async () => {
+      let result;
+
+      result = tradeEngine.addOrder({
+        orderId: 'order0',
+        type: 'limit',
+        price: .5,
+        targetChain: 'lsk',
+        targetWalletAddress: '22245678912345678222L',
+        senderId: '11111111111222222222L',
+        side: 'ask',
+        size: 380000000000
+      });
+
+      result = tradeEngine.addOrder({
+        orderId: 'order1',
+        type: 'market',
+        targetChain: 'clsk',
+        targetWalletAddress: '11145678912345678111L',
+        senderId: '22222222211111111111L',
+        side: 'bid',
+        size: -1,
+        funds: 2000000000
+      });
+
+      assert.equal(result.takeSize, 4000000000);
+      assert.equal(result.takeValue, 2000000000);
+    });
+
   });
 });
