@@ -85,9 +85,8 @@ class TradeEngine {
       throw error;
     }
 
-    this._addToExpiryList(order);
-
     let newOrder = this._createOrderInstance(order);
+    this._addToExpiryList(newOrder);
 
     newOrder.type = order.type;
     newOrder.targetChain = order.targetChain;
@@ -182,16 +181,16 @@ class TradeEngine {
   setSnapshot(snapshot) {
     this.clear();
     snapshot.askLimitOrders.forEach((order) => {
-      this._addToExpiryList(order);
       let newOrder = this._createOrderInstance(order);
+      this._addToExpiryList(newOrder);
       Object.keys(order).forEach((key) => {
         newOrder[key] = order[key];
       });
       this.orderBook.askLimits.addOrder(newOrder);
     });
     snapshot.bidLimitOrders.forEach((order) => {
-      this._addToExpiryList(order);
       let newOrder = this._createOrderInstance(order);
+      this._addToExpiryList(newOrder);
       Object.keys(order).forEach((key) => {
         newOrder[key] = order[key];
       });

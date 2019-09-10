@@ -304,15 +304,29 @@ module.exports = class LiskDEXModule extends BaseModule {
                   );
                   return;
                 }
+                if (targetOrder.sourceChain !== orderTxn.sourceChain) {
+                  this.logger.error(
+                    `Chain ${chainSymbol}: Could not cancel order ID ${orderTxn.orderIdToCancel} because it is on a different chain`
+                  );
+                  return;
+                }
                 if (targetOrder.sourceWalletAddress !== orderTxn.sourceWalletAddress) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Could not cancel order ID ${orderTxn.orderIdToCancel} because it belongs to a different account`
                   );
                   return;
                 }
-                targetOrder = {...targetOrder};
+                let refundTxn = {
+                  sourceChain: targetOrder.sourceChain,
+                  sourceWalletAddress: targetOrder.sourceWalletAddress
+                };
+                if (refundTxn.sourceChain === this.baseChainSymbol) {
+                  refundTxn.sourceChainAmount = targetOrder.sizeRemaining * targetOrder.price;
+                } else {
+                  refundTxn.sourceChainAmount = targetOrder.sizeRemaining;
+                }
                 // Also send back any amount which was sent as part of the cancel order.
-                targetOrder.sourceChainAmount += orderTxn.sourceChainAmount;
+                refundTxn.sourceChainAmount += orderTxn.sourceChainAmount;
 
                 let result;
                 try {
@@ -322,7 +336,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   return;
                 }
                 try {
-                  await this.makeRefundTransaction(targetOrder, orderTxn.timestamp, `Canceled order ${targetOrder.orderId}`);
+                  await this.makeRefundTransaction(refundTxn, orderTxn.timestamp, `Canceled order ${targetOrder.orderId}`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for canceled order ID ${
