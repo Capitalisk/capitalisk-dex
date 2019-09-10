@@ -175,7 +175,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                 orderTxn.type = 'invalid';
                 orderTxn.targetChain = targetChain;
                 this.logger.debug(
-                  `Incoming order ${orderTxn.id} amount ${amount} was too large - Maximum order amount is ${Number.MAX_SAFE_INTEGER}`
+                  `Incoming order ${orderTxn.orderId} amount ${amount} was too large - Maximum order amount is ${Number.MAX_SAFE_INTEGER}`
                 );
                 return orderTxn;
               }
@@ -190,7 +190,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                 orderTxn.type = 'invalid';
                 orderTxn.targetChain = targetChain;
                 this.logger.debug(
-                  `Incoming order ${orderTxn.id} has an invalid target chain ${targetChain}`
+                  `Incoming order ${orderTxn.orderId} has an invalid target chain ${targetChain}`
                 );
                 return orderTxn;
               }
@@ -232,7 +232,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               } else {
                 orderTxn.type = 'invalid';
                 this.logger.debug(
-                  `Incoming transaction ${txn.id} is not a supported DEX order`
+                  `Incoming transaction ${orderTxn.orderId} is not a supported DEX order`
                 );
               }
               return orderTxn;
@@ -253,11 +253,11 @@ module.exports = class LiskDEXModule extends BaseModule {
             await Promise.all(
               invalidOrders.map(async (orderTxn) => {
                 try {
-                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp);
+                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `Invalid order ${orderTxn.orderId}`);
                 } catch (error) {
                   this.logger.error(
                     `Failed to post multisig refund transaction for invalid order ID ${
-                      orderTxn.id
+                      orderTxn.orderId
                     } to ${
                       orderTxn.sourceWalletAddress
                     } on chain ${
@@ -275,11 +275,11 @@ module.exports = class LiskDEXModule extends BaseModule {
               let expiredOrders = this.tradeEngine.expireOrders(heightExpiryThreshold);
               expiredOrders.forEach(async (expiredOrder) => {
                 try {
-                  await this.makeRefundTransaction(expiredOrder, latestBlockTimestamp);
+                  await this.makeRefundTransaction(expiredOrder, latestBlockTimestamp, `Expired order ${expiredOrder.orderId}`);
                 } catch (error) {
                   this.logger.error(
                     `Failed to post multisig refund transaction for expired order ID ${
-                      expiredOrder.id
+                      expiredOrder.orderId
                     } to ${
                       expiredOrder.sourceWalletAddress
                     } on chain ${
@@ -290,7 +290,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   );
                 }
                 this.logger.trace(
-                  `Order ${expiredOrder.id} at height ${expiredOrder.height} expired`
+                  `Order ${expiredOrder.orderId} at height ${expiredOrder.height} expired`
                 );
               });
             }
@@ -322,11 +322,11 @@ module.exports = class LiskDEXModule extends BaseModule {
                   return;
                 }
                 try {
-                  await this.makeRefundTransaction(targetOrder, orderTxn.timestamp);
+                  await this.makeRefundTransaction(targetOrder, orderTxn.timestamp, `Canceled order ${targetOrder.orderId}`);
                 } catch (error) {
                   this.logger.error(
                     `Failed to post multisig refund transaction for canceled order ID ${
-                      targetOrder.id
+                      targetOrder.orderId
                     } to ${
                       targetOrder.sourceWalletAddress
                     } on chain ${
@@ -366,7 +366,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
                   if (takerAmount <= 0) {
                     this.logger.error(
-                      `Failed to take the trade order ${orderTxn.id} because the amount after fees was less than or equal to 0`
+                      `Failed to take the trade order ${orderTxn.orderId} because the amount after fees was less than or equal to 0`
                     );
                     return;
                   }
@@ -380,7 +380,8 @@ module.exports = class LiskDEXModule extends BaseModule {
                     try {
                       await this.makeMultiSigTransaction(
                         takerTargetChain,
-                        takerTxn
+                        takerTxn,
+                        'DEX matched counterparty order'
                       );
                     } catch (error) {
                       this.logger.error(
@@ -404,7 +405,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                         return;
                       }
                       try {
-                        await this.makeRefundTransaction(refundTxn, orderTxn.timestamp);
+                        await this.makeRefundTransaction(refundTxn, orderTxn.timestamp, `Unmatched market order part ${orderTxn.orderId}`);
                       } catch (error) {
                         this.logger.error(
                           `Failed to post multisig market order refund transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
@@ -426,7 +427,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
                       if (makerAmount <= 0) {
                         this.logger.error(
-                          `Failed to make the trade order ${makerOrder.id} because the amount after fees was less than or equal to 0`
+                          `Failed to make the trade order ${makerOrder.orderId} because the amount after fees was less than or equal to 0`
                         );
                         return;
                       }
@@ -440,7 +441,8 @@ module.exports = class LiskDEXModule extends BaseModule {
                         try {
                           await this.makeMultiSigTransaction(
                             makerOrder.targetChain,
-                            makerTxn
+                            makerTxn,
+                            'DEX matched counterparty order'
                           );
                         } catch (error) {
                           this.logger.error(
@@ -491,7 +493,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     channel.publish(`${MODULE_ALIAS}:bootstrap`);
   }
 
-  async makeRefundTransaction(orderTxn, timestamp) {
+  async makeRefundTransaction(orderTxn, timestamp, reason) {
     let refundChainOptions = this.options.chains[orderTxn.sourceChain];
     let refundAmount = orderTxn.sourceChainAmount;
     refundAmount -= refundChainOptions.exchangeFeeBase;
@@ -511,11 +513,12 @@ module.exports = class LiskDEXModule extends BaseModule {
     };
     await this.makeMultiSigTransaction(
       orderTxn.sourceChain,
-      refundTxn
+      refundTxn,
+      `DEX refund` + (reason == null ? '' : `: ${reason}`)
     );
   }
 
-  async makeMultiSigTransaction(targetChain, transactionData) {
+  async makeMultiSigTransaction(targetChain, transactionData, message) {
     let chainOptions = this.options.chains[targetChain];
     let targetModuleAlias = chainOptions.moduleAlias;
     let txn = {
@@ -527,6 +530,9 @@ module.exports = class LiskDEXModule extends BaseModule {
       timestamp: transactionData.timestamp,
       senderPublicKey: liskCryptography.getAddressAndPublicKeyFromPassphrase(chainOptions.sharedPassphrase).publicKey
     };
+    if (message != null) {
+      txn.asset.data = message;
+    }
     let signedTxn = liskTransactions.utils.prepareTransaction(txn, chainOptions.sharedPassphrase);
     let multiSigTxnSignature = liskTransactions.utils.multiSignTransaction(signedTxn, chainOptions.passphrase);
     let publicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(chainOptions.passphrase).publicKey;
