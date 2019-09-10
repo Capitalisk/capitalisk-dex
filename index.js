@@ -84,7 +84,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       'app:getComponentConfig',
       'logger',
     );
-    this.logger = createLoggerComponent({...loggerConfig, ...this.otions.logger});
+    this.logger = createLoggerComponent({...loggerConfig, ...this.options.logger});
     try {
       await this.loadSnapshot();
     } catch (error) {
@@ -132,7 +132,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             };
 
             this.logger.trace(
-              `Processing block at height ${targetHeight}`
+              `Chain ${chainSymbol}: Processing block at height ${targetHeight}`
             );
 
             let blockData = (
@@ -144,7 +144,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
             if (!blockData) {
               this.logger.error(
-                `Failed to fetch block at height ${targetHeight}`
+                `Chain ${chainSymbol}: Failed to fetch block at height ${targetHeight}`
               );
 
               await finishProcessing();
@@ -152,7 +152,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             }
             if (!blockData.numberOfTransactions) {
               this.logger.trace(
-                `No transactions in block ${blockData.id} at height ${targetHeight}`
+                `Chain ${chainSymbol}: No transactions in block ${blockData.id} at height ${targetHeight}`
               );
 
               await finishProcessing();
@@ -175,7 +175,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                 orderTxn.type = 'invalid';
                 orderTxn.targetChain = targetChain;
                 this.logger.debug(
-                  `Incoming order ${orderTxn.orderId} amount ${amount} was too large - Maximum order amount is ${Number.MAX_SAFE_INTEGER}`
+                  `Chain ${chainSymbol}: Incoming order ${orderTxn.orderId} amount ${amount} was too large - Maximum order amount is ${Number.MAX_SAFE_INTEGER}`
                 );
                 return orderTxn;
               }
@@ -190,7 +190,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                 orderTxn.type = 'invalid';
                 orderTxn.targetChain = targetChain;
                 this.logger.debug(
-                  `Incoming order ${orderTxn.orderId} has an invalid target chain ${targetChain}`
+                  `Chain ${chainSymbol}: Incoming order ${orderTxn.orderId} has an invalid target chain ${targetChain}`
                 );
                 return orderTxn;
               }
@@ -232,7 +232,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               } else {
                 orderTxn.type = 'invalid';
                 this.logger.debug(
-                  `Incoming transaction ${orderTxn.orderId} is not a supported DEX order`
+                  `Chain ${chainSymbol}: Incoming transaction ${orderTxn.orderId} is not a supported DEX order`
                 );
               }
               return orderTxn;
@@ -256,7 +256,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `Invalid order ${orderTxn.orderId}`);
                 } catch (error) {
                   this.logger.error(
-                    `Failed to post multisig refund transaction for invalid order ID ${
+                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for invalid order ID ${
                       orderTxn.orderId
                     } to ${
                       orderTxn.sourceWalletAddress
@@ -278,7 +278,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   await this.makeRefundTransaction(expiredOrder, latestBlockTimestamp, `Expired order ${expiredOrder.orderId}`);
                 } catch (error) {
                   this.logger.error(
-                    `Failed to post multisig refund transaction for expired order ID ${
+                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for expired order ID ${
                       expiredOrder.orderId
                     } to ${
                       expiredOrder.sourceWalletAddress
@@ -290,7 +290,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   );
                 }
                 this.logger.trace(
-                  `Order ${expiredOrder.orderId} at height ${expiredOrder.height} expired`
+                  `Chain ${chainSymbol}: Order ${expiredOrder.orderId} at height ${expiredOrder.height} expired`
                 );
               });
             }
@@ -300,13 +300,13 @@ module.exports = class LiskDEXModule extends BaseModule {
                 let targetOrder = this.tradeEngine.getOrder(orderTxn.orderIdToCancel);
                 if (!targetOrder) {
                   this.logger.error(
-                    `Failed to cancel order with ID ${orderTxn.orderIdToCancel} because it could not be found`
+                    `Chain ${chainSymbol}: Failed to cancel order with ID ${orderTxn.orderIdToCancel} because it could not be found`
                   );
                   return;
                 }
                 if (targetOrder.sourceWalletAddress !== orderTxn.sourceWalletAddress) {
                   this.logger.error(
-                    `Could not cancel order ID ${orderTxn.orderIdToCancel} because it belongs to a different account`
+                    `Chain ${chainSymbol}: Could not cancel order ID ${orderTxn.orderIdToCancel} because it belongs to a different account`
                   );
                   return;
                 }
@@ -325,7 +325,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   await this.makeRefundTransaction(targetOrder, orderTxn.timestamp, `Canceled order ${targetOrder.orderId}`);
                 } catch (error) {
                   this.logger.error(
-                    `Failed to post multisig refund transaction for canceled order ID ${
+                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for canceled order ID ${
                       targetOrder.orderId
                     } to ${
                       targetOrder.sourceWalletAddress
@@ -366,7 +366,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
                   if (takerAmount <= 0) {
                     this.logger.error(
-                      `Failed to take the trade order ${orderTxn.orderId} because the amount after fees was less than or equal to 0`
+                      `Chain ${chainSymbol}: Failed to take the trade order ${orderTxn.orderId} because the amount after fees was less than or equal to 0`
                     );
                     return;
                   }
@@ -385,7 +385,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                       );
                     } catch (error) {
                       this.logger.error(
-                        `Failed to post multisig transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
+                        `Chain ${chainSymbol}: Failed to post multisig transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
                       );
                     }
                   })();
@@ -408,7 +408,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                         await this.makeRefundTransaction(refundTxn, orderTxn.timestamp, `Unmatched market order part ${orderTxn.orderId}`);
                       } catch (error) {
                         this.logger.error(
-                          `Failed to post multisig market order refund transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
+                          `Chain ${chainSymbol}: Failed to post multisig market order refund transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
                         );
                       }
                     }
@@ -427,7 +427,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
                       if (makerAmount <= 0) {
                         this.logger.error(
-                          `Failed to make the trade order ${makerOrder.orderId} because the amount after fees was less than or equal to 0`
+                          `Chain ${chainSymbol}: Failed to make the trade order ${makerOrder.orderId} because the amount after fees was less than or equal to 0`
                         );
                         return;
                       }
@@ -446,7 +446,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                           );
                         } catch (error) {
                           this.logger.error(
-                            `Failed to post multisig transaction of maker ${makerAddress} on chain ${makerOrder.targetChain} because of error: ${error.message}`
+                            `Chain ${chainSymbol}: Failed to post multisig transaction of maker ${makerAddress} on chain ${makerOrder.targetChain} because of error: ${error.message}`
                           );
                         }
                       })();
