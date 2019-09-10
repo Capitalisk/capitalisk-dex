@@ -399,6 +399,9 @@ module.exports = class LiskDEXModule extends BaseModule {
                       } else {
                         refundTxn.sourceChainAmount = result.taker.sizeRemaining;
                       }
+                      if (refundTxn.sourceChainAmount <= 0) {
+                        return;
+                      }
                       try {
                         await this.makeRefundTransaction(refundTxn, orderTxn.timestamp);
                       } catch (error) {
