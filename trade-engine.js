@@ -2,6 +2,21 @@ const LimitOrder = require('limit-order-book').LimitOrder;
 const MarketOrder = require('limit-order-book').MarketOrder;
 const LimitOrderBook = require('limit-order-book').LimitOrderBook;
 
+// This is necessary to fix a bug in the underlying library.
+MarketOrder.prototype.getSizeRemainingFor = function (price) {
+  var fundsTakeSize = Math.floor(this.fundsRemaining / price);
+
+  if (this.funds > 0 && this.size > 0) {
+    return Math.min(fundsTakeSize, this.sizeRemaining);
+  } else if (this.funds > 0) {
+    return fundsTakeSize;
+  } else if (this.size > 0) {
+    return this.sizeRemaining;
+  } else {
+    return 0;
+  }
+};
+
 class TradeEngine {
   constructor(options) {
     this.baseCurrency = options.baseCurrency;
