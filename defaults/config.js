@@ -1,5 +1,5 @@
 module.exports = {
-  requiredConfirmations: 101,
+  requiredConfirmations: 2,
   signatureBroadcastDelay: 15000,
   orderBookSnapshotFinality: 101,
   orderBookSnapshotFilePath: './lisk-dex-orderbook-snapshot.json',

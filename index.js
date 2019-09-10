@@ -111,13 +111,14 @@ module.exports = class LiskDEXModule extends BaseModule {
 
       (async () => {
         for await (let event of blockProcessingStream) {
-          let processedHeight = this.currentProcessedHeights[chainSymbol] || event.chainHeight;
-          while (processedHeight <= event.chainHeight) {
-            let targetHeight = processedHeight - this.options.requiredConfirmations;
+          if (!this.currentProcessedHeights[chainSymbol]) {
+            this.currentProcessedHeights[chainSymbol] = event.chainHeight;
+          }
+          while (this.currentProcessedHeights[chainSymbol] <= event.chainHeight) {
+            let targetHeight = this.currentProcessedHeights[chainSymbol] - this.options.requiredConfirmations;
 
             let finishProcessing = async () => {
               this.currentProcessedHeights[chainSymbol]++;
-              processedHeight = this.currentProcessedHeights[chainSymbol];
               if (chainSymbol === this.baseChainSymbol) {
                 let lastSnapshotHeight = this.lastSnapshotHeights[chainSymbol];
                 if (targetHeight > lastSnapshotHeight + this.options.orderBookSnapshotFinality) {
@@ -549,7 +550,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     this.lastSnapshotHeights = snapshot.chainHeights;
     this.currentProcessedHeights = {};
     Object.keys(this.lastSnapshotHeights).forEach((chainSymbol) => {
-      this.currentProcessedHeights[chainSymbol] = this.lastSnapshotHeights[chainSymbol] + this.options.requiredConfirmations;
+      this.currentProcessedHeights[chainSymbol] = this.lastSnapshotHeights[chainSymbol];
     });
   }
 
@@ -558,7 +559,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     this.lastSnapshotHeights = this.lastSnapshot.chainHeights;
     this.currentProcessedHeights = {};
     Object.keys(this.lastSnapshotHeights).forEach((chainSymbol) => {
-      this.currentProcessedHeights[chainSymbol] = this.lastSnapshotHeights[chainSymbol] + this.options.requiredConfirmations;
+      this.currentProcessedHeights[chainSymbol] = this.lastSnapshotHeights[chainSymbol];
     });
   }
 
@@ -567,7 +568,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     snapshot.orderBook = this.tradeEngine.getSnapshot();
     snapshot.chainHeights = {};
     Object.keys(this.currentProcessedHeights).forEach((chainSymbol) => {
-      let targetHeight = this.currentProcessedHeights[chainSymbol] - this.options.requiredConfirmations;
+      let targetHeight = this.currentProcessedHeights[chainSymbol];
       if (targetHeight < 0) {
         targetHeight = 0;
       }
