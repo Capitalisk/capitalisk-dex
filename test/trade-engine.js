@@ -298,7 +298,7 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(result.taker.sizeRemaining, 0);
     });
 
-    it('Large market ask order', async () => {
+    it('Large market bid order', async () => {
       let result;
 
       result = tradeEngine.addOrder({
@@ -309,7 +309,7 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'ask',
-        size: 380000000000
+        size: 4000000000
       });
 
       result = tradeEngine.addOrder({
@@ -319,12 +319,41 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'bid',
-        size: -1,
+        size: 0,
         funds: 2000000000
       });
 
       assert.equal(result.takeSize, 4000000000);
       assert.equal(result.takeValue, 2000000000);
+    });
+
+    it('Large market ask order', async () => {
+      let result;
+
+      result = tradeEngine.addOrder({
+        orderId: 'order0',
+        type: 'limit',
+        price: .5,
+        targetChain: 'clsk',
+        targetWalletAddress: '22245678912345678222L',
+        senderId: '11111111111222222222L',
+        side: 'bid',
+        size: 1000000000
+      });
+
+      result = tradeEngine.addOrder({
+        orderId: 'order1',
+        type: 'market',
+        targetChain: 'lsk',
+        targetWalletAddress: '11145678912345678111L',
+        senderId: '22222222211111111111L',
+        side: 'ask',
+        size: 2000000000,
+        funds: 0
+      });
+
+      assert.equal(result.takeSize, 1000000000);
+      assert.equal(result.takeValue, 500000000);
     });
 
   });

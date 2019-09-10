@@ -216,12 +216,12 @@ module.exports = class LiskDEXModule extends BaseModule {
                 orderTxn.targetWalletAddress = dataParts[2];
                 if (chainSymbol === this.baseChainSymbol) {
                   orderTxn.side = 'bid';
-                  orderTxn.size = -1;
+                  orderTxn.size = 0;
                   orderTxn.funds = amount; // TODO: Consider switching to BigInt.
                 } else {
                   orderTxn.side = 'ask';
                   orderTxn.size = amount; // TODO: Consider switching to BigInt.
-                  orderTxn.funds = -1; // TODO: Consider switching to BigInt.
+                  orderTxn.funds = 0; // TODO: Consider switching to BigInt.
                 }
               } else if (dataParts[1] === 'cancel') {
                 // E.g. clsk,cancel,1787318409505302601
@@ -353,7 +353,12 @@ module.exports = class LiskDEXModule extends BaseModule {
                   let takerChainOptions = this.options.chains[takerTargetChain];
                   let takerTargetChainModuleAlias = takerChainOptions.moduleAlias;
                   let takerAddress = result.taker.targetWalletAddress;
-                  let takerAmount = takerTargetChain === this.baseChainSymbol ? result.takeSize * result.taker.price : result.takeSize;
+                  let takerAmount;
+                  if (orderTxn.type === 'market') {
+                    takerAmount = takerTargetChain === this.baseChainSymbol ? Math.abs(result.taker.fundsRemaining) : result.takeSize;
+                  } else {
+                    takerAmount = takerTargetChain === this.baseChainSymbol ? result.takeSize * result.taker.price : result.takeSize;
+                  }
                   takerAmount -= takerChainOptions.exchangeFeeBase;
                   takerAmount -= takerAmount * takerChainOptions.exchangeFeeRate;
                   takerAmount = Math.floor(takerAmount);
@@ -380,6 +385,27 @@ module.exports = class LiskDEXModule extends BaseModule {
                       this.logger.error(
                         `Failed to post multisig transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
                       );
+                    }
+                  })();
+
+                  (async () => {
+                    if (orderTxn.type === 'market') {
+                      let refundTxn = {
+                        sourceChain: result.taker.sourceChain,
+                        sourceWalletAddress: result.taker.sourceWalletAddress
+                      };
+                      if (result.taker.sourceChain === this.baseChainSymbol) {
+                        refundTxn.sourceChainAmount = result.taker.fundsRemaining;
+                      } else {
+                        refundTxn.sourceChainAmount = result.taker.sizeRemaining;
+                      }
+                      try {
+                        await this.makeRefundTransaction(refundTxn, orderTxn.timestamp);
+                      } catch (error) {
+                        this.logger.error(
+                          `Failed to post multisig market order refund transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
+                        );
+                      }
                     }
                   })();
 

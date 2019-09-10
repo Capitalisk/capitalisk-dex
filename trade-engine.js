@@ -44,6 +44,9 @@ class TradeEngine {
 
   _removeFromExpiryList(orderId) {
     let node = this._orderNodeLookup[orderId];
+    if (!node) {
+      return;
+    }
     delete this._orderNodeLookup[orderId];
 
     node.next.prev = node.prev;
