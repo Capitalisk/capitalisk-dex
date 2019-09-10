@@ -381,7 +381,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                       await this.makeMultiSigTransaction(
                         takerTargetChain,
                         takerTxn,
-                        'DEX matched counterparty order'
+                        `DEX matched counterparty order on chain ${result.taker.sourceChain}`
                       );
                     } catch (error) {
                       this.logger.error(
@@ -442,7 +442,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                           await this.makeMultiSigTransaction(
                             makerOrder.targetChain,
                             makerTxn,
-                            'DEX matched counterparty order'
+                            `DEX matched counterparty order on chain ${makerOrder.sourceChain}`
                           );
                         } catch (error) {
                           this.logger.error(
