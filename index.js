@@ -84,12 +84,12 @@ module.exports = class LiskDEXModule extends BaseModule {
       'app:getComponentConfig',
       'logger',
     );
-    this.logger = createLoggerComponent(loggerConfig);
+    this.logger = createLoggerComponent({...loggerConfig, ...this.otions.logger});
     try {
       await this.loadSnapshot();
     } catch (error) {
       this.logger.error(
-        `Failed to load initial snapshot because of error: ${error.message} - DEX node will start with an empty order book.`
+        `Failed to load initial snapshot because of error: ${error.message} - DEX node will start with an empty order book`
       );
     }
 

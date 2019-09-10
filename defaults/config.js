@@ -5,6 +5,10 @@ module.exports = {
   orderBookSnapshotFilePath: './lisk-dex-orderbook-snapshot.json',
   orderHeightExpiry: 259200,
   baseChain: 'lsk',
+  logger: {
+    fileLogLevel: 'debug',
+    consoleLogLevel: 'debug'
+  },
   chains: {
     lsk: {
       database: 'lisk_test',
