@@ -274,8 +274,17 @@ module.exports = class LiskDEXModule extends BaseModule {
             if (heightExpiryThreshold > 0) {
               let expiredOrders = this.tradeEngine.expireOrders(heightExpiryThreshold);
               expiredOrders.forEach(async (expiredOrder) => {
+                let refundTxn = {
+                  sourceChain: expiredOrder.sourceChain,
+                  sourceWalletAddress: expiredOrder.sourceWalletAddress
+                };
+                if (refundTxn.sourceChain === this.baseChainSymbol) {
+                  refundTxn.sourceChainAmount = expiredOrder.sizeRemaining * expiredOrder.price;
+                } else {
+                  refundTxn.sourceChainAmount = expiredOrder.sizeRemaining;
+                }
                 try {
-                  await this.makeRefundTransaction(expiredOrder, latestBlockTimestamp, `Expired order ${expiredOrder.orderId}`);
+                  await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `Expired order ${expiredOrder.orderId}`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for expired order ID ${
