@@ -345,7 +345,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   return;
                 }
                 try {
-                  await this.makeRefundTransaction(refundTxn, orderTxn.timestamp, `Canceled order ${targetOrder.orderId}`);
+                  await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `Canceled order ${targetOrder.orderId}`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for canceled order ID ${
@@ -428,7 +428,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                         return;
                       }
                       try {
-                        await this.makeRefundTransaction(refundTxn, orderTxn.timestamp, `Unmatched market order part ${orderTxn.orderId}`);
+                        await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `Unmatched market order part ${orderTxn.orderId}`);
                       } catch (error) {
                         this.logger.error(
                           `Chain ${chainSymbol}: Failed to post multisig market order refund transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
