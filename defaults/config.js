@@ -32,5 +32,9 @@ module.exports = {
       exchangeFeeBase: 10000000,
       exchangeFeeRate: .001
     }
-  }
+  },
+  // Set to true to disable the DEX.
+  dexDisabled: false,
+  // This can be used to specify the new address if the DEX has moved to a different wallet.
+  dexMovedToAddress: null
 };
