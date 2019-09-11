@@ -115,6 +115,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             this.currentProcessedHeights[chainSymbol] = event.chainHeight;
           }
           while (this.currentProcessedHeights[chainSymbol] <= event.chainHeight) {
+            let isOnTopHeight = this.currentProcessedHeights[chainSymbol] === event.chainHeight;
             let targetHeight = this.currentProcessedHeights[chainSymbol] - this.options.requiredConfirmations;
 
             let finishProcessing = async () => {
@@ -182,20 +183,22 @@ module.exports = class LiskDEXModule extends BaseModule {
 
               orderTxn.sourceChainAmount = amount;
 
-              if (this.options.dexMovedToAddress) {
-                orderTxn.type = 'moved';
-                orderTxn.movedToAddress = this.options.dexMovedToAddress;
-                this.logger.debug(
-                  `Chain ${chainSymbol}: Cannot process order ${orderTxn.orderId} because the DEX has moved to the address ${this.options.dexMovedToAddress}`
-                );
-                return orderTxn;
-              }
-              if (this.options.dexDisabled) {
-                orderTxn.type = 'disabled';
-                this.logger.debug(
-                  `Chain ${chainSymbol}: Cannot process order ${orderTxn.orderId} because the DEX has been disabled`
-                );
-                return orderTxn;
+              if (isOnTopHeight) {
+                if (this.options.dexMovedToAddress) {
+                  orderTxn.type = 'moved';
+                  orderTxn.movedToAddress = this.options.dexMovedToAddress;
+                  this.logger.debug(
+                    `Chain ${chainSymbol}: Cannot process order ${orderTxn.orderId} because the DEX has moved to the address ${this.options.dexMovedToAddress}`
+                  );
+                  return orderTxn;
+                }
+                if (this.options.dexDisabled) {
+                  orderTxn.type = 'disabled';
+                  this.logger.debug(
+                    `Chain ${chainSymbol}: Cannot process order ${orderTxn.orderId} because the DEX has been disabled`
+                  );
+                  return orderTxn;
+                }
               }
 
               let transferDataString = txn.transferData.toString('utf8');
