@@ -116,8 +116,8 @@ module.exports = class LiskDEXModule extends BaseModule {
           }
           while (this.currentProcessedHeights[chainSymbol] <= event.chainHeight) {
             let targetHeight = this.currentProcessedHeights[chainSymbol] - this.options.requiredConfirmations;
-            let isPastDisabledHeight = this.options.dexDisabledFromHeight != null &&
-              targetHeight >= this.options.dexDisabledFromHeight;
+            let isPastDisabledHeight = chainOptions.dexDisabledFromHeight != null &&
+              targetHeight >= chainOptions.dexDisabledFromHeight;
 
             let finishProcessing = async () => {
               this.currentProcessedHeights[chainSymbol]++;
@@ -185,15 +185,15 @@ module.exports = class LiskDEXModule extends BaseModule {
               orderTxn.sourceChainAmount = amount;
 
               if (isPastDisabledHeight) {
-                if (this.options.dexMovedToAddress) {
+                if (chainOptions.dexMovedToAddress) {
                   orderTxn.type = 'moved';
-                  orderTxn.movedToAddress = this.options.dexMovedToAddress;
+                  orderTxn.movedToAddress = chainOptions.dexMovedToAddress;
                   this.logger.debug(
-                    `Chain ${chainSymbol}: Cannot process order ${orderTxn.orderId} because the DEX has moved to the address ${this.options.dexMovedToAddress}`
+                    `Chain ${chainSymbol}: Cannot process order ${orderTxn.orderId} because the DEX has moved to the address ${chainOptions.dexMovedToAddress}`
                   );
                   return orderTxn;
                 }
-                if (this.options.dexDisabledFromHeight != null) {
+                if (chainOptions.dexDisabledFromHeight != null) {
                   orderTxn.type = 'disabled';
                   this.logger.debug(
                     `Chain ${chainSymbol}: Cannot process order ${orderTxn.orderId} because the DEX has been disabled`

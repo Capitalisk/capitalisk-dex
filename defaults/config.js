@@ -19,7 +19,11 @@ module.exports = {
       // encryptedPassphrase: '' // TODO 2: Use encrypted passphrase
       passphrase: '',
       exchangeFeeBase: 10000000,
-      exchangeFeeRate: .001
+      exchangeFeeRate: .001,
+      // Can be used to disable the DEX starting at a specific height.
+      dexDisabledFromHeight: null,
+      // Can be used to specify the new address if the DEX has moved to a different wallet.
+      dexMovedToAddress: null
     },
     clsk: {
       database: 'capitalisk_test',
@@ -30,11 +34,11 @@ module.exports = {
       // encryptedPassphrase: '' // TODO 2: Use encrypted passphrase
       passphrase: '',
       exchangeFeeBase: 10000000,
-      exchangeFeeRate: .001
+      exchangeFeeRate: .001,
+      // Can be used to disable the DEX starting at a specific height.
+      dexDisabledFromHeight: null,
+      // Can be used to specify the new address if the DEX has moved to a different wallet.
+      dexMovedToAddress: null
     }
-  },
-  // Set to disable the DEX at a specific height.
-  dexDisabledFromHeight: null,
-  // This can be used to specify the new address if the DEX has moved to a different wallet.
-  dexMovedToAddress: null
+  }
 };
