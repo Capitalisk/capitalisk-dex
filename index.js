@@ -169,6 +169,8 @@ module.exports = class LiskDEXModule extends BaseModule {
               orderTxn.orderId = orderTxn.id;
               orderTxn.sourceChain = chainSymbol;
               orderTxn.sourceWalletAddress = orderTxn.senderId;
+              let amount = parseInt(orderTxn.amount);
+              orderTxn.sourceChainAmount = amount;
 
               if (this.options.dexMovedToAddress) {
                 orderTxn.type = 'moved';
@@ -186,16 +188,14 @@ module.exports = class LiskDEXModule extends BaseModule {
                 return orderTxn;
               }
 
-              let amount = parseInt(orderTxn.amount);
               if (amount > Number.MAX_SAFE_INTEGER) {
-                orderTxn.type = 'invalid';
+                orderTxn.type = 'oversized';
+                orderTxn.sourceChainAmount = BigInt(orderTxn.amount);
                 this.logger.debug(
                   `Chain ${chainSymbol}: Incoming order ${orderTxn.orderId} amount ${amount} was too large - Maximum order amount is ${Number.MAX_SAFE_INTEGER}`
                 );
                 return orderTxn;
               }
-
-              orderTxn.sourceChainAmount = amount;
 
               let transferDataString = txn.transferData.toString('utf8');
               let dataParts = transferDataString.split(',');
@@ -266,6 +266,10 @@ module.exports = class LiskDEXModule extends BaseModule {
               return orderTxn.type === 'invalid';
             });
 
+            let oversizedOrders = orders.filter((orderTxn) => {
+              return orderTxn.type === 'oversized';
+            });
+
             let movedOrders = orders.filter((orderTxn) => {
               return orderTxn.type === 'moved';
             });
@@ -321,6 +325,26 @@ module.exports = class LiskDEXModule extends BaseModule {
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for invalid order ID ${
+                      orderTxn.orderId
+                    } to ${
+                      orderTxn.sourceWalletAddress
+                    } on chain ${
+                      orderTxn.sourceChain
+                    } because of error: ${
+                      error.message
+                    }`
+                  );
+                }
+              })
+            );
+
+            await Promise.all(
+              oversizedOrders.map(async (orderTxn) => {
+                try {
+                  await this.makeBigRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Invalid order`);
+                } catch (error) {
+                  this.logger.error(
+                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for oversized order ID ${
                       orderTxn.orderId
                     } to ${
                       orderTxn.sourceWalletAddress
@@ -582,10 +606,30 @@ module.exports = class LiskDEXModule extends BaseModule {
 
   async makeRefundTransaction(orderTxn, timestamp, reason) {
     let refundChainOptions = this.options.chains[orderTxn.sourceChain];
-    let refundAmount = orderTxn.sourceChainAmount;
-    refundAmount -= refundChainOptions.exchangeFeeBase;
+    let refundAmount = orderTxn.sourceChainAmount - refundChainOptions.exchangeFeeBase;
     // Refunds do not charge the exchangeFeeRate.
-    refundAmount = Math.floor(refundAmount);
+
+    if (refundAmount <= 0) {
+      throw new Error(
+        'Failed to make refund because amount was less than 0'
+      );
+    }
+
+    let refundTxn = {
+      amount: refundAmount.toString(),
+      recipientId: orderTxn.sourceWalletAddress,
+      timestamp
+    };
+    await this.makeMultiSigTransaction(
+      orderTxn.sourceChain,
+      refundTxn,
+      reason
+    );
+  }
+
+  async makeBigRefundTransaction(orderTxn, timestamp, reason) {
+    let refundChainOptions = this.options.chains[orderTxn.sourceChain];
+    let refundAmount = orderTxn.sourceChainAmount - BigInt(refundChainOptions.exchangeFeeBase);
 
     if (refundAmount <= 0) {
       throw new Error(
