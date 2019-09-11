@@ -1,6 +1,6 @@
 {
   "name": "lisk-dex",
-  "version": "1.5.5",
+  "version": "1.5.6",
   "description": "Decentralized exchange module.",
   "main": "index.js",
   "scripts": {
