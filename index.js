@@ -165,24 +165,40 @@ module.exports = class LiskDEXModule extends BaseModule {
               [blockData.id, chainOptions.walletAddress],
             )
             .map((txn) => {
-              let transferDataString = txn.transferData.toString('utf8');
-              let dataParts = transferDataString.split(',');
-
               let orderTxn = {...txn};
               orderTxn.orderId = orderTxn.id;
+              orderTxn.sourceChain = chainSymbol;
+              orderTxn.sourceWalletAddress = orderTxn.senderId;
+
+              if (this.options.dexMovedToAddress) {
+                orderTxn.type = 'moved';
+                orderTxn.movedToAddress = this.options.dexMovedToAddress;
+                this.logger.debug(
+                  `Chain ${chainSymbol}: Cannot process order ${orderTxn.orderId} because the DEX has moved to the address ${this.options.dexMovedToAddress}`
+                );
+                return orderTxn;
+              }
+              if (this.options.dexDisabled) {
+                orderTxn.type = 'disabled';
+                this.logger.debug(
+                  `Chain ${chainSymbol}: Cannot process order ${orderTxn.orderId} because the DEX has been disabled`
+                );
+                return orderTxn;
+              }
+
               let amount = parseInt(orderTxn.amount);
               if (amount > Number.MAX_SAFE_INTEGER) {
                 orderTxn.type = 'invalid';
-                orderTxn.targetChain = targetChain;
                 this.logger.debug(
                   `Chain ${chainSymbol}: Incoming order ${orderTxn.orderId} amount ${amount} was too large - Maximum order amount is ${Number.MAX_SAFE_INTEGER}`
                 );
                 return orderTxn;
               }
 
-              orderTxn.sourceChain = chainSymbol;
-              orderTxn.sourceChainAmount = amount; // TODO: Consider switching to BigInt.
-              orderTxn.sourceWalletAddress = orderTxn.senderId;
+              orderTxn.sourceChainAmount = amount;
+
+              let transferDataString = txn.transferData.toString('utf8');
+              let dataParts = transferDataString.split(',');
 
               let targetChain = dataParts[0];
               let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainSymbol;
@@ -204,10 +220,10 @@ module.exports = class LiskDEXModule extends BaseModule {
                 orderTxn.targetWalletAddress = dataParts[3];
                 if (chainSymbol === this.baseChainSymbol) {
                   orderTxn.side = 'bid';
-                  orderTxn.size = Math.floor(amount / orderTxn.price); // TODO: Consider switching to BigInt.
+                  orderTxn.size = Math.floor(amount / orderTxn.price);
                 } else {
                   orderTxn.side = 'ask';
-                  orderTxn.size = amount; // TODO: Consider switching to BigInt.
+                  orderTxn.size = amount;
                 }
               } else if (dataParts[1] === 'market') {
                 // E.g. clsk,market,9205805648791671841L
@@ -218,11 +234,11 @@ module.exports = class LiskDEXModule extends BaseModule {
                 if (chainSymbol === this.baseChainSymbol) {
                   orderTxn.side = 'bid';
                   orderTxn.size = 0;
-                  orderTxn.funds = amount; // TODO: Consider switching to BigInt.
+                  orderTxn.funds = amount;
                 } else {
                   orderTxn.side = 'ask';
-                  orderTxn.size = amount; // TODO: Consider switching to BigInt.
-                  orderTxn.funds = 0; // TODO: Consider switching to BigInt.
+                  orderTxn.size = amount;
+                  orderTxn.funds = 0;
                 }
               } else if (dataParts[1] === 'cancel') {
                 // E.g. clsk,cancel,1787318409505302601
@@ -250,10 +266,58 @@ module.exports = class LiskDEXModule extends BaseModule {
               return orderTxn.type === 'invalid';
             });
 
+            let movedOrders = orders.filter((orderTxn) => {
+              return orderTxn.type === 'moved';
+            });
+
+            let disabledOrders = orders.filter((orderTxn) => {
+              return orderTxn.type === 'disabled';
+            });
+
+            await Promise.all(
+              movedOrders.map(async (orderTxn) => {
+                try {
+                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `m1,${orderTxn.movedToAddress}: DEX has moved`);
+                } catch (error) {
+                  this.logger.error(
+                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for moved DEX order ID ${
+                      orderTxn.orderId
+                    } to ${
+                      orderTxn.sourceWalletAddress
+                    } on chain ${
+                      orderTxn.sourceChain
+                    } because of error: ${
+                      error.message
+                    }`
+                  );
+                }
+              })
+            );
+
+            await Promise.all(
+              disabledOrders.map(async (orderTxn) => {
+                try {
+                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `d1: DEX has been disabled`);
+                } catch (error) {
+                  this.logger.error(
+                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for disabled DEX order ID ${
+                      orderTxn.orderId
+                    } to ${
+                      orderTxn.sourceWalletAddress
+                    } on chain ${
+                      orderTxn.sourceChain
+                    } because of error: ${
+                      error.message
+                    }`
+                  );
+                }
+              })
+            );
+
             await Promise.all(
               invalidOrders.map(async (orderTxn) => {
                 try {
-                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `r1: Invalid order ${orderTxn.orderId}`);
+                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Invalid order`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for invalid order ID ${
@@ -284,7 +348,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   refundTxn.sourceChainAmount = expiredOrder.sizeRemaining;
                 }
                 try {
-                  await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `r2: Expired order ${expiredOrder.orderId}`);
+                  await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `r2,${expiredOrder.orderId}: Expired order`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for expired order ID ${
@@ -345,7 +409,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   return;
                 }
                 try {
-                  await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `r3: Canceled order ${targetOrder.orderId}`);
+                  await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `r3,${targetOrder.orderId}: Canceled order`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for canceled order ID ${
@@ -404,7 +468,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                       await this.makeMultiSigTransaction(
                         takerTargetChain,
                         takerTxn,
-                        `t1: Matched some orders on chain ${result.taker.sourceChain}`
+                        `t1,${result.taker.sourceChain},${result.taker.orderId}: Orders taken`
                       );
                     } catch (error) {
                       this.logger.error(
@@ -428,7 +492,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                         return;
                       }
                       try {
-                        await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `r4: Unmatched market order part ${orderTxn.orderId}`);
+                        await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `r4,${orderTxn.orderId}: Unmatched market order part`);
                       } catch (error) {
                         this.logger.error(
                           `Chain ${chainSymbol}: Failed to post multisig market order refund transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
@@ -465,7 +529,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                           await this.makeMultiSigTransaction(
                             makerOrder.targetChain,
                             makerTxn,
-                            `t2: Matched order ${result.taker.orderId} on chain ${makerOrder.sourceChain}`
+                            `t2,${makerOrder.sourceChain},${makerOrder.orderId},${result.taker.orderId}: Order made`
                           );
                         } catch (error) {
                           this.logger.error(

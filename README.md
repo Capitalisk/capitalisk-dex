@@ -14,12 +14,12 @@ These status codes and messages appear in transactions created by the DEX (as pa
 
 ### Trades:
 
-- t1,${fromChain}: Matched some orders
-- t2,${fromChain},${orderId}: Matched order
+- t1,${takerChain},${takerOrderId}: Orders taken
+- t2,${makerChain},${makerOrderId},${takerOrderId}: Order made
 
 ### Moved:
 
-- m1,${walletAddress}: DEX has moved to a new address
+- m1,${walletAddress}: DEX has moved
 
 ### Stopped operating:
 
