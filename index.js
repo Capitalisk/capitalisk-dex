@@ -170,6 +170,16 @@ module.exports = class LiskDEXModule extends BaseModule {
               orderTxn.sourceChain = chainSymbol;
               orderTxn.sourceWalletAddress = orderTxn.senderId;
               let amount = parseInt(orderTxn.amount);
+
+              if (amount > Number.MAX_SAFE_INTEGER) {
+                orderTxn.type = 'oversized';
+                orderTxn.sourceChainAmount = BigInt(orderTxn.amount);
+                this.logger.debug(
+                  `Chain ${chainSymbol}: Incoming order ${orderTxn.orderId} amount ${orderTxn.sourceChainAmount.toString()} was too large - Maximum order amount is ${Number.MAX_SAFE_INTEGER}`
+                );
+                return orderTxn;
+              }
+
               orderTxn.sourceChainAmount = amount;
 
               if (this.options.dexMovedToAddress) {
@@ -184,15 +194,6 @@ module.exports = class LiskDEXModule extends BaseModule {
                 orderTxn.type = 'disabled';
                 this.logger.debug(
                   `Chain ${chainSymbol}: Cannot process order ${orderTxn.orderId} because the DEX has been disabled`
-                );
-                return orderTxn;
-              }
-
-              if (amount > Number.MAX_SAFE_INTEGER) {
-                orderTxn.type = 'oversized';
-                orderTxn.sourceChainAmount = BigInt(orderTxn.amount);
-                this.logger.debug(
-                  `Chain ${chainSymbol}: Incoming order ${orderTxn.orderId} amount ${amount} was too large - Maximum order amount is ${Number.MAX_SAFE_INTEGER}`
                 );
                 return orderTxn;
               }
@@ -341,7 +342,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             await Promise.all(
               oversizedOrders.map(async (orderTxn) => {
                 try {
-                  await this.makeBigRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Invalid order`);
+                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Invalid order`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for oversized order ID ${
@@ -606,32 +607,10 @@ module.exports = class LiskDEXModule extends BaseModule {
 
   async makeRefundTransaction(orderTxn, timestamp, reason) {
     let refundChainOptions = this.options.chains[orderTxn.sourceChain];
-    let refundAmount = orderTxn.sourceChainAmount - refundChainOptions.exchangeFeeBase;
+    let refundAmount = BigInt(orderTxn.sourceChainAmount) - BigInt(refundChainOptions.exchangeFeeBase);
     // Refunds do not charge the exchangeFeeRate.
 
-    if (refundAmount <= 0) {
-      throw new Error(
-        'Failed to make refund because amount was less than 0'
-      );
-    }
-
-    let refundTxn = {
-      amount: refundAmount.toString(),
-      recipientId: orderTxn.sourceWalletAddress,
-      timestamp
-    };
-    await this.makeMultiSigTransaction(
-      orderTxn.sourceChain,
-      refundTxn,
-      reason
-    );
-  }
-
-  async makeBigRefundTransaction(orderTxn, timestamp, reason) {
-    let refundChainOptions = this.options.chains[orderTxn.sourceChain];
-    let refundAmount = orderTxn.sourceChainAmount - BigInt(refundChainOptions.exchangeFeeBase);
-
-    if (refundAmount <= 0) {
+    if (refundAmount <= 0n) {
       throw new Error(
         'Failed to make refund because amount was less than 0'
       );
