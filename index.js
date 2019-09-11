@@ -409,7 +409,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   return;
                 }
                 try {
-                  await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `r3,${targetOrder.orderId}: Canceled order`);
+                  await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `r3,${targetOrder.orderId},${orderTxn.orderId}: Canceled order`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for canceled order ID ${

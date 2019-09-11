@@ -9,7 +9,7 @@ These status codes and messages appear in transactions created by the DEX (as pa
 
 - r1,${orderId}: Invalid order
 - r2,${orderId}: Expired order
-- r3,${orderId}: Canceled order
+- r3,${orderId},${cancelOrderId}: Canceled order
 - r4,${orderId}: Unmatched market order part
 
 ### Trades:
