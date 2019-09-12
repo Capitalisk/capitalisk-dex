@@ -17,10 +17,10 @@ These status codes and messages appear in transactions created by the DEX (as pa
 - t1,${takerChain},${takerOrderId}: Orders taken
 - t2,${makerChain},${makerOrderId},${takerOrderId}: Order made
 
-### Moved:
+### Moved DEX:
 
 - m1,${walletAddress}: DEX has moved
 
-### Stopped operating:
+### Disabled DEX:
 
 - d1: DEX has been disabled
