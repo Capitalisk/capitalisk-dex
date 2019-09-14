@@ -206,10 +206,11 @@ module.exports = class LiskDEXModule extends BaseModule {
               let dataParts = transferDataString.split(',');
 
               let targetChain = dataParts[0];
+              orderTxn.targetChain = targetChain;
               let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainSymbol;
               if (!isSupportedChain) {
                 orderTxn.type = 'invalid';
-                orderTxn.targetChain = targetChain;
+                orderTxn.reason = 'Invalid target chain';
                 this.logger.debug(
                   `Chain ${chainSymbol}: Incoming order ${orderTxn.orderId} has an invalid target chain ${targetChain}`
                 );
@@ -218,11 +219,29 @@ module.exports = class LiskDEXModule extends BaseModule {
 
               if (dataParts[1] === 'limit') {
                 // E.g. clsk,limit,.5,9205805648791671841L
+                let price = parseFloat(dataParts[2]);
+                let targetWalletAddress = dataParts[3];
+                if (isNaN(price)) {
+                  orderTxn.type = 'invalid';
+                  orderTxn.reason = 'Invalid price';
+                  this.logger.debug(
+                    `Chain ${chainSymbol}: Incoming limit order ${orderTxn.orderId} has an invalid price`
+                  );
+                  return orderTxn;
+                }
+                if (!targetWalletAddress) {
+                  orderTxn.type = 'invalid';
+                  orderTxn.reason = 'Invalid wallet address';
+                  this.logger.debug(
+                    `Chain ${chainSymbol}: Incoming limit order ${orderTxn.orderId} has an invalid wallet address`
+                  );
+                  return orderTxn;
+                }
+
                 orderTxn.type = 'limit';
                 orderTxn.height = targetHeight;
-                orderTxn.price = parseFloat(dataParts[2]);
-                orderTxn.targetChain = targetChain;
-                orderTxn.targetWalletAddress = dataParts[3];
+                orderTxn.price = price;
+                orderTxn.targetWalletAddress = targetWalletAddress;
                 if (chainSymbol === this.baseChainSymbol) {
                   orderTxn.side = 'bid';
                   orderTxn.size = Math.floor(amount / orderTxn.price);
@@ -232,10 +251,18 @@ module.exports = class LiskDEXModule extends BaseModule {
                 }
               } else if (dataParts[1] === 'market') {
                 // E.g. clsk,market,9205805648791671841L
+                let targetWalletAddress = dataParts[2];
+                if (!targetWalletAddress) {
+                  orderTxn.type = 'invalid';
+                  orderTxn.reason = 'Invalid wallet address';
+                  this.logger.debug(
+                    `Chain ${chainSymbol}: Incoming market order ${orderTxn.orderId} has an invalid wallet address`
+                  );
+                  return orderTxn;
+                }
                 orderTxn.type = 'market';
                 orderTxn.height = targetHeight;
-                orderTxn.targetChain = targetChain;
-                orderTxn.targetWalletAddress = dataParts[2];
+                orderTxn.targetWalletAddress = targetWalletAddress;
                 if (chainSymbol === this.baseChainSymbol) {
                   orderTxn.side = 'bid';
                   orderTxn.size = 0;
@@ -247,11 +274,21 @@ module.exports = class LiskDEXModule extends BaseModule {
                 }
               } else if (dataParts[1] === 'cancel') {
                 // E.g. clsk,cancel,1787318409505302601
+                let targetOrderId = dataParts[2];
+                if (!targetOrderId) {
+                  orderTxn.type = 'invalid';
+                  orderTxn.reason = 'Invalid order ID';
+                  this.logger.debug(
+                    `Chain ${chainSymbol}: Incoming cancel order ${orderTxn.orderId} has an invalid order ID`
+                  );
+                  return orderTxn;
+                }
                 orderTxn.type = 'cancel';
                 orderTxn.height = targetHeight;
-                orderTxn.orderIdToCancel = dataParts[2];
+                orderTxn.orderIdToCancel = targetOrderId;
               } else {
                 orderTxn.type = 'invalid';
+                orderTxn.reason = 'Invalid operation';
                 this.logger.debug(
                   `Chain ${chainSymbol}: Incoming transaction ${orderTxn.orderId} is not a supported DEX order`
                 );
@@ -325,8 +362,12 @@ module.exports = class LiskDEXModule extends BaseModule {
 
             await Promise.all(
               invalidOrders.map(async (orderTxn) => {
+                let reasonMessage = 'Invalid order';
+                if (orderTxn.reason) {
+                  reasonMessage += ` - ${orderTxn.reason}`;
+                }
                 try {
-                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Invalid order`);
+                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: ${reasonMessage}`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for invalid order ID ${
