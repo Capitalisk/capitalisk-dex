@@ -613,14 +613,13 @@ module.exports = class LiskDEXModule extends BaseModule {
 
             if (isPastDisabledHeight && targetHeight === chainOptions.dexDisabledFromHeight) {
               if (chainOptions.dexMovedToAddress) {
-                this.refundOrderBook(
+                await this.refundOrderBook(
                   chainSymbol,
-                  targetHeight,
                   latestBlockTimestamp,
                   chainOptions.dexMovedToAddress
                 );
               } else {
-                this.refundOrderBook(chainSymbol, targetHeight, latestBlockTimestamp);
+                await this.refundOrderBook(chainSymbol, latestBlockTimestamp);
               }
             }
 
@@ -661,7 +660,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     channel.publish(`${MODULE_ALIAS}:bootstrap`);
   }
 
-  async refundOrderBook(chainSymbol, height, timestamp, movedToAddress) {
+  async refundOrderBook(chainSymbol, timestamp, movedToAddress) {
     let snapshot = this.tradeEngine.getSnapshot();
 
     let ordersToRefund;
@@ -672,11 +671,9 @@ module.exports = class LiskDEXModule extends BaseModule {
       ordersToRefund = snapshot.askLimitOrders;
       snapshot.askLimitOrders = [];
     }
-    let chainHeights = {};
-    chainHeights[chainSymbol] = height;
 
     this.tradeEngine.setSnapshot(snapshot);
-    await this.saveSnapshot(chainHeights);
+    await this.saveSnapshot();
 
     if (movedToAddress) {
       await Promise.all(
@@ -775,17 +772,12 @@ module.exports = class LiskDEXModule extends BaseModule {
     });
   }
 
-  async saveSnapshot(chainHeights) {
+  async saveSnapshot() {
     let snapshot = {};
     snapshot.orderBook = this.tradeEngine.getSnapshot();
     snapshot.chainHeights = {};
     Object.keys(this.currentProcessedHeights).forEach((chainSymbol) => {
-      let targetHeight;
-      if (chainHeights && chainHeights[chainSymbol] != null) {
-        targetHeight = chainHeights[chainSymbol];
-      } else {
-        targetHeight = this.currentProcessedHeights[chainSymbol];
-      }
+      let targetHeight = this.currentProcessedHeights[chainSymbol];
       if (targetHeight < 0) {
         targetHeight = 0;
       }
