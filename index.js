@@ -193,13 +193,11 @@ module.exports = class LiskDEXModule extends BaseModule {
                   );
                   return orderTxn;
                 }
-                if (chainOptions.dexDisabledFromHeight != null) {
-                  orderTxn.type = 'disabled';
-                  this.logger.debug(
-                    `Chain ${chainSymbol}: Cannot process order ${orderTxn.orderId} because the DEX has been disabled`
-                  );
-                  return orderTxn;
-                }
+                orderTxn.type = 'disabled';
+                this.logger.debug(
+                  `Chain ${chainSymbol}: Cannot process order ${orderTxn.orderId} because the DEX has been disabled`
+                );
+                return orderTxn;
               }
 
               let transferDataString = txn.transferData.toString('utf8');
@@ -323,7 +321,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             await Promise.all(
               movedOrders.map(async (orderTxn) => {
                 try {
-                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `m1,${orderTxn.movedToAddress}: DEX has moved`);
+                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `r5,${orderTxn.orderId},${orderTxn.movedToAddress}: DEX has moved`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for moved DEX order ID ${
@@ -343,7 +341,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             await Promise.all(
               disabledOrders.map(async (orderTxn) => {
                 try {
-                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `d1: DEX has been disabled`);
+                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `r6,${orderTxn.orderId}: DEX has been disabled`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for disabled DEX order ID ${
@@ -613,6 +611,18 @@ module.exports = class LiskDEXModule extends BaseModule {
               })
             );
 
+            if (isPastDisabledHeight) {
+              if (chainOptions.dexMovedToAddress) {
+                this.refundOrderBook(
+                  chainSymbol,
+                  latestBlockTimestamp,
+                  chainOptions.dexMovedToAddress
+                );
+              } else {
+                this.refundOrderBook(chainSymbol, latestBlockTimestamp);
+              }
+            }
+
             await finishProcessing();
           }
         }
@@ -648,6 +658,41 @@ module.exports = class LiskDEXModule extends BaseModule {
       });
     });
     channel.publish(`${MODULE_ALIAS}:bootstrap`);
+  }
+
+  async refundOrderBook(chainSymbol, timestamp, movedToAddress) {
+    let snapshot = this.tradeEngine.getSnapshot();
+
+    let orders;
+    if (chainSymbol === this.baseChainSymbol) {
+      orders = snapshot.bidLimitOrders;
+    } else {
+      orders = snapshot.askLimitOrders;
+    }
+
+    if (movedToAddress) {
+      await Promise.all(
+        orders.map(async (order) => {
+          await this.makeRefundTransaction(
+            order,
+            timestamp,
+            `r5,${order.orderId},${movedToAddress}: DEX has moved`
+          );
+        })
+      );
+    } else {
+      await Promise.all(
+        orders.map(async (order) => {
+          await this.makeRefundTransaction(
+            order,
+            timestamp,
+            `r6,${order.orderId}: DEX has been disabled`
+          );
+        })
+      );
+    }
+
+    await this.saveSnapshot();
   }
 
   async makeRefundTransaction(orderTxn, timestamp, reason) {
