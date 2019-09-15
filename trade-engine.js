@@ -25,19 +25,26 @@ class TradeEngine {
     this.orderBook = new LimitOrderBook();
 
     this._orderNodeLookup = {};
-    this._expiryLinkedListHead = {prev: null, order: null};
-    this._expiryLinkedListTail = {next: null, order: null};
-    this._expiryLinkedListHead.next = this._expiryLinkedListTail;
-    this._expiryLinkedListTail.prev = this._expiryLinkedListHead;
+
+    this._bidsExpiryListHead = {prev: null, order: null};
+    this._bidsExpiryListTail = {next: null, order: null};
+    this._bidsExpiryListHead.next = this._bidsExpiryListTail;
+    this._bidsExpiryListTail.prev = this._bidsExpiryListHead;
+
+    this._asksExpiryListHead = {prev: null, order: null};
+    this._asksExpiryListTail = {next: null, order: null};
+    this._asksExpiryListHead.next = this._asksExpiryListTail;
+    this._asksExpiryListTail.prev = this._asksExpiryListHead;
   }
 
   _addToExpiryList(order) {
+    let expiryListTail = order.side === 'ask' ? this._asksExpiryListTail : this._bidsExpiryListTail;
     let newNode = {
-      prev: this._expiryLinkedListTail.prev,
-      next: this._expiryLinkedListTail,
+      prev: expiryListTail.prev,
+      next: expiryListTail,
       order
     };
-    this._expiryLinkedListTail.prev = newNode;
+    expiryListTail.prev = newNode;
     newNode.prev.next = newNode;
     this._orderNodeLookup[order.orderId] = newNode;
   }
@@ -58,12 +65,26 @@ class TradeEngine {
 
   _clearExpiryList() {
     this._orderNodeLookup = {};
-    this._expiryLinkedListHead.next = this._expiryLinkedListTail;
-    this._expiryLinkedListTail.prev = this._expiryLinkedListHead;
+    this._bidsExpiryListHead.next = this._bidsExpiryListTail;
+    this._bidsExpiryListTail.prev = this._bidsExpiryListHead;
+    this._asksExpiryListHead.next = this._asksExpiryListTail;
+    this._asksExpiryListTail.prev = this._asksExpiryListHead;
   }
 
-  expireOrders(heightThreshold) {
-    let currentNode = this._expiryLinkedListHead.next;
+  expireBidOrders(heightThreshold) {
+    let currentNode = this._bidsExpiryListHead.next;
+    let expiredOrders = [];
+    while (currentNode && currentNode.order && currentNode.order.height < heightThreshold) {
+      let orderId = currentNode.order.orderId;
+      expiredOrders.push(currentNode.order);
+      this._removeFromExpiryList(orderId);
+      currentNode = currentNode.next;
+    }
+    return expiredOrders;
+  }
+
+  expireAskOrders(heightThreshold) {
+    let currentNode = this._asksExpiryListHead.next;
     let expiredOrders = [];
     while (currentNode && currentNode.order && currentNode.order.height < heightThreshold) {
       let orderId = currentNode.order.orderId;

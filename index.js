@@ -404,7 +404,12 @@ module.exports = class LiskDEXModule extends BaseModule {
 
             let heightExpiryThreshold = targetHeight - this.options.orderHeightExpiry;
             if (heightExpiryThreshold > 0) {
-              let expiredOrders = this.tradeEngine.expireOrders(heightExpiryThreshold);
+              let expiredOrders;
+              if (chainSymbol === this.baseChainSymbol) {
+                expiredOrders = this.tradeEngine.expireBidOrders(heightExpiryThreshold);
+              } else {
+                expiredOrders = this.tradeEngine.expireAskOrders(heightExpiryThreshold);
+              }
               expiredOrders.forEach(async (expiredOrder) => {
                 let refundTxn = {
                   sourceChain: expiredOrder.sourceChain,
