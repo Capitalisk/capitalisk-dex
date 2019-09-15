@@ -122,7 +122,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             let finishProcessing = async (timestamp) => {
               this.currentProcessedHeights[chainSymbol]++;
 
-              if (timestamp != null && isPastDisabledHeight && targetHeight === chainOptions.dexDisabledFromHeight) {
+              if (timestamp != null && isPastDisabledHeight && targetHeight === chainOptions.dexDisabledFromHeight + 1) {
                 if (chainOptions.dexMovedToAddress) {
                   await this.refundOrderBook(
                     chainSymbol,
