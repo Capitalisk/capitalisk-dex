@@ -95,6 +95,7 @@ class TradeEngine {
     newOrder.sourceChain = order.sourceChain;
     newOrder.sourceChainAmount = order.sourceChainAmount;
     newOrder.sourceWalletAddress = order.sourceWalletAddress;
+    newOrder.height = order.height;
     newOrder.timestamp = order.timestamp;
 
     let result = this.orderBook.add(newOrder);

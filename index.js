@@ -615,11 +615,12 @@ module.exports = class LiskDEXModule extends BaseModule {
               if (chainOptions.dexMovedToAddress) {
                 this.refundOrderBook(
                   chainSymbol,
+                  targetHeight,
                   latestBlockTimestamp,
                   chainOptions.dexMovedToAddress
                 );
               } else {
-                this.refundOrderBook(chainSymbol, latestBlockTimestamp);
+                this.refundOrderBook(chainSymbol, targetHeight, latestBlockTimestamp);
               }
             }
 
@@ -660,21 +661,26 @@ module.exports = class LiskDEXModule extends BaseModule {
     channel.publish(`${MODULE_ALIAS}:bootstrap`);
   }
 
-  async refundOrderBook(chainSymbol, timestamp, movedToAddress) {
+  async refundOrderBook(chainSymbol, height, timestamp, movedToAddress) {
     let snapshot = this.tradeEngine.getSnapshot();
-    this.tradeEngine.clear();
-    await this.saveSnapshot();
 
-    let orders;
+    let ordersToRefund;
     if (chainSymbol === this.baseChainSymbol) {
-      orders = snapshot.bidLimitOrders;
+      ordersToRefund = snapshot.bidLimitOrders;
+      snapshot.bidLimitOrders = [];
     } else {
-      orders = snapshot.askLimitOrders;
+      ordersToRefund = snapshot.askLimitOrders;
+      snapshot.askLimitOrders = [];
     }
+    let chainHeights = {};
+    chainHeights[chainSymbol] = height;
+
+    this.tradeEngine.setSnapshot(snapshot);
+    await this.saveSnapshot(chainHeights);
 
     if (movedToAddress) {
       await Promise.all(
-        orders.map(async (order) => {
+        ordersToRefund.map(async (order) => {
           await this.makeRefundTransaction(
             order,
             timestamp,
@@ -684,7 +690,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       );
     } else {
       await Promise.all(
-        orders.map(async (order) => {
+        ordersToRefund.map(async (order) => {
           await this.makeRefundTransaction(
             order,
             timestamp,
@@ -769,12 +775,17 @@ module.exports = class LiskDEXModule extends BaseModule {
     });
   }
 
-  async saveSnapshot() {
+  async saveSnapshot(chainHeights) {
     let snapshot = {};
     snapshot.orderBook = this.tradeEngine.getSnapshot();
     snapshot.chainHeights = {};
     Object.keys(this.currentProcessedHeights).forEach((chainSymbol) => {
-      let targetHeight = this.currentProcessedHeights[chainSymbol];
+      let targetHeight;
+      if (chainHeights && chainHeights[chainSymbol] != null) {
+        targetHeight = chainHeights[chainSymbol];
+      } else {
+        targetHeight = this.currentProcessedHeights[chainSymbol];
+      }
       if (targetHeight < 0) {
         targetHeight = 0;
       }
