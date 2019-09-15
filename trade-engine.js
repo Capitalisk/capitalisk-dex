@@ -67,9 +67,9 @@ class TradeEngine {
     let expiredOrders = [];
     while (currentNode && currentNode.order && currentNode.order.height < heightThreshold) {
       let orderId = currentNode.order.orderId;
-      currentNode = currentNode.next;
       expiredOrders.push(currentNode.order);
       this._removeFromExpiryList(orderId);
+      currentNode = currentNode.next;
     }
     return expiredOrders;
   }
@@ -181,6 +181,24 @@ class TradeEngine {
 
   setSnapshot(snapshot) {
     this.clear();
+    snapshot.askLimitOrders.sort((a, b) => {
+      if (a.height > b.height) {
+        return 1;
+      }
+      if (a.height < b.height) {
+        return -1;
+      }
+      return 0;
+    });
+    snapshot.bidLimitOrders.sort((a, b) => {
+      if (a.height > b.height) {
+        return 1;
+      }
+      if (a.height < b.height) {
+        return -1;
+      }
+      return 0;
+    });
     snapshot.askLimitOrders.forEach((order) => {
       let newOrder = this._createOrderInstance(order);
       this._addToExpiryList(newOrder);
