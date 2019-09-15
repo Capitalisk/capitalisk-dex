@@ -119,9 +119,20 @@ module.exports = class LiskDEXModule extends BaseModule {
             let isPastDisabledHeight = chainOptions.dexDisabledFromHeight != null &&
               targetHeight >= chainOptions.dexDisabledFromHeight;
 
-            let finishProcessing = async () => {
+            let finishProcessing = async (timestamp) => {
               this.currentProcessedHeights[chainSymbol]++;
-              if (chainSymbol === this.baseChainSymbol) {
+
+              if (timestamp != null && isPastDisabledHeight && targetHeight === chainOptions.dexDisabledFromHeight) {
+                if (chainOptions.dexMovedToAddress) {
+                  await this.refundOrderBook(
+                    chainSymbol,
+                    timestamp,
+                    chainOptions.dexMovedToAddress
+                  );
+                } else {
+                  await this.refundOrderBook(chainSymbol, timestamp);
+                }
+              } else if (chainSymbol === this.baseChainSymbol) {
                 let lastSnapshotHeight = this.lastSnapshotHeights[chainSymbol];
                 if (targetHeight > lastSnapshotHeight + this.options.orderBookSnapshotFinality) {
                   try {
@@ -152,15 +163,17 @@ module.exports = class LiskDEXModule extends BaseModule {
               await finishProcessing();
               continue;
             }
+
+            let latestBlockTimestamp = blockData.timestamp;
+
             if (!blockData.numberOfTransactions) {
               this.logger.trace(
                 `Chain ${chainSymbol}: No transactions in block ${blockData.id} at height ${targetHeight}`
               );
 
-              await finishProcessing();
+              await finishProcessing(latestBlockTimestamp);
               continue;
             }
-            let latestBlockTimestamp = blockData.timestamp;
 
             let orders = await storage.adapter.db.query(
               'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."transferData" is not null and trs."recipientId" = $2',
@@ -616,19 +629,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               })
             );
 
-            if (isPastDisabledHeight && targetHeight === chainOptions.dexDisabledFromHeight) {
-              if (chainOptions.dexMovedToAddress) {
-                await this.refundOrderBook(
-                  chainSymbol,
-                  latestBlockTimestamp,
-                  chainOptions.dexMovedToAddress
-                );
-              } else {
-                await this.refundOrderBook(chainSymbol, latestBlockTimestamp);
-              }
-            }
-
-            await finishProcessing();
+            await finishProcessing(latestBlockTimestamp);
           }
         }
       })();
