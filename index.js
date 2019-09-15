@@ -662,6 +662,8 @@ module.exports = class LiskDEXModule extends BaseModule {
 
   async refundOrderBook(chainSymbol, timestamp, movedToAddress) {
     let snapshot = this.tradeEngine.getSnapshot();
+    this.tradeEngine.clear();
+    await this.saveSnapshot();
 
     let orders;
     if (chainSymbol === this.baseChainSymbol) {
@@ -691,8 +693,6 @@ module.exports = class LiskDEXModule extends BaseModule {
         })
       );
     }
-
-    await this.saveSnapshot();
   }
 
   async makeRefundTransaction(orderTxn, timestamp, reason) {
