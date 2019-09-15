@@ -611,7 +611,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               })
             );
 
-            if (isPastDisabledHeight) {
+            if (isPastDisabledHeight && targetHeight === chainOptions.dexDisabledFromHeight) {
               if (chainOptions.dexMovedToAddress) {
                 this.refundOrderBook(
                   chainSymbol,
