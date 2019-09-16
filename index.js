@@ -710,7 +710,8 @@ module.exports = class LiskDEXModule extends BaseModule {
 
   async makeRefundTransaction(txn, timestamp, reason) {
     let refundChainOptions = this.options.chains[txn.sourceChain];
-    let refundAmount = BigInt(txn.sourceChainAmount) - BigInt(refundChainOptions.exchangeFeeBase);
+    let flooredAmount = Math.floor(txn.sourceChainAmount);
+    let refundAmount = BigInt(flooredAmount) - BigInt(refundChainOptions.exchangeFeeBase);
     // Refunds do not charge the exchangeFeeRate.
 
     if (refundAmount <= 0n) {
