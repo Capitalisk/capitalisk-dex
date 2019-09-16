@@ -424,17 +424,8 @@ module.exports = class LiskDEXModule extends BaseModule {
                 expiredOrders = this.tradeEngine.expireAskOrders(heightExpiryThreshold);
               }
               expiredOrders.forEach(async (expiredOrder) => {
-                let refundTxn = {
-                  sourceChain: expiredOrder.sourceChain,
-                  sourceWalletAddress: expiredOrder.sourceWalletAddress
-                };
-                if (refundTxn.sourceChain === this.baseChainSymbol) {
-                  refundTxn.sourceChainAmount = expiredOrder.sizeRemaining * expiredOrder.price;
-                } else {
-                  refundTxn.sourceChainAmount = expiredOrder.sizeRemaining;
-                }
                 try {
-                  await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `r2,${expiredOrder.orderId}: Expired order`);
+                  await this.refundOrder(expiredOrder, latestBlockTimestamp, `r2,${expiredOrder.orderId}: Expired order`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for expired order ID ${
@@ -684,7 +675,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     if (movedToAddress) {
       await Promise.all(
         ordersToRefund.map(async (order) => {
-          await this.makeRefundTransaction(
+          await this.refundOrder(
             order,
             timestamp,
             `r5,${order.orderId},${movedToAddress}: DEX has moved`
@@ -694,7 +685,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     } else {
       await Promise.all(
         ordersToRefund.map(async (order) => {
-          await this.makeRefundTransaction(
+          await this.refundOrder(
             order,
             timestamp,
             `r6,${order.orderId}: DEX has been disabled`
@@ -704,9 +695,22 @@ module.exports = class LiskDEXModule extends BaseModule {
     }
   }
 
-  async makeRefundTransaction(orderTxn, timestamp, reason) {
-    let refundChainOptions = this.options.chains[orderTxn.sourceChain];
-    let refundAmount = BigInt(orderTxn.sourceChainAmount) - BigInt(refundChainOptions.exchangeFeeBase);
+  async refundOrder(order, timestamp, reason) {
+    let refundTxn = {
+      sourceChain: order.sourceChain,
+      sourceWalletAddress: order.sourceWalletAddress
+    };
+    if (order.sourceChain === this.baseChainSymbol) {
+      refundTxn.sourceChainAmount = order.sizeRemaining * order.price;
+    } else {
+      refundTxn.sourceChainAmount = order.sizeRemaining;
+    }
+    await this.makeRefundTransaction(refundTxn, timestamp, reason);
+  }
+
+  async makeRefundTransaction(txn, timestamp, reason) {
+    let refundChainOptions = this.options.chains[txn.sourceChain];
+    let refundAmount = BigInt(txn.sourceChainAmount) - BigInt(refundChainOptions.exchangeFeeBase);
     // Refunds do not charge the exchangeFeeRate.
 
     if (refundAmount <= 0n) {
@@ -717,11 +721,11 @@ module.exports = class LiskDEXModule extends BaseModule {
 
     let refundTxn = {
       amount: refundAmount.toString(),
-      recipientId: orderTxn.sourceWalletAddress,
+      recipientId: txn.sourceWalletAddress,
       timestamp
     };
     await this.makeMultiSigTransaction(
-      orderTxn.sourceChain,
+      txn.sourceChain,
       refundTxn,
       reason
     );
