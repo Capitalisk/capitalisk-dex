@@ -15,6 +15,7 @@ const readFile = util.promisify(fs.readFile);
 const WritableConsumableStream = require('writable-consumable-stream');
 
 const MODULE_ALIAS = 'lisk_dex';
+const REFUND_ORDER_BOOK_HEIGHT_DELAY = 5;
 
 /**
  * Lisk DEX module specification
@@ -122,7 +123,11 @@ module.exports = class LiskDEXModule extends BaseModule {
             let finishProcessing = async (timestamp) => {
               this.currentProcessedHeights[chainSymbol]++;
 
-              if (timestamp != null && isPastDisabledHeight && targetHeight === chainOptions.dexDisabledFromHeight + 1) {
+              if (
+                timestamp != null &&
+                isPastDisabledHeight &&
+                targetHeight === chainOptions.dexDisabledFromHeight + REFUND_ORDER_BOOK_HEIGHT_DELAY
+              ) {
                 if (chainOptions.dexMovedToAddress) {
                   await this.refundOrderBook(
                     chainSymbol,
