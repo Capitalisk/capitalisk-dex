@@ -5,8 +5,9 @@ const BaseModule = require('lisk-framework/src/modules/base_module');
 const { createStorageComponent } = require('lisk-framework/src/components/storage');
 const { createLoggerComponent } = require('lisk-framework/src/components/logger');
 const TradeEngine = require('./trade-engine');
-const liskTransactions = require('@liskhq/lisk-transactions');
 const liskCryptography = require('@liskhq/lisk-cryptography');
+const liskTransactions = require('@liskhq/lisk-transactions');
+const { BaseTransaction } = liskTransactions;
 const fs = require('fs');
 const util = require('util');
 const writeFile = util.promisify(fs.writeFile);
@@ -28,19 +29,26 @@ module.exports = class LiskDEXModule extends BaseModule {
     super({...defaultConfig, ...options});
     this.chainSymbols = Object.keys(this.options.chains);
     if (this.chainSymbols.length !== 2) {
-      throw new Error('The DEX module must operate on exactly 2 chains only');
+      throw new Error('The DEX module must operate only on 2 chains');
     }
     this.progressingChains = {};
     this.currentProcessedHeights = {};
     this.lastSnapshotHeights = {};
+    this.pendingTransactions = new Map();
     this.chainSymbols.forEach((chainSymbol) => {
       this.currentProcessedHeights[chainSymbol] = 0;
       this.lastSnapshotHeights[chainSymbol] = 0;
       this.progressingChains[chainSymbol] = true;
+      this.multisigWalletInfo[chainSymbol] = {
+        members: {},
+        requiredSignatureCount: null
+      };
     });
 
     this.baseChainSymbol = this.options.baseChain;
     this.quoteChainSymbol = this.chainSymbols.find(chain => chain !== this.baseChainSymbol);
+    this.baseAddress = this.options.chains[this.baseChainSymbol].walletAddress;
+    this.quoteAddress = this.options.chains[this.quoteChainSymbol].walletAddress;
     this.tradeEngine = new TradeEngine({
       baseCurrency: this.baseChainSymbol,
       quoteCurrency: this.quoteChainSymbol
@@ -78,8 +86,125 @@ module.exports = class LiskDEXModule extends BaseModule {
     return {};
   }
 
+  _transactionHasEnoughSignatures(targetChain, transaction) {
+    return transaction.signatures.length >= this.multisigWalletInfo[targetChain].requiredSignatureCount;
+  }
+
+  _verifySignature(targetChain, publicKey, transaction, signature) {
+    let isValidMemberSignature = this.multisigWalletInfo[targetChain].members[publicKey];
+    if (!isValidMemberSignature) {
+      return false;
+    }
+    let baseTxn = new BaseTransaction(transaction);
+    // This method needs to be overriden or else baseTxn.getBasicBytes() will not be computed correctly and verification will fail.
+    baseTxn.assetToBytes = function () {
+      return Buffer.alloc(0);
+    };
+    let transactionHash = liskCryptography.hash(baseTxn.getBasicBytes());
+    return liskCryptography.verifyData(transactionHash, signature, publicKey);
+  }
+
+  _processSignature(signatureData) {
+    let transactionData = this.pendingTransactions.get(signatureData.transactionId);
+    let signature = signatureData.signature;
+    let publicKey = signatureData.publicKey;
+    if (!transactionData) {
+      return {
+        isReady: false,
+        isAccepted: false,
+        targetChain: null,
+        transaction: null,
+        signature,
+        publicKey
+      };
+    }
+    let {transaction, processedSignatureSet, targetChain} = transactionData;
+    if (processedSignatureSet.has(signature)) {
+      return {
+        isReady: false,
+        isAccepted: false,
+        targetChain,
+        transaction,
+        signature,
+        publicKey
+      };
+    }
+
+    let isValidSignature = this._verifySignature(targetChain, signatureData.publicKey, transaction, signature);
+    if (!isValidSignature) {
+      return {
+        isReady: false,
+        isAccepted: false,
+        targetChain,
+        transaction,
+        signature,
+        publicKey
+      };
+    }
+    processedSignatureSet.add(signature);
+    transaction.signatures.push(signature);
+
+    let hasEnoughSignatures = this._transactionHasEnoughSignatures(targetChain, transaction);
+    return {
+      isReady: hasEnoughSignatures,
+      isAccepted: true,
+      targetChain,
+      transaction,
+      signature,
+      publicKey
+    };
+  }
+
+  expireMultisigTransactions() {
+    let now = Date.now();
+    for (let [txnId, txnData] of this.pendingTransactions) {
+      if (now - txnData.timestamp < this.options.multisigExpiry) {
+        break;
+      }
+      this.pendingTransactions.delete(txnId);
+    }
+  }
+
   async load(channel) {
     this.channel = channel;
+
+    this._multisigExpiryInterval = setInterval(() => {
+      this.expireMultisigTransactions();
+    }, this.options.multisigExpiryCheckInterval);
+
+    await this.channel.invoke('interchain:updateModuleState', {
+      lisk_dex: {
+        baseAddress: this.baseAddress,
+        quoteAddress: this.quoteAddress
+      }
+    });
+
+    this.channel.subscribe('network:event', async (payload) => {
+      if (!payload) {
+        payload = {};
+      }
+      let {event, data} = payload.data || {};
+      if (event === 'signature') {
+        let signatureData = data || {};
+        let result = this._processSignature(signatureData);
+
+        if (result.isReady) {
+          let targetChain = result.targetChain;
+          this.pendingTransactions.delete(result.transaction.id);
+          let chainOptions = this.options.chains[targetChain];
+          if (chainOptions && chainOptions.moduleAlias) {
+            await this.channel.invoke(
+              `${chainOptions.moduleAlias}:postTransaction`,
+              {transaction: result.transaction}
+            );
+          }
+        } else if (result.isAccepted) {
+          // Propagate valid signature to peers who are members of the DEX subnet.
+          await this._broadcastSignatureToSubnet(result.transaction.id, result.signature, result.publicKey);
+        }
+        return;
+      }
+    });
 
     let loggerConfig = await channel.invoke(
       'app:getComponentConfig',
@@ -98,16 +223,46 @@ module.exports = class LiskDEXModule extends BaseModule {
       'app:getComponentConfig',
       'storage',
     );
+
+    let storageComponents = {};
+
+    await Promise.all(
+      this.chainSymbols.map(async (chainSymbol) => {
+        let chainOptions = this.options.chains[chainSymbol];
+        let storageConfig = {
+          ...storageConfigOptions,
+          database: chainOptions.database,
+        };
+        let storage = createStorageComponent(storageConfig, this.logger);
+        await storage.bootstrap();
+        storageComponents[chainSymbol] = storage;
+
+        // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+        let multisigMemberRows = await storage.adapter.db.query(
+          'select mem_accounts2multisignatures."dependentId" from mem_accounts2multisignatures where mem_accounts2multisignatures."accountId" = $1',
+          [chainOptions.walletAddress],
+        );
+
+        multisigMemberRows.forEach((row) => {
+          this.multisigWalletInfo[chainSymbol].members[row.dependentId] = true;
+        });
+
+        let multisigMemberMinSigRows = await storage.adapter.db.query(
+          'select multimin from mem_accounts where address = $1',
+          [chainOptions.walletAddress],
+        );
+
+        multisigMemberMinSigRows.forEach((row) => {
+          this.multisigWalletInfo[chainSymbol].requiredSignatureCount = Number(row.multimin);
+        });
+      })
+    );
+
     this.chainSymbols.forEach(async (chainSymbol) => {
       let chainOptions = this.options.chains[chainSymbol];
       let chainModuleAlias = chainOptions.moduleAlias;
-      let storageConfig = {
-        ...storageConfigOptions,
-        database: chainOptions.database,
-      };
-      let storage = createStorageComponent(storageConfig, this.logger);
-      await storage.bootstrap();
 
+      let storage = storageComponents[chainSymbol];
       let blockProcessingStream = new WritableConsumableStream();
 
       (async () => {
@@ -153,6 +308,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               `Chain ${chainSymbol}: Processing block at height ${targetHeight}`
             );
 
+            // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
             let blockData = (
               await storage.adapter.db.query(
                 'select blocks.id, blocks."numberOfTransactions", blocks.timestamp from blocks where height = $1',
@@ -180,6 +336,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               continue;
             }
 
+            // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
             let orders = await storage.adapter.db.query(
               'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."transferData" is not null and trs."recipientId" = $2',
               [blockData.id, chainOptions.walletAddress],
@@ -339,7 +496,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             await Promise.all(
               movedOrders.map(async (orderTxn) => {
                 try {
-                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `r5,${orderTxn.orderId},${orderTxn.movedToAddress}: DEX has moved`);
+                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r5,${orderTxn.orderId},${orderTxn.movedToAddress}: DEX has moved`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for moved DEX order ID ${
@@ -359,7 +516,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             await Promise.all(
               disabledOrders.map(async (orderTxn) => {
                 try {
-                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `r6,${orderTxn.orderId}: DEX has been disabled`);
+                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r6,${orderTxn.orderId}: DEX has been disabled`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for disabled DEX order ID ${
@@ -383,7 +540,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   reasonMessage += ` - ${orderTxn.reason}`;
                 }
                 try {
-                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: ${reasonMessage}`);
+                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: ${reasonMessage}`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for invalid order ID ${
@@ -403,7 +560,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             await Promise.all(
               oversizedOrders.map(async (orderTxn) => {
                 try {
-                  await this.makeRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Invalid order`);
+                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Invalid order`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for oversized order ID ${
@@ -491,7 +648,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   return;
                 }
                 try {
-                  await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `r3,${targetOrder.orderId},${orderTxn.orderId}: Canceled order`);
+                  await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r3,${targetOrder.orderId},${orderTxn.orderId}: Canceled order`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for canceled order ID ${
@@ -547,7 +704,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                       timestamp: orderTxn.timestamp
                     };
                     try {
-                      await this.makeMultiSigTransaction(
+                      await this.execMultisigTransaction(
                         takerTargetChain,
                         takerTxn,
                         `t1,${result.taker.sourceChain},${result.taker.orderId}: Orders taken`
@@ -574,7 +731,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                         return;
                       }
                       try {
-                        await this.makeRefundTransaction(refundTxn, latestBlockTimestamp, `r4,${orderTxn.orderId}: Unmatched market order part`);
+                        await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r4,${orderTxn.orderId}: Unmatched market order part`);
                       } catch (error) {
                         this.logger.error(
                           `Chain ${chainSymbol}: Failed to post multisig market order refund transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
@@ -608,7 +765,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                           timestamp: orderTxn.timestamp
                         };
                         try {
-                          await this.makeMultiSigTransaction(
+                          await this.execMultisigTransaction(
                             makerOrder.targetChain,
                             makerTxn,
                             `t2,${makerOrder.sourceChain},${makerOrder.orderId},${result.taker.orderId}: Order made`
@@ -710,10 +867,10 @@ module.exports = class LiskDEXModule extends BaseModule {
     } else {
       refundTxn.sourceChainAmount = order.sizeRemaining;
     }
-    await this.makeRefundTransaction(refundTxn, timestamp, reason);
+    await this.execRefundTransaction(refundTxn, timestamp, reason);
   }
 
-  async makeRefundTransaction(txn, timestamp, reason) {
+  async execRefundTransaction(txn, timestamp, reason) {
     let refundChainOptions = this.options.chains[txn.sourceChain];
     let flooredAmount = Math.floor(txn.sourceChainAmount);
     let refundAmount = BigInt(flooredAmount) - BigInt(refundChainOptions.exchangeFeeBase);
@@ -730,16 +887,29 @@ module.exports = class LiskDEXModule extends BaseModule {
       recipientId: txn.sourceWalletAddress,
       timestamp
     };
-    await this.makeMultiSigTransaction(
+    await this.execMultisigTransaction(
       txn.sourceChain,
       refundTxn,
       reason
     );
   }
 
-  async makeMultiSigTransaction(targetChain, transactionData, message) {
+  // Broadcast the signature to all DEX nodes with a matching baseAddress and quoteAddress
+  async _broadcastSignatureToSubnet(transactionId, signature, publicKey) {
+    let actionRouteString = `${MODULE_ALIAS}?baseAddress=${this.baseAddress}&quoteAddress=${this.quoteAddress}`;
+    this.channel.invoke('network:emit', {
+      event: `${actionRouteString}:signature`,
+      data: {
+        signature,
+        transactionId,
+        publicKey
+      }
+    });
+  }
+
+  async execMultisigTransaction(targetChain, transactionData, message) {
     let chainOptions = this.options.chains[targetChain];
-    let targetModuleAlias = chainOptions.moduleAlias;
+    let chainModuleAlias = chainOptions.moduleAlias;
     let txn = {
       type: 0,
       amount: transactionData.amount.toString(),
@@ -752,19 +922,38 @@ module.exports = class LiskDEXModule extends BaseModule {
     if (message != null) {
       txn.asset.data = message;
     }
-    let signedTxn = liskTransactions.utils.prepareTransaction(txn, chainOptions.sharedPassphrase);
-    let multiSigTxnSignature = liskTransactions.utils.multiSignTransaction(signedTxn, chainOptions.passphrase);
+    let preparedTxn = liskTransactions.utils.prepareTransaction(txn, chainOptions.sharedPassphrase);
+    let multisigTxnSignature = liskTransactions.utils.multiSignTransaction(preparedTxn, chainOptions.passphrase);
     let publicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(chainOptions.passphrase).publicKey;
 
-    await this.channel.invoke(`${targetModuleAlias}:postTransaction`, { transaction: signedTxn });
-    await wait(this.options.signatureBroadcastDelay);
-    await this.channel.invoke(`${targetModuleAlias}:postSignature`, {
-      signature: {
-        transactionId: signedTxn.id,
-        publicKey: publicKey,
-        signature: multiSigTxnSignature
-      }
+    preparedTxn.signatures = [multisigTxnSignature];
+    let processedSignatureSet = new Set();
+    processedSignatureSet.add(multisigTxnSignature);
+
+    // If the pendingTransactions map already has a transaction with the specified id, delete the existing entry so
+    // that when it is re-inserted, it will be added at the end of the queue.
+    // To perform expiry using an iterator, it's essential that the insertion order is maintained.
+    if (this.pendingTransactions.has(preparedTxn.id)) {
+      this.pendingTransactions.delete(preparedTxn.id);
+    }
+    this.pendingTransactions.set(preparedTxn.id, {
+      transaction: preparedTxn,
+      targetChain,
+      processedSignatureSet,
+      timestamp: date.now()
     });
+
+    (async () => {
+      // Add delay before broadcasting to give time for other nodes to independently add the transaction to their pendingTransactions lists.
+      await wait(this.options.signatureBroadcastDelay);
+      try {
+        await this._broadcastSignatureToSubnet(preparedTxn.id, multisigTxnSignature, publicKey);
+      } catch (error) {
+        this.logger.error(
+          `Failed to broadcast signature to DEX peers for multisig transaction ${preparedTxn.id}`
+        );
+      }
+    })();
   }
 
   async loadSnapshot() {
@@ -810,6 +999,7 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   async unload() {
+    clearInterval(this._multisigExpiryInterval);
   }
 };
 
