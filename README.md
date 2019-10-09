@@ -1,5 +1,5 @@
 # lisk-dex
-Decentralized exchange module for the Lisk network. Note that lisk-dex is a community project and is not affiliated with Lightcurve.
+Decentralized exchange module for the Lisk network. Note that lisk-dex is a community project and is not affiliated with Lightcurve or Lisk Foundation.
 
 ## DEX protocol
 
