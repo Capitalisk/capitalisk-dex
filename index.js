@@ -924,7 +924,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       txn.asset.data = message;
     }
     let preparedTxn = liskTransactions.utils.prepareTransaction(txn, chainOptions.sharedPassphrase);
-    let multisigTxnSignature = liskTransactions.utils.multiSignTransaction(preparedTxn, chainOptions.passphrase);
+    let multisigTxnSignature = liskTransactions.utils.multiSignTransaction({...preparedTxn, asset: {}}, chainOptions.passphrase);
     let publicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(chainOptions.passphrase).publicKey;
 
     preparedTxn.signatures = [multisigTxnSignature];
