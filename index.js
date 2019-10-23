@@ -32,6 +32,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       throw new Error('The DEX module must operate only on 2 chains');
     }
     this.progressingChains = {};
+    this.multisigWalletInfo = {};
     this.currentProcessedHeights = {};
     this.lastSnapshotHeights = {};
     this.pendingTransactions = new Map();
