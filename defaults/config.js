@@ -1,6 +1,8 @@
 module.exports = {
   requiredConfirmations: 2,
   signatureBroadcastDelay: 15000,
+  multisigExpiry: 86400000,
+  multisigExpiryCheckInterval: 60000,
   orderBookSnapshotFinality: 101,
   orderBookSnapshotFilePath: './lisk-dex-orderbook-snapshot.json',
   orderHeightExpiry: 259200,
