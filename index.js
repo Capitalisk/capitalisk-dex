@@ -185,7 +185,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         payload = {};
       }
       let {event, data} = payload.data || {};
-      if (event === 'signature') {
+      if (event === `${MODULE_ALIAS}:signature`) {
         let signatureData = data || {};
         let result = this._processSignature(signatureData);
 
@@ -941,7 +941,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       transaction: preparedTxn,
       targetChain,
       processedSignatureSet,
-      timestamp: date.now()
+      timestamp: Date.now()
     });
 
     (async () => {
