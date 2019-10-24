@@ -97,11 +97,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       return false;
     }
     let baseTxn = new BaseTransaction(transaction);
-    // This method needs to be overriden or else baseTxn.getBasicBytes() will not be computed correctly and verification will fail.
-    baseTxn.assetToBytes = function () {
-      return Buffer.alloc(0);
-    };
-    let transactionHash = liskCryptography.hash(baseTxn.getBasicBytes());
+    let transactionHash = liskCryptography.hash(baseTxn.getBytes());
     return liskCryptography.verifyData(transactionHash, signature, publicKey);
   }
 
@@ -194,10 +190,23 @@ module.exports = class LiskDEXModule extends BaseModule {
           this.pendingTransactions.delete(result.transaction.id);
           let chainOptions = this.options.chains[targetChain];
           if (chainOptions && chainOptions.moduleAlias) {
-            await this.channel.invoke(
-              `${chainOptions.moduleAlias}:postTransaction`,
-              {transaction: result.transaction}
-            );
+            let postTxnResult;
+            try {
+              postTxnResult = await this.channel.invoke(
+                `${chainOptions.moduleAlias}:postTransaction`,
+                {transaction: result.transaction}
+              );
+            } catch (error) {
+              this.logger.error(
+                `Error encountered while attempting to invoke ${chainOptions.moduleAlias}:postTransaction action - ${error.message}`
+              );
+              return;
+            }
+            if (!postTxnResult.success) {
+              this.logger.error(
+                `Failed to process ${chainOptions.moduleAlias}:postTransaction action - ${postTxnResult.message}`
+              );
+            }
           }
         } else if (result.isAccepted) {
           // Propagate valid signature to peers who are members of the DEX subnet.
@@ -924,7 +933,9 @@ module.exports = class LiskDEXModule extends BaseModule {
       txn.asset.data = message;
     }
     let preparedTxn = liskTransactions.utils.prepareTransaction(txn, chainOptions.sharedPassphrase);
-    let multisigTxnSignature = liskTransactions.utils.multiSignTransaction({...preparedTxn, asset: {}}, chainOptions.passphrase);
+    let baseTxn = new BaseTransaction(preparedTxn);
+    let txnHash = liskCryptography.hash(baseTxn.getBytes());
+    let multisigTxnSignature = liskCryptography.signData(txnHash, chainOptions.passphrase);
     let publicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(chainOptions.passphrase).publicKey;
 
     preparedTxn.signatures = [multisigTxnSignature];
