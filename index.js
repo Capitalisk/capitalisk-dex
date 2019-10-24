@@ -7,7 +7,6 @@ const { createLoggerComponent } = require('lisk-framework/src/components/logger'
 const TradeEngine = require('./trade-engine');
 const liskCryptography = require('@liskhq/lisk-cryptography');
 const liskTransactions = require('@liskhq/lisk-transactions');
-const { BaseTransaction } = liskTransactions;
 const fs = require('fs');
 const util = require('util');
 const writeFile = util.promisify(fs.writeFile);
@@ -96,9 +95,9 @@ module.exports = class LiskDEXModule extends BaseModule {
     if (!isValidMemberSignature) {
       return false;
     }
-    let baseTxn = new BaseTransaction(transaction);
-    let transactionHash = liskCryptography.hash(baseTxn.getBytes());
-    return liskCryptography.verifyData(transactionHash, signature, publicKey);
+    let {signature, signSignature, ...transactionToHash} = transaction;
+    let txnHash = liskCryptography.hash(liskTransactions.utils.getTransactionBytes(transactionToHash));
+    return liskCryptography.verifyData(txnHash, signature, publicKey);
   }
 
   _processSignature(signatureData) {
@@ -933,8 +932,8 @@ module.exports = class LiskDEXModule extends BaseModule {
       txn.asset.data = message;
     }
     let preparedTxn = liskTransactions.utils.prepareTransaction(txn, chainOptions.sharedPassphrase);
-    let baseTxn = new BaseTransaction(preparedTxn);
-    let txnHash = liskCryptography.hash(baseTxn.getBytes());
+    let {signature, signSignature, ...transactionToHash} = preparedTxn;
+    let txnHash = liskCryptography.hash(liskTransactions.utils.getTransactionBytes(transactionToHash));
     let multisigTxnSignature = liskCryptography.signData(txnHash, chainOptions.passphrase);
     let publicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(chainOptions.passphrase).publicKey;
 
