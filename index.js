@@ -90,14 +90,14 @@ module.exports = class LiskDEXModule extends BaseModule {
     return transaction.signatures.length >= this.multisigWalletInfo[targetChain].requiredSignatureCount;
   }
 
-  _verifySignature(targetChain, publicKey, transaction, signature) {
+  _verifySignature(targetChain, publicKey, transaction, signatureToVerify) {
     let isValidMemberSignature = this.multisigWalletInfo[targetChain].members[publicKey];
     if (!isValidMemberSignature) {
       return false;
     }
     let {signature, signSignature, ...transactionToHash} = transaction;
     let txnHash = liskCryptography.hash(liskTransactions.utils.getTransactionBytes(transactionToHash));
-    return liskCryptography.verifyData(txnHash, signature, publicKey);
+    return liskCryptography.verifyData(txnHash, signatureToVerify, publicKey);
   }
 
   _processSignature(signatureData) {
