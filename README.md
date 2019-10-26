@@ -11,7 +11,7 @@ To send an order to the DEX, a user needs to send a regular transfer transaction
 - **Market order**: `${targetChain},market,${targetWalletAddress}`
 - **Cancel order**: `${targetChain},cancel,${orderId}`
 
-When making a limit or a market order, the DEX will use the amount of the underlying transaction to derive the quantity of counterparty tokens to acquire.
+When making a limit or a market order, the DEX will use the amount of the underlying transaction to calculate the quantity of counterparty tokens to acquire.
 When performing a cancel order, the amount is not relevant; in this case, any amount can be specified as part of the cancel transaction (less is better); in any case, whatever amount is specified (minus blockchain transaction fees) will be refunded to the user as part of an `r3` refund transaction.
 
 ### Responses
