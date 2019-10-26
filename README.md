@@ -16,7 +16,7 @@ When performing a cancel order, the amount is not relevant; in this case, any am
 
 ### Responses
 
-These status codes and messages appear in transactions created by the DEX (as part of the transaction data field):
+These status codes and messages appear in transactions created by the DEX (as part of the transaction `data` field):
 
 **Refunds**
 
