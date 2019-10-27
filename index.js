@@ -303,7 +303,10 @@ module.exports = class LiskDEXModule extends BaseModule {
                 }
               } else if (chainSymbol === this.baseChainSymbol) {
                 let lastSnapshotHeight = this.lastSnapshotHeights[chainSymbol];
-                if (targetHeight > lastSnapshotHeight + this.options.orderBookSnapshotFinality) {
+                if (
+                  targetHeight > lastSnapshotHeight + this.options.orderBookSnapshotFinality &&
+                  targetHeight % this.options.orderBookSnapshotFinality === 0
+                ) {
                   try {
                     await this.saveSnapshot();
                   } catch (error) {
