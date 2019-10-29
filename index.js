@@ -51,7 +51,8 @@ module.exports = class LiskDEXModule extends BaseModule {
     this.quoteAddress = this.options.chains[this.quoteChainSymbol].walletAddress;
     this.tradeEngine = new TradeEngine({
       baseCurrency: this.baseChainSymbol,
-      quoteCurrency: this.quoteChainSymbol
+      quoteCurrency: this.quoteChainSymbol,
+      orderHeightExpiry: this.options.orderHeightExpiry
     });
   }
 
@@ -320,13 +321,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               `Chain ${chainSymbol}: Processing block at height ${targetHeight}`
             );
 
-            // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
-            let blockData = (
-              await storage.adapter.db.query(
-                'select blocks.id, blocks."numberOfTransactions", blocks.timestamp from blocks where height = $1',
-                [targetHeight],
-              )
-            )[0];
+            let blockData = await this._getBlockAtHeight(storage, targetHeight);
 
             if (!blockData) {
               this.logger.error(
@@ -589,35 +584,59 @@ module.exports = class LiskDEXModule extends BaseModule {
               })
             );
 
-            let heightExpiryThreshold = targetHeight - this.options.orderHeightExpiry;
-            if (heightExpiryThreshold > 0) {
-              let expiredOrders;
-              if (chainSymbol === this.baseChainSymbol) {
-                expiredOrders = this.tradeEngine.expireBidOrders(heightExpiryThreshold);
+            let expiredOrders;
+            if (chainSymbol === this.baseChainSymbol) {
+              expiredOrders = this.tradeEngine.expireBidOrders(targetHeight);
+            } else {
+              expiredOrders = this.tradeEngine.expireAskOrders(targetHeight);
+            }
+            expiredOrders.forEach(async (expiredOrder) => {
+              let refundTimestamp;
+              if (expiredOrder.expiryHeight === targetHeight) {
+                refundTimestamp = latestBlockTimestamp;
               } else {
-                expiredOrders = this.tradeEngine.expireAskOrders(heightExpiryThreshold);
-              }
-              expiredOrders.forEach(async (expiredOrder) => {
                 try {
-                  await this.refundOrder(expiredOrder, latestBlockTimestamp, `r2,${expiredOrder.orderId}: Expired order`);
+                  let expiryBlock = await this._getBlockAtHeight(storage, expiredOrder.expiryHeight);
+                  if (!expiryBlock) {
+                    throw new Error(
+                      `No block found at height ${expiredOrder.expiryHeight}`
+                    );
+                  }
+                  refundTimestamp = expiryBlock.timestamp;
                 } catch (error) {
                   this.logger.error(
-                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for expired order ID ${
+                    `Chain ${chainSymbol}: Failed to create multisig refund transaction for expired order ID ${
                       expiredOrder.orderId
                     } to ${
                       expiredOrder.sourceWalletAddress
                     } on chain ${
                       expiredOrder.sourceChain
-                    } because of error: ${
+                    } because it could not calculate the timestamp due to error: ${
                       error.message
                     }`
                   );
+                  return;
                 }
-                this.logger.trace(
-                  `Chain ${chainSymbol}: Order ${expiredOrder.orderId} at height ${expiredOrder.height} expired`
+              }
+              try {
+                await this.refundOrder(expiredOrder, refundTimestamp, `r2,${expiredOrder.orderId}: Expired order`);
+              } catch (error) {
+                this.logger.error(
+                  `Chain ${chainSymbol}: Failed to post multisig refund transaction for expired order ID ${
+                    expiredOrder.orderId
+                  } to ${
+                    expiredOrder.sourceWalletAddress
+                  } on chain ${
+                    expiredOrder.sourceChain
+                  } because of error: ${
+                    error.message
+                  }`
                 );
-              });
-            }
+              }
+              this.logger.trace(
+                `Chain ${chainSymbol}: Order ${expiredOrder.orderId} at height ${expiredOrder.height} expired`
+              );
+            });
 
             await Promise.all(
               cancelOrders.map(async (orderTxn) => {
@@ -829,6 +848,16 @@ module.exports = class LiskDEXModule extends BaseModule {
       });
     });
     channel.publish(`${MODULE_ALIAS}:bootstrap`);
+  }
+
+  async _getBlockAtHeight(storage, targetHeight) {
+    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    return (
+      await storage.adapter.db.query(
+        'select blocks.id, blocks."numberOfTransactions", blocks.timestamp from blocks where height = $1',
+        [targetHeight],
+      )
+    )[0];
   }
 
   async refundOrderBook(chainSymbol, timestamp, movedToAddress) {

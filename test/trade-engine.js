@@ -7,7 +7,8 @@ describe('TradeEngine unit tests', async () => {
   beforeEach(async () => {
     tradeEngine = new TradeEngine({
       baseCurrency: 'chain',
-      quoteCurrency: 'capitalisk'
+      quoteCurrency: 'capitalisk',
+      orderHeightExpiry: 100
     });
   });
 

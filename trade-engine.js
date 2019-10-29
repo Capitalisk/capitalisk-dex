@@ -21,76 +21,34 @@ class TradeEngine {
   constructor(options) {
     this.baseCurrency = options.baseCurrency;
     this.quoteCurrency = options.quoteCurrency;
+    this.orderHeightExpiry = options.orderHeightExpiry;
     this.market = `${this.quoteCurrency}/${this.baseCurrency}`;
     this.orderBook = new LimitOrderBook();
 
-    this._orderNodeLookup = {};
-
-    this._bidsExpiryListHead = {prev: null, order: null};
-    this._bidsExpiryListTail = {next: null, order: null};
-    this._bidsExpiryListHead.next = this._bidsExpiryListTail;
-    this._bidsExpiryListTail.prev = this._bidsExpiryListHead;
-
-    this._asksExpiryListHead = {prev: null, order: null};
-    this._asksExpiryListTail = {next: null, order: null};
-    this._asksExpiryListHead.next = this._asksExpiryListTail;
-    this._asksExpiryListTail.prev = this._asksExpiryListHead;
-  }
-
-  _addToExpiryList(order) {
-    let expiryListTail = order.side === 'ask' ? this._asksExpiryListTail : this._bidsExpiryListTail;
-    let newNode = {
-      prev: expiryListTail.prev,
-      next: expiryListTail,
-      order
-    };
-    expiryListTail.prev = newNode;
-    newNode.prev.next = newNode;
-    this._orderNodeLookup[order.orderId] = newNode;
-  }
-
-  _removeFromExpiryList(orderId) {
-    let node = this._orderNodeLookup[orderId];
-    if (!node) {
-      return;
-    }
-    delete this._orderNodeLookup[orderId];
-
-    node.next.prev = node.prev;
-    node.prev.next = node.next;
-
-    node.prev = null;
-    node.next = null;
-  }
-
-  _clearExpiryList() {
-    this._orderNodeLookup = {};
-    this._bidsExpiryListHead.next = this._bidsExpiryListTail;
-    this._bidsExpiryListTail.prev = this._bidsExpiryListHead;
-    this._asksExpiryListHead.next = this._asksExpiryListTail;
-    this._asksExpiryListTail.prev = this._asksExpiryListHead;
+    this._asksExpiryMap = new Map();
+    this._bidsExpiryMap = new Map();
   }
 
   expireBidOrders(heightThreshold) {
-    let currentNode = this._bidsExpiryListHead.next;
     let expiredOrders = [];
-    while (currentNode && currentNode.order && currentNode.order.height < heightThreshold) {
-      let orderId = currentNode.order.orderId;
-      expiredOrders.push(currentNode.order);
-      this._removeFromExpiryList(orderId);
-      currentNode = currentNode.next;
+    for (let [orderId, order] of this._bidsExpiryMap) {
+      if (order.expiryHeight > heightThreshold) {
+        break;
+      }
+      expiredOrders.push(order);
+      this._bidsExpiryMap.delete(orderId);
     }
     return expiredOrders;
   }
 
   expireAskOrders(heightThreshold) {
-    let currentNode = this._asksExpiryListHead.next;
     let expiredOrders = [];
-    while (currentNode && currentNode.order && currentNode.order.height < heightThreshold) {
-      let orderId = currentNode.order.orderId;
-      expiredOrders.push(currentNode.order);
-      this._removeFromExpiryList(orderId);
-      currentNode = currentNode.next;
+    for (let [orderId, order] of this._asksExpiryMap) {
+      if (order.expiryHeight > heightThreshold) {
+        break;
+      }
+      expiredOrders.push(order);
+      this._asksExpiryMap.delete(orderId);
     }
     return expiredOrders;
   }
@@ -107,8 +65,6 @@ class TradeEngine {
     }
 
     let newOrder = this._createOrderInstance(order);
-    this._addToExpiryList(newOrder);
-
     newOrder.type = order.type;
     newOrder.targetChain = order.targetChain;
     newOrder.targetWalletAddress = order.targetWalletAddress;
@@ -117,6 +73,7 @@ class TradeEngine {
     newOrder.sourceChainAmount = order.sourceChainAmount;
     newOrder.sourceWalletAddress = order.sourceWalletAddress;
     newOrder.height = order.height;
+    newOrder.expiryHeight = order.height + this.orderHeightExpiry;
     newOrder.timestamp = order.timestamp;
 
     let result = this.orderBook.add(newOrder);
@@ -127,31 +84,45 @@ class TradeEngine {
       makerOrder.lastSize = makerOrder.sizeRemaining;
 
       if (makerOrder.sizeRemaining <= 0) {
-        this._removeFromExpiryList(order.orderId);
+        if (makerOrder.side === 'ask') {
+          this._asksExpiryMap.delete(makerOrder.orderId);
+        } else {
+          this._bidsExpiryMap.delete(makerOrder.orderId);
+        }
       }
     });
+
+    if (newOrder.type !== 'market' && result.taker.sizeRemaining > 0) {
+      if (newOrder.side === 'ask') {
+        this._asksExpiryMap.set(newOrder.orderId, newOrder);
+      } else {
+        this._bidsExpiryMap.set(newOrder.orderId, newOrder);
+      }
+    }
+
     return result;
   }
 
   getOrder(orderId) {
-    let orderNode = this._orderNodeLookup[orderId];
-    if (!orderNode) {
-      return null;
-    }
-    return orderNode.order;
+    let askOrder = this._asksExpiryMap.get(orderId);
+    let bidOrder = this._bidsExpiryMap.get(orderId);
+    return askOrder || bidOrder;
   }
 
   cancelOrder(orderId) {
-    let orderNode = this._orderNodeLookup[orderId];
-    if (!orderNode) {
+    let order = this.getOrder(orderId);
+    if (!order) {
       throw new Error(
         `An order with ID ${orderId} could not be found`
       );
     }
-    let order = orderNode.order;
 
     let result = this.orderBook.remove(order.side, order.price, orderId);
-    this._removeFromExpiryList(orderId);
+    if (order.side === 'ask') {
+      this._asksExpiryMap.delete(orderId);
+    } else {
+      this._bidsExpiryMap.delete(orderId);
+    }
     return result;
   }
 
@@ -222,7 +193,7 @@ class TradeEngine {
     });
     snapshot.askLimitOrders.forEach((order) => {
       let newOrder = this._createOrderInstance(order);
-      this._addToExpiryList(newOrder);
+      this._asksExpiryMap.set(newOrder.orderId, newOrder);
       Object.keys(order).forEach((key) => {
         newOrder[key] = order[key];
       });
@@ -230,7 +201,7 @@ class TradeEngine {
     });
     snapshot.bidLimitOrders.forEach((order) => {
       let newOrder = this._createOrderInstance(order);
-      this._addToExpiryList(newOrder);
+      this._bidsExpiryMap.set(newOrder.orderId, newOrder);
       Object.keys(order).forEach((key) => {
         newOrder[key] = order[key];
       });
@@ -239,7 +210,8 @@ class TradeEngine {
   }
 
   clear() {
-    this._clearExpiryList();
+    this._asksExpiryMap.clear();
+    this._bidsExpiryMap.clear();
     this.orderBook.clear();
   }
 }
