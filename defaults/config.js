@@ -5,6 +5,8 @@ module.exports = {
   multisigExpiryCheckInterval: 60000,
   orderBookSnapshotFinality: 101,
   orderBookSnapshotFilePath: './lisk-dex-orderbook-snapshot.json',
+  orderBookSnapshotBackupDirPath: './orderbook-snapshots',
+  orderBookSnapshotBackupMaxCount: 200,
   orderHeightExpiry: 259200,
   baseChain: 'lsk',
   logger: {

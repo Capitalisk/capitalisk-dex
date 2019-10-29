@@ -9,8 +9,12 @@ const liskCryptography = require('@liskhq/lisk-cryptography');
 const liskTransactions = require('@liskhq/lisk-transactions');
 const fs = require('fs');
 const util = require('util');
+const path = require('path');
 const writeFile = util.promisify(fs.writeFile);
 const readFile = util.promisify(fs.readFile);
+const readdir = util.promisify(fs.readdir);
+const unlink = util.promisify(fs.unlink);
+const mkdir = util.promisify(fs.mkdir);
 
 const WritableConsumableStream = require('writable-consumable-stream');
 
@@ -221,6 +225,21 @@ module.exports = class LiskDEXModule extends BaseModule {
       'logger',
     );
     this.logger = createLoggerComponent({...loggerConfig, ...this.options.logger});
+
+    try {
+      await mkdir(this.options.orderBookSnapshotBackupDirPath);
+    } catch (error) {
+      if (error.code !== 'EEXIST') {
+        this.logger.error(
+          `Failed to create snapshot directory ${
+            this.options.orderBookSnapshotBackupDirPath
+          } because of error: ${
+            error.message
+          }`
+        );
+      }
+    }
+
     try {
       await this.loadSnapshot();
     } catch (error) {
@@ -1032,9 +1051,49 @@ module.exports = class LiskDEXModule extends BaseModule {
       snapshot.chainHeights[chainSymbol] = targetHeight;
     });
     this.lastSnapshot = snapshot;
+    let baseChainHeight = snapshot.chainHeights[this.baseChainSymbol] || 0;
     let serializedSnapshot = JSON.stringify(snapshot);
     await writeFile(this.options.orderBookSnapshotFilePath, serializedSnapshot);
     this.lastSnapshotHeights = snapshot.chainHeights;
+
+    try {
+      await writeFile(
+        path.join(
+          this.options.orderBookSnapshotBackupDirPath,
+          `snapshot-${baseChainHeight}.json`
+        ),
+        serializedSnapshot
+      );
+      let allSnapshots = await readdir(this.options.orderBookSnapshotBackupDirPath);
+      let heightRegex = /[0-9]+/g;
+      allSnapshots.sort((a, b) => {
+        let snapshotHeightA = parseInt(a.match(heightRegex)[0] || 0);
+        let snapshotHeightB = parseInt(b.match(heightRegex)[0] || 0);
+        if (snapshotHeightA > snapshotHeightB) {
+          return -1;
+        }
+        if (snapshotHeightA < snapshotHeightB) {
+          return 1;
+        }
+        return 0;
+      });
+      let snapshotsToDelete = allSnapshots.slice(this.options.orderBookSnapshotBackupMaxCount || 200, allSnapshots.length);
+      await Promise.all(
+        snapshotsToDelete.map(async (fileName) => {
+          await unlink(
+            path.join(this.options.orderBookSnapshotBackupDirPath, fileName)
+          );
+        })
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to backup snapshot in directory ${
+          this.options.orderBookSnapshotBackupDirPath
+        } because of error: ${
+          error.message
+        }`
+      );
+    }
   }
 
   areAllChainsProgressing() {
