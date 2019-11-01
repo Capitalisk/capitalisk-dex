@@ -1,4 +1,5 @@
 module.exports = {
+  passiveMode: false,
   requiredConfirmations: 2,
   signatureBroadcastDelay: 15000,
   multisigExpiry: 86400000,

@@ -49,6 +49,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       };
     });
 
+    this.passiveMode = this.options.passiveMode;
     this.baseChainSymbol = this.options.baseChain;
     this.quoteChainSymbol = this.chainSymbols.find(chain => chain !== this.baseChainSymbol);
     this.baseAddress = this.options.chains[this.baseChainSymbol].walletAddress;
@@ -312,6 +313,9 @@ module.exports = class LiskDEXModule extends BaseModule {
                 isPastDisabledHeight &&
                 targetHeight === chainOptions.dexDisabledFromHeight + REFUND_ORDER_BOOK_HEIGHT_DELAY
               ) {
+                if (this.passiveMode) {
+                  return;
+                }
                 if (chainOptions.dexMovedToAddress) {
                   await this.refundOrderBook(
                     chainSymbol,
@@ -321,7 +325,9 @@ module.exports = class LiskDEXModule extends BaseModule {
                 } else {
                   await this.refundOrderBook(chainSymbol, timestamp);
                 }
-              } else if (chainSymbol === this.baseChainSymbol) {
+                return;
+              }
+              if (chainSymbol === this.baseChainSymbol) {
                 let lastSnapshotHeight = this.lastSnapshotHeights[chainSymbol];
                 if (
                   targetHeight > lastSnapshotHeight + this.options.orderBookSnapshotFinality &&
@@ -519,89 +525,91 @@ module.exports = class LiskDEXModule extends BaseModule {
               return orderTxn.type === 'disabled';
             });
 
-            await Promise.all(
-              movedOrders.map(async (orderTxn) => {
-                try {
-                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r5,${orderTxn.orderId},${orderTxn.movedToAddress}: DEX has moved`);
-                } catch (error) {
-                  this.logger.error(
-                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for moved DEX order ID ${
-                      orderTxn.orderId
-                    } to ${
-                      orderTxn.sourceWalletAddress
-                    } on chain ${
-                      orderTxn.sourceChain
-                    } because of error: ${
-                      error.message
-                    }`
-                  );
-                }
-              })
-            );
+            if (!this.passiveMode) {
+              await Promise.all(
+                movedOrders.map(async (orderTxn) => {
+                  try {
+                    await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r5,${orderTxn.orderId},${orderTxn.movedToAddress}: DEX has moved`);
+                  } catch (error) {
+                    this.logger.error(
+                      `Chain ${chainSymbol}: Failed to post multisig refund transaction for moved DEX order ID ${
+                        orderTxn.orderId
+                      } to ${
+                        orderTxn.sourceWalletAddress
+                      } on chain ${
+                        orderTxn.sourceChain
+                      } because of error: ${
+                        error.message
+                      }`
+                    );
+                  }
+                })
+              );
 
-            await Promise.all(
-              disabledOrders.map(async (orderTxn) => {
-                try {
-                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r6,${orderTxn.orderId}: DEX has been disabled`);
-                } catch (error) {
-                  this.logger.error(
-                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for disabled DEX order ID ${
-                      orderTxn.orderId
-                    } to ${
-                      orderTxn.sourceWalletAddress
-                    } on chain ${
-                      orderTxn.sourceChain
-                    } because of error: ${
-                      error.message
-                    }`
-                  );
-                }
-              })
-            );
+              await Promise.all(
+                disabledOrders.map(async (orderTxn) => {
+                  try {
+                    await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r6,${orderTxn.orderId}: DEX has been disabled`);
+                  } catch (error) {
+                    this.logger.error(
+                      `Chain ${chainSymbol}: Failed to post multisig refund transaction for disabled DEX order ID ${
+                        orderTxn.orderId
+                      } to ${
+                        orderTxn.sourceWalletAddress
+                      } on chain ${
+                        orderTxn.sourceChain
+                      } because of error: ${
+                        error.message
+                      }`
+                    );
+                  }
+                })
+              );
 
-            await Promise.all(
-              invalidOrders.map(async (orderTxn) => {
-                let reasonMessage = 'Invalid order';
-                if (orderTxn.reason) {
-                  reasonMessage += ` - ${orderTxn.reason}`;
-                }
-                try {
-                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: ${reasonMessage}`);
-                } catch (error) {
-                  this.logger.error(
-                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for invalid order ID ${
-                      orderTxn.orderId
-                    } to ${
-                      orderTxn.sourceWalletAddress
-                    } on chain ${
-                      orderTxn.sourceChain
-                    } because of error: ${
-                      error.message
-                    }`
-                  );
-                }
-              })
-            );
+              await Promise.all(
+                invalidOrders.map(async (orderTxn) => {
+                  let reasonMessage = 'Invalid order';
+                  if (orderTxn.reason) {
+                    reasonMessage += ` - ${orderTxn.reason}`;
+                  }
+                  try {
+                    await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: ${reasonMessage}`);
+                  } catch (error) {
+                    this.logger.error(
+                      `Chain ${chainSymbol}: Failed to post multisig refund transaction for invalid order ID ${
+                        orderTxn.orderId
+                      } to ${
+                        orderTxn.sourceWalletAddress
+                      } on chain ${
+                        orderTxn.sourceChain
+                      } because of error: ${
+                        error.message
+                      }`
+                    );
+                  }
+                })
+              );
 
-            await Promise.all(
-              oversizedOrders.map(async (orderTxn) => {
-                try {
-                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Invalid order`);
-                } catch (error) {
-                  this.logger.error(
-                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for oversized order ID ${
-                      orderTxn.orderId
-                    } to ${
-                      orderTxn.sourceWalletAddress
-                    } on chain ${
-                      orderTxn.sourceChain
-                    } because of error: ${
-                      error.message
-                    }`
-                  );
-                }
-              })
-            );
+              await Promise.all(
+                oversizedOrders.map(async (orderTxn) => {
+                  try {
+                    await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Invalid order`);
+                  } catch (error) {
+                    this.logger.error(
+                      `Chain ${chainSymbol}: Failed to post multisig refund transaction for oversized order ID ${
+                        orderTxn.orderId
+                      } to ${
+                        orderTxn.sourceWalletAddress
+                      } on chain ${
+                        orderTxn.sourceChain
+                      } because of error: ${
+                        error.message
+                      }`
+                    );
+                  }
+                })
+              );
+            }
 
             let expiredOrders;
             if (chainSymbol === this.baseChainSymbol) {
@@ -610,6 +618,12 @@ module.exports = class LiskDEXModule extends BaseModule {
               expiredOrders = this.tradeEngine.expireAskOrders(targetHeight);
             }
             expiredOrders.forEach(async (expiredOrder) => {
+              this.logger.trace(
+                `Chain ${chainSymbol}: Order ${expiredOrder.orderId} at height ${expiredOrder.height} expired`
+              );
+              if (this.passiveMode) {
+                return;
+              }
               let refundTimestamp;
               if (expiredOrder.expiryHeight === targetHeight) {
                 refundTimestamp = latestBlockTimestamp;
@@ -652,9 +666,6 @@ module.exports = class LiskDEXModule extends BaseModule {
                   }`
                 );
               }
-              this.logger.trace(
-                `Chain ${chainSymbol}: Order ${expiredOrder.orderId} at height ${expiredOrder.height} expired`
-              );
             });
 
             await Promise.all(
@@ -697,6 +708,9 @@ module.exports = class LiskDEXModule extends BaseModule {
                   this.logger.error(error);
                   return;
                 }
+                if (this.passiveMode) {
+                  return;
+                }
                 try {
                   await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r3,${targetOrder.orderId},${orderTxn.orderId}: Canceled order`);
                 } catch (error) {
@@ -725,110 +739,116 @@ module.exports = class LiskDEXModule extends BaseModule {
                   return;
                 }
 
-                if (result.takeSize > 0) {
-                  let takerTargetChain = result.taker.targetChain;
-                  let takerChainOptions = this.options.chains[takerTargetChain];
-                  let takerTargetChainModuleAlias = takerChainOptions.moduleAlias;
-                  let takerAddress = result.taker.targetWalletAddress;
-                  let takerAmount;
-                  if (orderTxn.type === 'market') {
-                    takerAmount = takerTargetChain === this.baseChainSymbol ? Math.abs(result.taker.fundsRemaining) : result.takeSize;
-                  } else {
-                    takerAmount = takerTargetChain === this.baseChainSymbol ? result.takeSize * result.taker.price : result.takeSize;
-                  }
-                  takerAmount -= takerChainOptions.exchangeFeeBase;
-                  takerAmount -= takerAmount * takerChainOptions.exchangeFeeRate;
-                  takerAmount = Math.floor(takerAmount);
+                if (result.takeSize <= 0) {
+                  return;
+                }
 
-                  if (takerAmount <= 0) {
-                    this.logger.error(
-                      `Chain ${chainSymbol}: Failed to take the trade order ${orderTxn.orderId} because the amount after fees was less than or equal to 0`
+                let takerTargetChain = result.taker.targetChain;
+                let takerChainOptions = this.options.chains[takerTargetChain];
+                let takerTargetChainModuleAlias = takerChainOptions.moduleAlias;
+                let takerAddress = result.taker.targetWalletAddress;
+                let takerAmount;
+                if (orderTxn.type === 'market') {
+                  takerAmount = takerTargetChain === this.baseChainSymbol ? Math.abs(result.taker.fundsRemaining) : result.takeSize;
+                } else {
+                  takerAmount = takerTargetChain === this.baseChainSymbol ? result.takeSize * result.taker.price : result.takeSize;
+                }
+                takerAmount -= takerChainOptions.exchangeFeeBase;
+                takerAmount -= takerAmount * takerChainOptions.exchangeFeeRate;
+                takerAmount = Math.floor(takerAmount);
+
+                if (this.passiveMode) {
+                  return;
+                }
+
+                if (takerAmount <= 0) {
+                  this.logger.error(
+                    `Chain ${chainSymbol}: Failed to post the taker trade order ${orderTxn.orderId} because the amount after fees was less than or equal to 0`
+                  );
+                  return;
+                }
+
+                (async () => {
+                  let takerTxn = {
+                    amount: takerAmount.toString(),
+                    recipientId: takerAddress,
+                    timestamp: orderTxn.timestamp
+                  };
+                  try {
+                    await this.execMultisigTransaction(
+                      takerTargetChain,
+                      takerTxn,
+                      `t1,${result.taker.sourceChain},${result.taker.orderId}: Orders taken`
                     );
-                    return;
+                  } catch (error) {
+                    this.logger.error(
+                      `Chain ${chainSymbol}: Failed to post multisig transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
+                    );
                   }
+                })();
 
-                  (async () => {
-                    let takerTxn = {
-                      amount: takerAmount.toString(),
-                      recipientId: takerAddress,
-                      timestamp: orderTxn.timestamp
+                (async () => {
+                  if (orderTxn.type === 'market') {
+                    let refundTxn = {
+                      sourceChain: result.taker.sourceChain,
+                      sourceWalletAddress: result.taker.sourceWalletAddress
                     };
+                    if (result.taker.sourceChain === this.baseChainSymbol) {
+                      refundTxn.sourceChainAmount = result.taker.fundsRemaining;
+                    } else {
+                      refundTxn.sourceChainAmount = result.taker.sizeRemaining;
+                    }
+                    if (refundTxn.sourceChainAmount <= 0) {
+                      return;
+                    }
                     try {
-                      await this.execMultisigTransaction(
-                        takerTargetChain,
-                        takerTxn,
-                        `t1,${result.taker.sourceChain},${result.taker.orderId}: Orders taken`
-                      );
+                      await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r4,${orderTxn.orderId}: Unmatched market order part`);
                     } catch (error) {
                       this.logger.error(
-                        `Chain ${chainSymbol}: Failed to post multisig transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
+                        `Chain ${chainSymbol}: Failed to post multisig market order refund transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
                       );
                     }
-                  })();
+                  }
+                })();
 
-                  (async () => {
-                    if (orderTxn.type === 'market') {
-                      let refundTxn = {
-                        sourceChain: result.taker.sourceChain,
-                        sourceWalletAddress: result.taker.sourceWalletAddress
+                await Promise.all(
+                  result.makers.map(async (makerOrder) => {
+                    let makerChainOptions = this.options.chains[makerOrder.targetChain];
+                    let makerTargetChainModuleAlias = makerChainOptions.moduleAlias;
+                    let makerAddress = makerOrder.targetWalletAddress;
+                    let makerAmount = makerOrder.targetChain === this.baseChainSymbol ?
+                    makerOrder.valueTaken : makerOrder.sizeTaken;
+                    makerAmount -= makerChainOptions.exchangeFeeBase;
+                    makerAmount -= makerAmount * makerChainOptions.exchangeFeeRate;
+                    makerAmount = Math.floor(makerAmount);
+
+                    if (makerAmount <= 0) {
+                      this.logger.error(
+                        `Chain ${chainSymbol}: Failed to post the maker trade order ${makerOrder.orderId} because the amount after fees was less than or equal to 0`
+                      );
+                      return;
+                    }
+
+                    (async () => {
+                      let makerTxn = {
+                        amount: makerAmount.toString(),
+                        recipientId: makerAddress,
+                        timestamp: orderTxn.timestamp
                       };
-                      if (result.taker.sourceChain === this.baseChainSymbol) {
-                        refundTxn.sourceChainAmount = result.taker.fundsRemaining;
-                      } else {
-                        refundTxn.sourceChainAmount = result.taker.sizeRemaining;
-                      }
-                      if (refundTxn.sourceChainAmount <= 0) {
-                        return;
-                      }
                       try {
-                        await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r4,${orderTxn.orderId}: Unmatched market order part`);
+                        await this.execMultisigTransaction(
+                          makerOrder.targetChain,
+                          makerTxn,
+                          `t2,${makerOrder.sourceChain},${makerOrder.orderId},${result.taker.orderId}: Order made`
+                        );
                       } catch (error) {
                         this.logger.error(
-                          `Chain ${chainSymbol}: Failed to post multisig market order refund transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
+                          `Chain ${chainSymbol}: Failed to post multisig transaction of maker ${makerAddress} on chain ${makerOrder.targetChain} because of error: ${error.message}`
                         );
                       }
-                    }
-                  })();
-
-                  await Promise.all(
-                    result.makers.map(async (makerOrder) => {
-                      let makerChainOptions = this.options.chains[makerOrder.targetChain];
-                      let makerTargetChainModuleAlias = makerChainOptions.moduleAlias;
-                      let makerAddress = makerOrder.targetWalletAddress;
-                      let makerAmount = makerOrder.targetChain === this.baseChainSymbol ?
-                        makerOrder.valueTaken : makerOrder.sizeTaken;
-                      makerAmount -= makerChainOptions.exchangeFeeBase;
-                      makerAmount -= makerAmount * makerChainOptions.exchangeFeeRate;
-                      makerAmount = Math.floor(makerAmount);
-
-                      if (makerAmount <= 0) {
-                        this.logger.error(
-                          `Chain ${chainSymbol}: Failed to make the trade order ${makerOrder.orderId} because the amount after fees was less than or equal to 0`
-                        );
-                        return;
-                      }
-
-                      (async () => {
-                        let makerTxn = {
-                          amount: makerAmount.toString(),
-                          recipientId: makerAddress,
-                          timestamp: orderTxn.timestamp
-                        };
-                        try {
-                          await this.execMultisigTransaction(
-                            makerOrder.targetChain,
-                            makerTxn,
-                            `t2,${makerOrder.sourceChain},${makerOrder.orderId},${result.taker.orderId}: Order made`
-                          );
-                        } catch (error) {
-                          this.logger.error(
-                            `Chain ${chainSymbol}: Failed to post multisig transaction of maker ${makerAddress} on chain ${makerOrder.targetChain} because of error: ${error.message}`
-                          );
-                        }
-                      })();
-                    })
-                  );
-                }
+                    })();
+                  })
+                );
               })
             );
 
