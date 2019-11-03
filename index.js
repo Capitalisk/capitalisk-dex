@@ -88,8 +88,26 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   get actions() {
-    // TODO: Expose actions for HTTP API.
-    return {};
+    return {
+      getMarket: {
+        handler: () => {
+          return {
+            baseSymbol: this.baseChainSymbol,
+            quoteSymbol: this.quoteChainSymbol
+          };
+        }
+      },
+      getBids: {
+        handler: () => {
+          return this.tradeEngine.getBids();
+        }
+      },
+      getAsks: {
+        handler: () => {
+          return this.tradeEngine.getAsks();
+        }
+      }
+    };
   }
 
   _transactionHasEnoughSignatures(targetChain, transaction) {

@@ -134,17 +134,7 @@ class TradeEngine {
     return this.orderBook.askLimits.peek();
   }
 
-  getSnapshot() {
-    let askLimitOrders = [];
-    let askLimitsMap = this.orderBook.askLimits.map;
-    Object.keys(askLimitsMap).forEach((price) => {
-      let limit = askLimitsMap[price];
-      let limitMap = limit.map;
-      Object.keys(limitMap).forEach((orderId) => {
-        askLimitOrders.push(limitMap[orderId]);
-      });
-    });
-
+  getBids() {
     let bidLimitOrders = [];
     let bidLimitsMap = this.orderBook.bidLimits.map;
     Object.keys(bidLimitsMap).forEach((price) => {
@@ -154,6 +144,25 @@ class TradeEngine {
         bidLimitOrders.push(limitMap[orderId]);
       });
     });
+    return bidLimitOrders;
+  }
+
+  getAsks() {
+    let askLimitOrders = [];
+    let askLimitsMap = this.orderBook.askLimits.map;
+    Object.keys(askLimitsMap).forEach((price) => {
+      let limit = askLimitsMap[price];
+      let limitMap = limit.map;
+      Object.keys(limitMap).forEach((orderId) => {
+        askLimitOrders.push(limitMap[orderId]);
+      });
+    });
+    return askLimitOrders;
+  }
+
+  getSnapshot() {
+    let askLimitOrders = this.getAsks();
+    let bidLimitOrders = this.getBids();
 
     return {
       askLimitOrders,
