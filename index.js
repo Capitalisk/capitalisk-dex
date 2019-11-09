@@ -81,6 +81,51 @@ module.exports = class LiskDEXModule extends BaseModule {
     return defaultConfig;
   }
 
+  _execQueryAgainstIterator(query, iterator) {
+    query = query || {};
+    let after = query.after;
+    let before = query.before;
+    let limit = typeof query.limit == 'number' ? query.limit : this.options.apiDefaultPageLimit;
+    if (limit > this.options.apiMaxPageLimit) {
+      limit = this.options.apiMaxPageLimit;
+    }
+    let result = [];
+    if (after) {
+      let isCapturing = false;
+      for (let item of iterator) {
+        if (isCapturing) {
+          result.push(item);
+        } else if (item.orderId === after) {
+          isCapturing = true;
+        }
+        if (result.length >= limit) {
+          break;
+        }
+      }
+      return result;
+    }
+    if (before) {
+      let previousItems = [];
+      for (let item of iterator) {
+        previousItems.push(item);
+        if (item.orderId === before) {
+          let length = previousItems.length;
+          let firstIndex = length - limit;
+          result = previousItems.slice(firstIndex, length);
+          break;
+        }
+      }
+      return result;
+    }
+    for (let item of iterator) {
+      result.push(item);
+      if (result.length >= limit) {
+        break;
+      }
+    }
+    return result;
+  }
+
   get events() {
     return [
       'bootstrap',
@@ -98,13 +143,21 @@ module.exports = class LiskDEXModule extends BaseModule {
         }
       },
       getBids: {
-        handler: () => {
-          return this.tradeEngine.getBids();
+        handler: (action) => {
+          let bidIterator = this.tradeEngine.getBidIterator();
+          return this._execQueryAgainstIterator(action.params, bidIterator);
         }
       },
       getAsks: {
-        handler: () => {
-          return this.tradeEngine.getAsks();
+        handler: (action) => {
+          let askIterator = this.tradeEngine.getAskIterator();
+          return this._execQueryAgainstIterator(action.params, askIterator);
+        }
+      },
+      getOrders: {
+        handler: (action) => {
+          let orderIterator = this.tradeEngine.getOrderIterator();
+          return this._execQueryAgainstIterator(action.params, orderIterator);
         }
       }
     };

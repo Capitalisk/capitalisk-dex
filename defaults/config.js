@@ -10,6 +10,8 @@ module.exports = {
   orderBookSnapshotBackupMaxCount: 200,
   orderHeightExpiry: 259200,
   baseChain: 'lsk',
+  apiDefaultPageLimit: 100,
+  apiMaxPageLimit: 100,
   logger: {
     fileLogLevel: 'debug',
     consoleLogLevel: 'debug'

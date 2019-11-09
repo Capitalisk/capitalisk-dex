@@ -25,30 +25,33 @@ class TradeEngine {
     this.market = `${this.quoteCurrency}/${this.baseCurrency}`;
     this.orderBook = new LimitOrderBook();
 
-    this._asksExpiryMap = new Map();
-    this._bidsExpiryMap = new Map();
+    this._askMap = new Map();
+    this._bidMap = new Map();
+    this._orderMap = new Map();
   }
 
   expireBidOrders(heightThreshold) {
     let expiredOrders = [];
-    for (let [orderId, order] of this._bidsExpiryMap) {
+    for (let [orderId, order] of this._bidMap) {
       if (order.expiryHeight > heightThreshold) {
         break;
       }
       expiredOrders.push(order);
-      this._bidsExpiryMap.delete(orderId);
+      this._bidMap.delete(orderId);
+      this._orderMap.delete(orderId);
     }
     return expiredOrders;
   }
 
   expireAskOrders(heightThreshold) {
     let expiredOrders = [];
-    for (let [orderId, order] of this._asksExpiryMap) {
+    for (let [orderId, order] of this._askMap) {
       if (order.expiryHeight > heightThreshold) {
         break;
       }
       expiredOrders.push(order);
-      this._asksExpiryMap.delete(orderId);
+      this._askMap.delete(orderId);
+      this._orderMap.delete(orderId);
     }
     return expiredOrders;
   }
@@ -85,28 +88,28 @@ class TradeEngine {
 
       if (makerOrder.sizeRemaining <= 0) {
         if (makerOrder.side === 'ask') {
-          this._asksExpiryMap.delete(makerOrder.orderId);
+          this._askMap.delete(makerOrder.orderId);
         } else {
-          this._bidsExpiryMap.delete(makerOrder.orderId);
+          this._bidMap.delete(makerOrder.orderId);
         }
+        this._orderMap.delete(makerOrder.orderId);
       }
     });
 
     if (newOrder.type !== 'market' && result.taker.sizeRemaining > 0) {
       if (newOrder.side === 'ask') {
-        this._asksExpiryMap.set(newOrder.orderId, newOrder);
+        this._askMap.set(newOrder.orderId, newOrder);
       } else {
-        this._bidsExpiryMap.set(newOrder.orderId, newOrder);
+        this._bidMap.set(newOrder.orderId, newOrder);
       }
+      this._orderMap.set(newOrder.orderId, newOrder);
     }
 
     return result;
   }
 
   getOrder(orderId) {
-    let askOrder = this._asksExpiryMap.get(orderId);
-    let bidOrder = this._bidsExpiryMap.get(orderId);
-    return askOrder || bidOrder;
+    return this._orderMap.get(orderId);
   }
 
   cancelOrder(orderId) {
@@ -119,45 +122,36 @@ class TradeEngine {
 
     let result = this.orderBook.remove(order.side, order.price, orderId);
     if (order.side === 'ask') {
-      this._asksExpiryMap.delete(orderId);
+      this._askMap.delete(orderId);
     } else {
-      this._bidsExpiryMap.delete(orderId);
+      this._bidMap.delete(orderId);
     }
+    this._orderMap.delete(orderId);
     return result;
   }
 
-  peekBids() {
-    return this.orderBook.bidLimits.peek();
+  getBidIterator() {
+    return this._bidMap.values();
   }
 
-  peekAsks() {
-    return this.orderBook.askLimits.peek();
+  getAskIterator() {
+    return this._askMap.values();
+  }
+
+  getOrderIterator() {
+    return this._orderMap.values();
   }
 
   getBids() {
-    let bidLimitOrders = [];
-    let bidLimitsMap = this.orderBook.bidLimits.map;
-    Object.keys(bidLimitsMap).forEach((price) => {
-      let limit = bidLimitsMap[price];
-      let limitMap = limit.map;
-      Object.keys(limitMap).forEach((orderId) => {
-        bidLimitOrders.push(limitMap[orderId]);
-      });
-    });
-    return bidLimitOrders;
+    return [...this.getBidIterator()];
   }
 
   getAsks() {
-    let askLimitOrders = [];
-    let askLimitsMap = this.orderBook.askLimits.map;
-    Object.keys(askLimitsMap).forEach((price) => {
-      let limit = askLimitsMap[price];
-      let limitMap = limit.map;
-      Object.keys(limitMap).forEach((orderId) => {
-        askLimitOrders.push(limitMap[orderId]);
-      });
-    });
-    return askLimitOrders;
+    return [...this.getAskIterator()];
+  }
+
+  getOrders() {
+    return [...this.getOrderIterator()];
   }
 
   getSnapshot() {
@@ -202,7 +196,8 @@ class TradeEngine {
     });
     snapshot.askLimitOrders.forEach((order) => {
       let newOrder = this._createOrderInstance(order);
-      this._asksExpiryMap.set(newOrder.orderId, newOrder);
+      this._askMap.set(newOrder.orderId, newOrder);
+      this._orderMap.set(newOrder.orderId, newOrder);
       Object.keys(order).forEach((key) => {
         newOrder[key] = order[key];
       });
@@ -210,7 +205,8 @@ class TradeEngine {
     });
     snapshot.bidLimitOrders.forEach((order) => {
       let newOrder = this._createOrderInstance(order);
-      this._bidsExpiryMap.set(newOrder.orderId, newOrder);
+      this._bidMap.set(newOrder.orderId, newOrder);
+      this._orderMap.set(newOrder.orderId, newOrder);
       Object.keys(order).forEach((key) => {
         newOrder[key] = order[key];
       });
@@ -219,8 +215,9 @@ class TradeEngine {
   }
 
   clear() {
-    this._asksExpiryMap.clear();
-    this._bidsExpiryMap.clear();
+    this._askMap.clear();
+    this._bidMap.clear();
+    this._orderMap.clear();
     this.orderBook.clear();
   }
 }
