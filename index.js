@@ -107,13 +107,16 @@ module.exports = class LiskDEXModule extends BaseModule {
     if (before) {
       let previousItems = [];
       for (let item of iterator) {
-        previousItems.push(item);
         if (item.orderId === before) {
           let length = previousItems.length;
           let firstIndex = length - limit;
+          if (firstIndex < 0) {
+            firstIndex = 0;
+          }
           result = previousItems.slice(firstIndex, length);
           break;
         }
+        previousItems.push(item);
       }
       return result;
     }
