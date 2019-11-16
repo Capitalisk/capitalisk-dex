@@ -38,7 +38,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     this.multisigWalletInfo = {};
     this.currentProcessedHeights = {};
     this.lastSnapshotHeights = {};
-    this.pendingTransactions = new Map();
+    this.pendingTransfers = new Map();
     this.chainSymbols.forEach((chainSymbol) => {
       this.currentProcessedHeights[chainSymbol] = 0;
       this.lastSnapshotHeights[chainSymbol] = 0;
@@ -81,7 +81,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     return defaultConfig;
   }
 
-  _execQueryAgainstIterator(query, iterator) {
+  _execQueryAgainstIterator(query, iterator, idExtractorFn) {
     query = query || {};
     let after = query.after;
     let before = query.before;
@@ -89,13 +89,14 @@ module.exports = class LiskDEXModule extends BaseModule {
     if (limit > this.options.apiMaxPageLimit) {
       limit = this.options.apiMaxPageLimit;
     }
+
     let result = [];
     if (after) {
       let isCapturing = false;
       for (let item of iterator) {
         if (isCapturing) {
           result.push(item);
-        } else if (item.orderId === after) {
+        } else if (idExtractorFn(item) === after) {
           isCapturing = true;
         }
         if (result.length >= limit) {
@@ -107,7 +108,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     if (before) {
       let previousItems = [];
       for (let item of iterator) {
-        if (item.orderId === before) {
+        if (idExtractorFn(item) === before) {
           let length = previousItems.length;
           let firstIndex = length - limit;
           if (firstIndex < 0) {
@@ -148,19 +149,34 @@ module.exports = class LiskDEXModule extends BaseModule {
       getBids: {
         handler: (action) => {
           let bidIterator = this.tradeEngine.getBidIterator();
-          return this._execQueryAgainstIterator(action.params, bidIterator);
+          return this._execQueryAgainstIterator(action.params, bidIterator, (item) => item.orderId);
         }
       },
       getAsks: {
         handler: (action) => {
           let askIterator = this.tradeEngine.getAskIterator();
-          return this._execQueryAgainstIterator(action.params, askIterator);
+          return this._execQueryAgainstIterator(action.params, askIterator, (item) => item.orderId);
         }
       },
       getOrders: {
         handler: (action) => {
           let orderIterator = this.tradeEngine.getOrderIterator();
-          return this._execQueryAgainstIterator(action.params, orderIterator);
+          return this._execQueryAgainstIterator(action.params, orderIterator, (item) => item.orderId);
+        }
+      },
+      getPendingTransfers: {
+        handler: (action) => {
+          let transferList = this._execQueryAgainstIterator(
+            action.params,
+            this.pendingTransfers.values(),
+            (item) => item.transaction.id
+          );
+          return transferList.map((transfer) => ({
+            transaction: transfer.transaction,
+            targetChain: transfer.targetChain,
+            collectedSignatures: [...transfer.processedSignatureSet.values()],
+            timestamp: transfer.timestamp
+          }));
         }
       }
     };
@@ -181,7 +197,7 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   _processSignature(signatureData) {
-    let transactionData = this.pendingTransactions.get(signatureData.transactionId);
+    let transactionData = this.pendingTransfers.get(signatureData.transactionId);
     let signature = signatureData.signature;
     let publicKey = signatureData.publicKey;
     if (!transactionData) {
@@ -233,11 +249,11 @@ module.exports = class LiskDEXModule extends BaseModule {
 
   expireMultisigTransactions() {
     let now = Date.now();
-    for (let [txnId, txnData] of this.pendingTransactions) {
+    for (let [txnId, txnData] of this.pendingTransfers) {
       if (now - txnData.timestamp < this.options.multisigExpiry) {
         break;
       }
-      this.pendingTransactions.delete(txnId);
+      this.pendingTransfers.delete(txnId);
     }
   }
 
@@ -266,7 +282,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
         if (result.isReady) {
           let targetChain = result.targetChain;
-          this.pendingTransactions.delete(result.transaction.id);
+          this.pendingTransfers.delete(result.transaction.id);
           let chainOptions = this.options.chains[targetChain];
           if (chainOptions && chainOptions.moduleAlias) {
             let postTxnResult;
@@ -1086,13 +1102,13 @@ module.exports = class LiskDEXModule extends BaseModule {
     let processedSignatureSet = new Set();
     processedSignatureSet.add(multisigTxnSignature);
 
-    // If the pendingTransactions map already has a transaction with the specified id, delete the existing entry so
+    // If the pendingTransfers map already has a transaction with the specified id, delete the existing entry so
     // that when it is re-inserted, it will be added at the end of the queue.
     // To perform expiry using an iterator, it's essential that the insertion order is maintained.
-    if (this.pendingTransactions.has(preparedTxn.id)) {
-      this.pendingTransactions.delete(preparedTxn.id);
+    if (this.pendingTransfers.has(preparedTxn.id)) {
+      this.pendingTransfers.delete(preparedTxn.id);
     }
-    this.pendingTransactions.set(preparedTxn.id, {
+    this.pendingTransfers.set(preparedTxn.id, {
       transaction: preparedTxn,
       targetChain,
       processedSignatureSet,
@@ -1100,7 +1116,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     });
 
     (async () => {
-      // Add delay before broadcasting to give time for other nodes to independently add the transaction to their pendingTransactions lists.
+      // Add delay before broadcasting to give time for other nodes to independently add the transaction to their pendingTransfers lists.
       await wait(this.options.signatureBroadcastDelay);
       try {
         await this._broadcastSignatureToSubnet(preparedTxn.id, multisigTxnSignature, publicKey);
