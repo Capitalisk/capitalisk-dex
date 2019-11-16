@@ -12,6 +12,8 @@ module.exports = {
   baseChain: 'lsk',
   apiDefaultPageLimit: 100,
   apiMaxPageLimit: 100,
+  rebroadcastAfterHeight: 5,
+  rebroadcastUntilHeight: 100,
   logger: {
     fileLogLevel: 'debug',
     consoleLogLevel: 'debug'

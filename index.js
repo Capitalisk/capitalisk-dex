@@ -392,8 +392,29 @@ module.exports = class LiskDEXModule extends BaseModule {
           }
           while (this.currentProcessedHeights[chainSymbol] <= event.chainHeight) {
             let targetHeight = this.currentProcessedHeights[chainSymbol] - this.options.requiredConfirmations;
+            let isOnLatestHeight = this.currentProcessedHeights[chainSymbol] === event.chainHeight;
             let isPastDisabledHeight = chainOptions.dexDisabledFromHeight != null &&
               targetHeight >= chainOptions.dexDisabledFromHeight;
+
+            // If it is on the latest height, rebroadcast our node's signature
+            // for each pending multisig transaction in case other DEX nodes did not
+            // receive it.
+            if (isOnLatestHeight) {
+              for (let transfer of this.pendingTransfers.values()) {
+                let heightDiff = targetHeight - transfer.height;
+                if (
+                  heightDiff > this.options.rebroadcastAfterHeight &&
+                  heightDiff < this.options.rebroadcastUntilHeight &&
+                  transfer.transaction.signatures.length
+                ) {
+                  this._broadcastSignatureToSubnet(
+                    transfer.transaction.id,
+                    transfer.transaction.signatures[0],
+                    transfer.publicKey
+                  );
+                }
+              }
+            }
 
             let finishProcessing = async (timestamp) => {
               this.currentProcessedHeights[chainSymbol]++;
@@ -410,10 +431,11 @@ module.exports = class LiskDEXModule extends BaseModule {
                   await this.refundOrderBook(
                     chainSymbol,
                     timestamp,
+                    targetHeight,
                     chainOptions.dexMovedToAddress
                   );
                 } else {
-                  await this.refundOrderBook(chainSymbol, timestamp);
+                  await this.refundOrderBook(chainSymbol, timestamp, targetHeight);
                 }
                 return;
               }
@@ -742,7 +764,12 @@ module.exports = class LiskDEXModule extends BaseModule {
                 }
               }
               try {
-                await this.refundOrder(expiredOrder, refundTimestamp, `r2,${expiredOrder.orderId}: Expired order`);
+                await this.refundOrder(
+                  expiredOrder,
+                  refundTimestamp,
+                  expiredOrder.expiryHeight,
+                  `r2,${expiredOrder.orderId}: Expired order`
+                );
               } catch (error) {
                 this.logger.error(
                   `Chain ${chainSymbol}: Failed to post multisig refund transaction for expired order ID ${
@@ -781,7 +808,8 @@ module.exports = class LiskDEXModule extends BaseModule {
                 }
                 let refundTxn = {
                   sourceChain: targetOrder.sourceChain,
-                  sourceWalletAddress: targetOrder.sourceWalletAddress
+                  sourceWalletAddress: targetOrder.sourceWalletAddress,
+                  height: orderTxn.height
                 };
                 if (refundTxn.sourceChain === this.baseChainSymbol) {
                   refundTxn.sourceChainAmount = targetOrder.sizeRemaining * targetOrder.price;
@@ -862,6 +890,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   let takerTxn = {
                     amount: takerAmount.toString(),
                     recipientId: takerAddress,
+                    height: orderTxn.height,
                     timestamp: orderTxn.timestamp
                   };
                   try {
@@ -881,7 +910,8 @@ module.exports = class LiskDEXModule extends BaseModule {
                   if (orderTxn.type === 'market') {
                     let refundTxn = {
                       sourceChain: result.taker.sourceChain,
-                      sourceWalletAddress: result.taker.sourceWalletAddress
+                      sourceWalletAddress: result.taker.sourceWalletAddress,
+                      height: orderTxn.height
                     };
                     if (result.taker.sourceChain === this.baseChainSymbol) {
                       refundTxn.sourceChainAmount = result.taker.fundsRemaining;
@@ -923,6 +953,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                       let makerTxn = {
                         amount: makerAmount.toString(),
                         recipientId: makerAddress,
+                        height: orderTxn.height,
                         timestamp: orderTxn.timestamp
                       };
                       try {
@@ -989,7 +1020,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     )[0];
   }
 
-  async refundOrderBook(chainSymbol, timestamp, movedToAddress) {
+  async refundOrderBook(chainSymbol, timestamp, refundHeight, movedToAddress) {
     let snapshot = this.tradeEngine.getSnapshot();
 
     let ordersToRefund;
@@ -1010,6 +1041,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           await this.refundOrder(
             order,
             timestamp,
+            refundHeight,
             `r5,${order.orderId},${movedToAddress}: DEX has moved`
           );
         })
@@ -1020,6 +1052,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           await this.refundOrder(
             order,
             timestamp,
+            refundHeight,
             `r6,${order.orderId}: DEX has been disabled`
           );
         })
@@ -1027,10 +1060,11 @@ module.exports = class LiskDEXModule extends BaseModule {
     }
   }
 
-  async refundOrder(order, timestamp, reason) {
+  async refundOrder(order, timestamp, refundHeight, reason) {
     let refundTxn = {
       sourceChain: order.sourceChain,
-      sourceWalletAddress: order.sourceWalletAddress
+      sourceWalletAddress: order.sourceWalletAddress,
+      height: refundHeight
     };
     if (order.sourceChain === this.baseChainSymbol) {
       refundTxn.sourceChainAmount = order.sizeRemaining * order.price;
@@ -1055,6 +1089,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     let refundTxn = {
       amount: refundAmount.toString(),
       recipientId: txn.sourceWalletAddress,
+      height: txn.height,
       timestamp
     };
     await this.execMultisigTransaction(
@@ -1112,6 +1147,8 @@ module.exports = class LiskDEXModule extends BaseModule {
       transaction: preparedTxn,
       targetChain,
       processedSignatureSet,
+      publicKey,
+      height: transactionData.height,
       timestamp: Date.now()
     });
 
