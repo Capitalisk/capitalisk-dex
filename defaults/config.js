@@ -14,6 +14,8 @@ module.exports = {
   apiMaxPageLimit: 100,
   rebroadcastAfterHeight: 5,
   rebroadcastUntilHeight: 100,
+  readBlocksInterval: 5000,
+  readMaxBlocks: 1000,
   logger: {
     fileLogLevel: 'debug',
     consoleLogLevel: 'debug'
