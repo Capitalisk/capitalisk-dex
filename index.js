@@ -477,12 +477,23 @@ module.exports = class LiskDEXModule extends BaseModule {
               );
             }
 
+            let [inboundTxns, outboundTxns] = await Promise.all([
+              storage.adapter.db.query(
+                'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."recipientId" = $2',
+                [blockData.id, chainOptions.walletAddress],
+              ),
+              storage.adapter.db.query(
+                'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."senderId" = $2',
+                [blockData.id, chainOptions.walletAddress],
+              )
+            ]);
+
+            outboundTxns.forEach((txn) => {
+              this.pendingTransfers.delete(txn.id);
+            });
+
             // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
-            let orders = await storage.adapter.db.query(
-              'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."transferData" is not null and trs."recipientId" = $2',
-              [blockData.id, chainOptions.walletAddress],
-            )
-            .map((txn) => {
+            let orders = inboundTxns.map((txn) => {
               let orderTxn = {...txn};
               orderTxn.orderId = orderTxn.id;
               orderTxn.sourceChain = chainSymbol;
@@ -516,7 +527,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                 return orderTxn;
               }
 
-              let transferDataString = txn.transferData.toString('utf8');
+              let transferDataString = txn.transferData == null ? '' : txn.transferData.toString('utf8');
               let dataParts = transferDataString.split(',');
 
               let targetChain = dataParts[0];
