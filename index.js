@@ -475,9 +475,6 @@ module.exports = class LiskDEXModule extends BaseModule {
               this.logger.trace(
                 `Chain ${chainSymbol}: No transactions in block ${blockData.id} at height ${targetHeight}`
               );
-
-              await finishProcessing(latestBlockTimestamp);
-              continue;
             }
 
             // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
