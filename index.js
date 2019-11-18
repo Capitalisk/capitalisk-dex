@@ -411,27 +411,9 @@ module.exports = class LiskDEXModule extends BaseModule {
             }
           }
 
-          let finishProcessing = async (timestamp) => {
-            if (
-              timestamp != null &&
-              isPastDisabledHeight &&
-              targetHeight === chainOptions.dexDisabledFromHeight + REFUND_ORDER_BOOK_HEIGHT_DELAY
-            ) {
-              if (this.passiveMode) {
-                return;
-              }
-              if (chainOptions.dexMovedToAddress) {
-                await this.refundOrderBook(
-                  chainSymbol,
-                  timestamp,
-                  targetHeight,
-                  chainOptions.dexMovedToAddress
-                );
-              } else {
-                await this.refundOrderBook(chainSymbol, timestamp, targetHeight);
-              }
-              return;
-            }
+          let finishProcessing = async () => {
+            this.currentProcessedHeights[chainSymbol] = targetHeight;
+
             if (chainSymbol === this.baseChainSymbol) {
               let lastSnapshotHeight = this.lastSnapshotHeights[chainSymbol];
               if (
@@ -974,7 +956,22 @@ module.exports = class LiskDEXModule extends BaseModule {
             })
           );
 
-          await finishProcessing(latestBlockTimestamp);
+          if (
+            isPastDisabledHeight &&
+            targetHeight === chainOptions.dexDisabledFromHeight + REFUND_ORDER_BOOK_HEIGHT_DELAY
+          ) {
+            if (chainOptions.dexMovedToAddress) {
+              await this.refundOrderBook(
+                chainSymbol,
+                latestBlockTimestamp,
+                targetHeight,
+                chainOptions.dexMovedToAddress
+              );
+            } else {
+              await this.refundOrderBook(chainSymbol, latestBlockTimestamp, targetHeight);
+            }
+          }
+          await finishProcessing();
         }
       }
     })();
