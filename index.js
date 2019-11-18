@@ -982,8 +982,8 @@ module.exports = class LiskDEXModule extends BaseModule {
       return firstBaseChainBlock.timestamp;
     };
 
-    let lastProcessedHeight = this.currentProcessedHeights[this.baseChainSymbol];
-    let lastProcessedTimestamp = await getBaseChainBlockTimestamp(lastProcessedHeight);
+    let lastProcessedHeight;
+    let lastProcessedTimestamp;
 
     let processBlockchains = async () => {
       let orderedChainSymbols = [
@@ -1068,8 +1068,6 @@ module.exports = class LiskDEXModule extends BaseModule {
       delete this._readBlocksInterval;
     };
 
-    startReadBlocksInterval();
-
     let progressingChains = {};
 
     this.chainSymbols.forEach((chainSymbol) => {
@@ -1094,7 +1092,12 @@ module.exports = class LiskDEXModule extends BaseModule {
         lastSeenChainHeight = chainHeight;
 
         if (areAllChainsProgressing()) {
+          if (!this.currentProcessedHeights[chainSymbol]) {
+            this.currentProcessedHeights[chainSymbol] = chainHeight;
+          }
           if (!this._readBlocksInterval) {
+            lastProcessedHeight = this.currentProcessedHeights[this.baseChainSymbol];
+            lastProcessedTimestamp = await getBaseChainBlockTimestamp(lastProcessedHeight);
             startReadBlocksInterval();
           }
         } else {
