@@ -237,6 +237,68 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(result.makers[0].valueTaken, 20);
     });
 
+    it('The lastSize and sizeTaken property should be updated on both taker and makers', async () => {
+      let result;
+
+      result = tradeEngine.addOrder({
+        orderId: 'order0',
+        type: 'limit',
+        price: .5,
+        targetChain: 'clsk',
+        targetWalletAddress: '22245678912345678222L',
+        senderId: '11111111111222222222L',
+        side: 'bid',
+        size: 28
+      });
+
+      result = tradeEngine.addOrder({
+        orderId: 'order841',
+        type: 'limit',
+        price: .55,
+        targetChain: 'lsk',
+        targetWalletAddress: '11145678912345678111L',
+        senderId: '22222222211111111111L',
+        side: 'ask',
+        size: 1.18
+      });
+
+      result = tradeEngine.addOrder({
+        orderId: 'order3',
+        type: 'limit',
+        price: .6,
+        targetChain: 'lsk',
+        targetWalletAddress: '11145678912345678111L',
+        senderId: '22222222211111111111L',
+        side: 'ask',
+        size: 1.67
+      });
+
+      result = tradeEngine.addOrder({
+        orderId: 'order567',
+        type: 'limit',
+        price: .56,
+        targetChain: 'clsk',
+        targetWalletAddress: '11145678912345678111L',
+        senderId: '22222222211111111111L',
+        side: 'bid',
+        size: 3.57
+      });
+
+      result = tradeEngine.addOrder({
+        orderId: 'order630',
+        type: 'limit',
+        price: .56,
+        targetChain: 'lsk',
+        targetWalletAddress: '11145678912345678111L',
+        senderId: '22222222211111111111L',
+        side: 'ask',
+        size: 6
+      });
+
+      assert.notEqual(result.makers[0], null);
+      assert.equal(result.makers[0].sizeTaken, 2.3899999999999997);
+    });
+
     it('Market bid order', async () => {
       let result;
 

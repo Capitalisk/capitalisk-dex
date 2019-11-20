@@ -919,8 +919,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   let makerChainOptions = this.options.chains[makerOrder.targetChain];
                   let makerTargetChainModuleAlias = makerChainOptions.moduleAlias;
                   let makerAddress = makerOrder.targetWalletAddress;
-                  let makerAmount = makerOrder.targetChain === this.baseChainSymbol ?
-                  makerOrder.valueTaken : makerOrder.sizeTaken;
+                  let makerAmount = makerOrder.targetChain === this.baseChainSymbol ? makerOrder.valueTaken : makerOrder.sizeTaken;
                   makerAmount -= makerChainOptions.exchangeFeeBase;
                   makerAmount -= makerAmount * makerChainOptions.exchangeFeeRate;
                   makerAmount = Math.floor(makerAmount);
@@ -1091,13 +1090,13 @@ module.exports = class LiskDEXModule extends BaseModule {
         progressingChains[chainSymbol] = chainHeight > lastSeenChainHeight;
         lastSeenChainHeight = chainHeight;
 
+        if (!this.currentProcessedHeights[chainSymbol]) {
+          this.currentProcessedHeights[chainSymbol] = chainHeight;
+        }
         if (areAllChainsProgressing()) {
-          if (!this.currentProcessedHeights[chainSymbol]) {
-            this.currentProcessedHeights[chainSymbol] = chainHeight;
-          }
           if (!this._readBlocksInterval) {
             lastProcessedHeight = this.currentProcessedHeights[this.baseChainSymbol];
-            lastProcessedTimestamp = await getBaseChainBlockTimestamp(lastProcessedHeight);
+            lastProcessedTimestamp = await getBaseChainBlockTimestamp(lastProcessedHeight) - 1;
             startReadBlocksInterval();
           }
         } else {
@@ -1106,7 +1105,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             blockProcessingStream.kill();
             this.revertToLastSnapshot();
             lastProcessedHeight = this.currentProcessedHeights[this.baseChainSymbol];
-            lastProcessedTimestamp = await getBaseChainBlockTimestamp(lastProcessedHeight);
+            lastProcessedTimestamp = await getBaseChainBlockTimestamp(lastProcessedHeight) - 1;
           }
         }
       });
@@ -1117,7 +1116,7 @@ module.exports = class LiskDEXModule extends BaseModule {
   async _getLatestBlocks(storage, fromTimestamp, limit) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
     return storage.adapter.db.query(
-      'select blocks.id, blocks.height, blocks.timestamp from blocks where timestamp >= $1 limit $2',
+      'select blocks.id, blocks.height, blocks.timestamp from blocks where timestamp > $1 limit $2',
       [fromTimestamp, limit]
     );
   }

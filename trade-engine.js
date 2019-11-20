@@ -96,6 +96,8 @@ class TradeEngine {
       }
     });
 
+    result.taker.lastSize = result.taker.sizeRemaining;
+
     if (newOrder.type !== 'market' && result.taker.sizeRemaining > 0) {
       if (newOrder.side === 'ask') {
         this._askMap.set(newOrder.orderId, newOrder);
