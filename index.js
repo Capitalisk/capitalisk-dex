@@ -79,13 +79,64 @@ module.exports = class LiskDEXModule extends BaseModule {
     return defaultConfig;
   }
 
-  _execQueryAgainstIterator(query, iterator, idExtractorFn) {
+  _execQueryAgainstIterator(query, sourceIterator, idExtractorFn) {
     query = query || {};
-    let after = query.after;
-    let before = query.before;
-    let limit = typeof query.limit == 'number' ? query.limit : this.options.apiDefaultPageLimit;
+    let {after, before, limit, sort, ...filterMap} = query;
+    let filterFields = Object.keys(filterMap);
+    if (filterFields.length > this.options.apiMaxFilterFields) {
+      let error = new Error(
+        `Too many custom filter fields were specified in the query. The maximum allowed is ${
+          this.options.apiMaxFilterFields
+        }`
+      );
+      error.name = 'InvalidQueryError';
+      throw error;
+    }
+    if (limit == null) {
+      limit = this.options.apiDefaultPageLimit;
+    }
+    if (typeof limit !== 'number') {
+      let error = new Error(
+        'If specified, the limit parameter of the query must be a number'
+      );
+      error.name = 'InvalidQueryError';
+      throw error;
+    }
     if (limit > this.options.apiMaxPageLimit) {
-      limit = this.options.apiMaxPageLimit;
+      let error = new Error(
+        `The limit parameter of the query cannot be greater than ${
+          this.options.apiMaxPageLimit
+        }`
+      );
+      error.name = 'InvalidQueryError';
+      throw error;
+    }
+    let [sortField, sortOrderString] = (sort || '').split(':');
+    if (sortOrderString != null && sortOrderString !== 'asc' && sortOrderString !== 'desc') {
+      let error = new Error(
+        'If specified, the sort order must be either asc or desc'
+      );
+      error.name = 'InvalidQueryError';
+      throw error;
+    }
+    let sortOrder = sortOrderString === 'desc' ? -1 : 1;
+    let iterator;
+    if (sortField) {
+      let list = [...sourceIterator];
+      list.sort((a, b) => {
+        let valueA = a[sortField];
+        let valueB = b[sortField];
+        if (valueA > valueB) {
+          return sortOrder;
+        }
+        if (valueA < valueB) {
+          return -sortOrder;
+        }
+        return 0;
+      });
+      iterator = list;
+    } else {
+      iterator = sourceIterator;
     }
 
     let result = [];
@@ -93,7 +144,12 @@ module.exports = class LiskDEXModule extends BaseModule {
       let isCapturing = false;
       for (let item of iterator) {
         if (isCapturing) {
-          result.push(item);
+          let itemMatchesFilter = filterFields.every(
+            (field) => String(item[field]) === String(filterMap[field])
+          );
+          if (itemMatchesFilter) {
+            result.push(item);
+          }
         } else if (idExtractorFn(item) === after) {
           isCapturing = true;
         }
@@ -115,12 +171,22 @@ module.exports = class LiskDEXModule extends BaseModule {
           result = previousItems.slice(firstIndex, length);
           break;
         }
-        previousItems.push(item);
+        let itemMatchesFilter = filterFields.every(
+          (field) => String(item[field]) === String(filterMap[field])
+        );
+        if (itemMatchesFilter) {
+          previousItems.push(item);
+        }
       }
       return result;
     }
     for (let item of iterator) {
-      result.push(item);
+      let itemMatchesFilter = filterFields.every(
+        (field) => String(item[field]) === String(filterMap[field])
+      );
+      if (itemMatchesFilter) {
+        result.push(item);
+      }
       if (result.length >= limit) {
         break;
       }

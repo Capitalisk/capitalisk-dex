@@ -12,6 +12,7 @@ module.exports = {
   baseChain: 'lsk',
   apiDefaultPageLimit: 100,
   apiMaxPageLimit: 100,
+  apiMaxFilterFields: 10,
   rebroadcastAfterHeight: 5,
   rebroadcastUntilHeight: 100,
   readBlocksInterval: 3000,
