@@ -396,6 +396,9 @@ module.exports = class LiskDEXModule extends BaseModule {
           // did not receive it.
           if (isLastBlock) {
             for (let transfer of this.pendingTransfers.values()) {
+              if (transfer.targetChain !== chainSymbol) {
+                continue;
+              }
               let heightDiff = targetHeight - transfer.height;
               if (
                 heightDiff > this.options.rebroadcastAfterHeight &&
@@ -1015,6 +1018,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         if (lastSafeBlock) {
           lastSafeBlock.isLastBlock = true;
         }
+        baseChainLastBlock.isLastBlock = true;
         orderedBlockList = baseChainBlocks.concat(safeQuoteChainBlocks);
       } else {
         lastProcessedTimestamp = quoteChainLastBlock.timestamp;
@@ -1023,6 +1027,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         if (lastSafeBlock) {
           lastSafeBlock.isLastBlock = true;
         }
+        quoteChainLastBlock.isLastBlock = true;
         orderedBlockList = quoteChainBlocks.concat(safeBaseChainBlocks);
       }
 
