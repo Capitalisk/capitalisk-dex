@@ -1175,6 +1175,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             stopReadBlocksInterval();
             blockProcessingStream.kill();
             this.revertToLastSnapshot();
+            this.pendingTransfers.clear();
             lastProcessedHeight = this.currentProcessedHeights[this.baseChainSymbol];
             lastProcessedTimestamp = await getBaseChainBlockTimestamp(lastProcessedHeight) - 1;
           }
