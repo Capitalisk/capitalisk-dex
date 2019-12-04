@@ -50,12 +50,15 @@ module.exports = class LiskDEXModule extends BaseModule {
     this.passiveMode = this.options.passiveMode;
     this.baseChainSymbol = this.options.baseChain;
     this.quoteChainSymbol = this.chainSymbols.find(chain => chain !== this.baseChainSymbol);
-    this.baseAddress = this.options.chains[this.baseChainSymbol].walletAddress;
-    this.quoteAddress = this.options.chains[this.quoteChainSymbol].walletAddress;
+    let baseChainOptions = this.options.chains[this.baseChainSymbol];
+    let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
+    this.baseAddress = baseChainOptions.walletAddress;
+    this.quoteAddress = quoteChainOptions.walletAddress;
     this.tradeEngine = new TradeEngine({
       baseCurrency: this.baseChainSymbol,
       quoteCurrency: this.quoteChainSymbol,
-      orderHeightExpiry: this.options.orderHeightExpiry
+      baseOrderHeightExpiry: baseChainOptions.orderHeightExpiry,
+      quoteOrderHeightExpiry: quoteChainOptions.orderHeightExpiry
     });
   }
 
@@ -453,7 +456,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           let storage = storageComponents[chainSymbol];
           let chainOptions = this.options.chains[chainSymbol];
 
-          let targetHeight = chainHeight - this.options.requiredConfirmations;
+          let targetHeight = chainHeight - chainOptions.requiredConfirmations;
           let isPastDisabledHeight = chainOptions.dexDisabledFromHeight != null &&
             targetHeight >= chainOptions.dexDisabledFromHeight;
           let minOrderAmount = chainOptions.minOrderAmount;
@@ -468,8 +471,8 @@ module.exports = class LiskDEXModule extends BaseModule {
               }
               let heightDiff = targetHeight - transfer.height;
               if (
-                heightDiff > this.options.rebroadcastAfterHeight &&
-                heightDiff < this.options.rebroadcastUntilHeight &&
+                heightDiff > chainOptions.rebroadcastAfterHeight &&
+                heightDiff < chainOptions.rebroadcastUntilHeight &&
                 transfer.transaction.signatures.length
               ) {
                 this._broadcastSignatureToSubnet(
@@ -1094,7 +1097,8 @@ module.exports = class LiskDEXModule extends BaseModule {
       let [baseChainBlocks, quoteChainBlocks] = await Promise.all(
         orderedChainSymbols.map(async (chainSymbol) => {
           let storage = storageComponents[chainSymbol];
-          let timestampedBlockList = await this._getLatestBlocks(storage, lastProcessedTimestamp, this.options.readMaxBlocks);
+          let chainOptions = this.options.chains[chainSymbol];
+          let timestampedBlockList = await this._getLatestBlocks(storage, lastProcessedTimestamp, chainOptions.readMaxBlocks);
           return timestampedBlockList.map((block) => ({
             ...block,
             chainSymbol

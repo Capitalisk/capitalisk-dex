@@ -1,22 +1,17 @@
 module.exports = {
   passiveMode: false,
-  requiredConfirmations: 2,
   signatureBroadcastDelay: 15000,
   multisigExpiry: 86400000,
   multisigExpiryCheckInterval: 60000,
-  orderBookSnapshotFinality: 101,
+  orderBookSnapshotFinality: 303,
   orderBookSnapshotFilePath: './lisk-dex-orderbook-snapshot.json',
   orderBookSnapshotBackupDirPath: './orderbook-snapshots',
-  orderBookSnapshotBackupMaxCount: 200,
-  orderHeightExpiry: 259200,
+  orderBookSnapshotBackupMaxCount: 50,
   baseChain: 'lsk',
   apiDefaultPageLimit: 100,
   apiMaxPageLimit: 100,
   apiMaxFilterFields: 10,
-  rebroadcastAfterHeight: 5,
-  rebroadcastUntilHeight: 100,
   readBlocksInterval: 3000,
-  readMaxBlocks: 1000,
   logger: {
     fileLogLevel: 'debug',
     consoleLogLevel: 'debug'
@@ -30,9 +25,14 @@ module.exports = {
       sharedPassphrase: '',
       // encryptedPassphrase: '' // TODO 2: Use encrypted passphrase
       passphrase: '',
+      requiredConfirmations: 2,
+      orderHeightExpiry: 259200,
       exchangeFeeBase: 10000000,
       exchangeFeeRate: .001,
       minOrderAmount: 1000000000,
+      rebroadcastAfterHeight: 5,
+      rebroadcastUntilHeight: 100,
+      readMaxBlocks: 1000,
       // Can be used to disable the DEX starting at a specific height.
       dexDisabledFromHeight: null,
       // Can be used to specify the new address if the DEX has moved to a different wallet.
@@ -46,9 +46,14 @@ module.exports = {
       sharedPassphrase: '',
       // encryptedPassphrase: '' // TODO 2: Use encrypted passphrase
       passphrase: '',
+      requiredConfirmations: 2,
+      orderHeightExpiry: 259200,
       exchangeFeeBase: 10000000,
       exchangeFeeRate: .001,
       minOrderAmount: 1000000000,
+      rebroadcastAfterHeight: 5,
+      rebroadcastUntilHeight: 100,
+      readMaxBlocks: 1000,
       // Can be used to disable the DEX starting at a specific height.
       dexDisabledFromHeight: null,
       // Can be used to specify the new address if the DEX has moved to a different wallet.

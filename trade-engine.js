@@ -21,7 +21,8 @@ class TradeEngine {
   constructor(options) {
     this.baseCurrency = options.baseCurrency;
     this.quoteCurrency = options.quoteCurrency;
-    this.orderHeightExpiry = options.orderHeightExpiry;
+    this.baseOrderHeightExpiry = options.baseOrderHeightExpiry;
+    this.quoteOrderHeightExpiry = options.quoteOrderHeightExpiry;
     this.market = `${this.quoteCurrency}/${this.baseCurrency}`;
     this.orderBook = new LimitOrderBook();
 
@@ -67,6 +68,13 @@ class TradeEngine {
       throw error;
     }
 
+    let orderHeightExpiry;
+    if (order.sourceChain === this.quoteCurrency) {
+      orderHeightExpiry = this.quoteOrderHeightExpiry;
+    } else {
+      orderHeightExpiry = this.baseOrderHeightExpiry;
+    }
+
     let newOrder = this._createOrderInstance(order);
     newOrder.type = order.type;
     newOrder.targetChain = order.targetChain;
@@ -76,7 +84,7 @@ class TradeEngine {
     newOrder.sourceChainAmount = order.sourceChainAmount;
     newOrder.sourceWalletAddress = order.sourceWalletAddress;
     newOrder.height = order.height;
-    newOrder.expiryHeight = order.height + this.orderHeightExpiry;
+    newOrder.expiryHeight = order.height + orderHeightExpiry;
     newOrder.timestamp = order.timestamp;
 
     let result = this.orderBook.add(newOrder);
