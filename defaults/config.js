@@ -32,6 +32,7 @@ module.exports = {
       passphrase: '',
       exchangeFeeBase: 10000000,
       exchangeFeeRate: .001,
+      minOrderAmount: 1000000000,
       // Can be used to disable the DEX starting at a specific height.
       dexDisabledFromHeight: null,
       // Can be used to specify the new address if the DEX has moved to a different wallet.
@@ -47,6 +48,7 @@ module.exports = {
       passphrase: '',
       exchangeFeeBase: 10000000,
       exchangeFeeRate: .001,
+      minOrderAmount: 1000000000,
       // Can be used to disable the DEX starting at a specific height.
       dexDisabledFromHeight: null,
       // Can be used to specify the new address if the DEX has moved to a different wallet.

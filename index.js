@@ -456,6 +456,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           let targetHeight = chainHeight - this.options.requiredConfirmations;
           let isPastDisabledHeight = chainOptions.dexDisabledFromHeight != null &&
             targetHeight >= chainOptions.dexDisabledFromHeight;
+          let minOrderAmount = chainOptions.minOrderAmount;
 
           // If we are on the latest height (or latest height in a batch), rebroadcast our
           // node's signature for each pending multisig transaction in case other DEX nodes
@@ -554,6 +555,14 @@ module.exports = class LiskDEXModule extends BaseModule {
             }
 
             orderTxn.sourceChainAmount = amount;
+
+            if (amount < minOrderAmount) {
+              orderTxn.type = 'undersized';
+              this.logger.debug(
+                `Chain ${chainSymbol}: Incoming order ${orderTxn.orderId} amount ${orderTxn.sourceChainAmount.toString()} was too small - Minimum order amount is ${minOrderAmount}`
+              );
+              return orderTxn;
+            }
 
             if (isPastDisabledHeight) {
               if (chainOptions.dexMovedToAddress) {
@@ -681,6 +690,10 @@ module.exports = class LiskDEXModule extends BaseModule {
             return orderTxn.type === 'oversized';
           });
 
+          let undersizedOrders = orders.filter((orderTxn) => {
+            return orderTxn.type === 'undersized';
+          });
+
           let movedOrders = orders.filter((orderTxn) => {
             return orderTxn.type === 'moved';
           });
@@ -761,6 +774,26 @@ module.exports = class LiskDEXModule extends BaseModule {
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for oversized order ID ${
+                      orderTxn.orderId
+                    } to ${
+                      orderTxn.sourceWalletAddress
+                    } on chain ${
+                      orderTxn.sourceChain
+                    } because of error: ${
+                      error.message
+                    }`
+                  );
+                }
+              })
+            );
+
+            await Promise.all(
+              undersizedOrders.map(async (orderTxn) => {
+                try {
+                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Invalid order`);
+                } catch (error) {
+                  this.logger.error(
+                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for undersized order ID ${
                       orderTxn.orderId
                     } to ${
                       orderTxn.sourceWalletAddress
