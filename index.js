@@ -773,7 +773,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             await Promise.all(
               oversizedOrders.map(async (orderTxn) => {
                 try {
-                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Invalid order`);
+                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Oversized order`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for oversized order ID ${
@@ -793,7 +793,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             await Promise.all(
               undersizedOrders.map(async (orderTxn) => {
                 try {
-                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Invalid order`);
+                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.orderId}: Undersized order`);
                 } catch (error) {
                   this.logger.error(
                     `Chain ${chainSymbol}: Failed to post multisig refund transaction for undersized order ID ${
