@@ -559,14 +559,6 @@ module.exports = class LiskDEXModule extends BaseModule {
 
             orderTxn.sourceChainAmount = amount;
 
-            if (amount < minOrderAmount) {
-              orderTxn.type = 'undersized';
-              this.logger.debug(
-                `Chain ${chainSymbol}: Incoming order ${orderTxn.orderId} amount ${orderTxn.sourceChainAmount.toString()} was too small - Minimum order amount is ${minOrderAmount}`
-              );
-              return orderTxn;
-            }
-
             if (isPastDisabledHeight) {
               if (chainOptions.dexMovedToAddress) {
                 orderTxn.type = 'moved';
@@ -594,6 +586,17 @@ module.exports = class LiskDEXModule extends BaseModule {
               orderTxn.reason = 'Invalid target chain';
               this.logger.debug(
                 `Chain ${chainSymbol}: Incoming order ${orderTxn.orderId} has an invalid target chain ${targetChain}`
+              );
+              return orderTxn;
+            }
+
+            if (
+              (dataParts[1] === 'limit' || dataParts[1] === 'market') &&
+              amount < minOrderAmount
+            ) {
+              orderTxn.type = 'undersized';
+              this.logger.debug(
+                `Chain ${chainSymbol}: Incoming order ${orderTxn.orderId} amount ${orderTxn.sourceChainAmount.toString()} was too small - Minimum order amount is ${minOrderAmount}`
               );
               return orderTxn;
             }
