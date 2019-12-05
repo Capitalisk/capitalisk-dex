@@ -1305,7 +1305,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
     if (refundAmount <= 0n) {
       throw new Error(
-        'Failed to make refund because amount was less than 0'
+        'Failed to make refund because amount was less than or equal to 0'
       );
     }
 
