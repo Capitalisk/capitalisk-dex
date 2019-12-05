@@ -661,9 +661,34 @@ module.exports = class LiskDEXModule extends BaseModule {
               let targetOrderId = dataParts[2];
               if (!targetOrderId) {
                 orderTxn.type = 'invalid';
-                orderTxn.reason = 'Invalid order ID';
+                orderTxn.reason = 'Missing order ID';
                 this.logger.debug(
-                  `Chain ${chainSymbol}: Incoming close order ${orderTxn.orderId} has an invalid order ID`
+                  `Chain ${chainSymbol}: Incoming close order ${orderTxn.orderId} is missing an order ID`
+                );
+                return orderTxn;
+              }
+              let targetOrder = this.tradeEngine.getOrder(targetOrderId);
+              if (!targetOrder) {
+                orderTxn.type = 'invalid';
+                orderTxn.reason = 'Invalid order ID';
+                this.logger.error(
+                  `Chain ${chainSymbol}: Failed to close order with ID ${targetOrderId} because it could not be found`
+                );
+                return orderTxn;
+              }
+              if (targetOrder.sourceChain !== orderTxn.sourceChain) {
+                orderTxn.type = 'invalid';
+                orderTxn.reason = 'Wrong chain';
+                this.logger.error(
+                  `Chain ${chainSymbol}: Could not close order ID ${targetOrderId} because it is on a different chain`
+                );
+                return orderTxn;
+              }
+              if (targetOrder.sourceWalletAddress !== orderTxn.sourceWalletAddress) {
+                orderTxn.type = 'invalid';
+                orderTxn.reason = 'Not authorized';
+                this.logger.error(
+                  `Chain ${chainSymbol}: Could not close order ID ${targetOrderId} because it belongs to a different account`
                 );
                 return orderTxn;
               }
@@ -879,24 +904,6 @@ module.exports = class LiskDEXModule extends BaseModule {
           await Promise.all(
             closeOrders.map(async (orderTxn) => {
               let targetOrder = this.tradeEngine.getOrder(orderTxn.orderIdToClose);
-              if (!targetOrder) {
-                this.logger.error(
-                  `Chain ${chainSymbol}: Failed to close order with ID ${orderTxn.orderIdToClose} because it could not be found`
-                );
-                return;
-              }
-              if (targetOrder.sourceChain !== orderTxn.sourceChain) {
-                this.logger.error(
-                  `Chain ${chainSymbol}: Could not close order ID ${orderTxn.orderIdToClose} because it is on a different chain`
-                );
-                return;
-              }
-              if (targetOrder.sourceWalletAddress !== orderTxn.sourceWalletAddress) {
-                this.logger.error(
-                  `Chain ${chainSymbol}: Could not close order ID ${orderTxn.orderIdToClose} because it belongs to a different account`
-                );
-                return;
-              }
               let refundTxn = {
                 sourceChain: targetOrder.sourceChain,
                 sourceWalletAddress: targetOrder.sourceWalletAddress,
