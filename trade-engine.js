@@ -122,7 +122,7 @@ class TradeEngine {
     return this._orderMap.get(orderId);
   }
 
-  cancelOrder(orderId) {
+  closeOrder(orderId) {
     let order = this.getOrder(orderId);
     if (!order) {
       throw new Error(

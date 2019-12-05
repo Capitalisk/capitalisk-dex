@@ -653,20 +653,20 @@ module.exports = class LiskDEXModule extends BaseModule {
                 orderTxn.size = amount;
                 orderTxn.funds = 0;
               }
-            } else if (dataParts[1] === 'cancel') {
-              // E.g. clsk,cancel,1787318409505302601
+            } else if (dataParts[1] === 'close') {
+              // E.g. clsk,close,1787318409505302601
               let targetOrderId = dataParts[2];
               if (!targetOrderId) {
                 orderTxn.type = 'invalid';
                 orderTxn.reason = 'Invalid order ID';
                 this.logger.debug(
-                  `Chain ${chainSymbol}: Incoming cancel order ${orderTxn.orderId} has an invalid order ID`
+                  `Chain ${chainSymbol}: Incoming close order ${orderTxn.orderId} has an invalid order ID`
                 );
                 return orderTxn;
               }
-              orderTxn.type = 'cancel';
+              orderTxn.type = 'close';
               orderTxn.height = targetHeight;
-              orderTxn.orderIdToCancel = targetOrderId;
+              orderTxn.orderIdToClose = targetOrderId;
             } else {
               orderTxn.type = 'invalid';
               orderTxn.reason = 'Invalid operation';
@@ -677,8 +677,8 @@ module.exports = class LiskDEXModule extends BaseModule {
             return orderTxn;
           });
 
-          let cancelOrders = orders.filter((orderTxn) => {
-            return orderTxn.type === 'cancel';
+          let closeOrders = orders.filter((orderTxn) => {
+            return orderTxn.type === 'close';
           });
 
           let limitAndMarketOrders = orders.filter((orderTxn) => {
@@ -874,23 +874,23 @@ module.exports = class LiskDEXModule extends BaseModule {
           });
 
           await Promise.all(
-            cancelOrders.map(async (orderTxn) => {
-              let targetOrder = this.tradeEngine.getOrder(orderTxn.orderIdToCancel);
+            closeOrders.map(async (orderTxn) => {
+              let targetOrder = this.tradeEngine.getOrder(orderTxn.orderIdToClose);
               if (!targetOrder) {
                 this.logger.error(
-                  `Chain ${chainSymbol}: Failed to cancel order with ID ${orderTxn.orderIdToCancel} because it could not be found`
+                  `Chain ${chainSymbol}: Failed to close order with ID ${orderTxn.orderIdToClose} because it could not be found`
                 );
                 return;
               }
               if (targetOrder.sourceChain !== orderTxn.sourceChain) {
                 this.logger.error(
-                  `Chain ${chainSymbol}: Could not cancel order ID ${orderTxn.orderIdToCancel} because it is on a different chain`
+                  `Chain ${chainSymbol}: Could not close order ID ${orderTxn.orderIdToClose} because it is on a different chain`
                 );
                 return;
               }
               if (targetOrder.sourceWalletAddress !== orderTxn.sourceWalletAddress) {
                 this.logger.error(
-                  `Chain ${chainSymbol}: Could not cancel order ID ${orderTxn.orderIdToCancel} because it belongs to a different account`
+                  `Chain ${chainSymbol}: Could not close order ID ${orderTxn.orderIdToClose} because it belongs to a different account`
                 );
                 return;
               }
@@ -904,12 +904,12 @@ module.exports = class LiskDEXModule extends BaseModule {
               } else {
                 refundTxn.sourceChainAmount = targetOrder.sizeRemaining;
               }
-              // Also send back any amount which was sent as part of the cancel order.
+              // Also send back any amount which was sent as part of the close order.
               refundTxn.sourceChainAmount += orderTxn.sourceChainAmount;
 
               let result;
               try {
-                result = this.tradeEngine.cancelOrder(orderTxn.orderIdToCancel);
+                result = this.tradeEngine.closeOrder(orderTxn.orderIdToClose);
               } catch (error) {
                 this.logger.error(error);
                 return;
@@ -918,10 +918,10 @@ module.exports = class LiskDEXModule extends BaseModule {
                 return;
               }
               try {
-                await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r3,${targetOrder.orderId},${orderTxn.orderId}: Canceled order`);
+                await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r3,${targetOrder.orderId},${orderTxn.orderId}: Closed order`);
               } catch (error) {
                 this.logger.error(
-                  `Chain ${chainSymbol}: Failed to post multisig refund transaction for canceled order ID ${
+                  `Chain ${chainSymbol}: Failed to post multisig refund transaction for closed order ID ${
                     targetOrder.orderId
                   } to ${
                     targetOrder.sourceWalletAddress
