@@ -140,6 +140,14 @@ class TradeEngine {
     return result;
   }
 
+  peekBids() {
+    return this.orderBook.bidLimits.peek();
+  }
+
+  peekAsks() {
+    return this.orderBook.askLimits.peek();
+  }
+
   getBidIterator() {
     return this._bidMap.values();
   }

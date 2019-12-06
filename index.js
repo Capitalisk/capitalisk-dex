@@ -621,6 +621,14 @@ module.exports = class LiskDEXModule extends BaseModule {
                 );
                 return orderTxn;
               }
+              if (this._isLimitOrderTooSmallToConvert(chainSymbol, amount, price)) {
+                orderTxn.type = 'invalid';
+                orderTxn.reason = 'Too small to convert';
+                this.logger.debug(
+                  `Chain ${chainSymbol}: Incoming limit order ${orderTxn.orderId} was too small to cover base blockchain fees`
+                );
+                return orderTxn;
+              }
 
               orderTxn.type = 'limit';
               orderTxn.height = targetHeight;
@@ -641,6 +649,14 @@ module.exports = class LiskDEXModule extends BaseModule {
                 orderTxn.reason = 'Invalid wallet address';
                 this.logger.debug(
                   `Chain ${chainSymbol}: Incoming market order ${orderTxn.orderId} has an invalid wallet address`
+                );
+                return orderTxn;
+              }
+              if (this._isMarketOrderTooSmallToConvert(chainSymbol, amount)) {
+                orderTxn.type = 'invalid';
+                orderTxn.reason = 'Too small to convert';
+                this.logger.debug(
+                  `Chain ${chainSymbol}: Incoming market order ${orderTxn.orderId} was too small to cover base blockchain fees`
                 );
                 return orderTxn;
               }
@@ -1230,6 +1246,30 @@ module.exports = class LiskDEXModule extends BaseModule {
       });
     });
     channel.publish(`${MODULE_ALIAS}:bootstrap`);
+  }
+
+  _isLimitOrderTooSmallToConvert(chainSymbol, amount, price) {
+    if (chainSymbol === this.baseChainSymbol) {
+      let quoteChainValue = Math.floor(amount / price);
+      let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
+      return quoteChainValue <= quoteChainOptions.exchangeFeeBase;
+    }
+    let baseChainValue = Math.floor(amount * price);
+    let baseChainOptions = this.options.chains[this.baseChainSymbol];
+    return baseChainValue <= baseChainOptions.exchangeFeeBase;
+  }
+
+  _isMarketOrderTooSmallToConvert(chainSymbol, amount) {
+    if (chainSymbol === this.baseChainSymbol) {
+      let {price: quoteChainPrice} = this.tradeEngine.peekAsks() || {};
+      let quoteChainValue = Math.floor(amount / quoteChainPrice);
+      let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
+      return quoteChainValue <= quoteChainOptions.exchangeFeeBase;
+    }
+    let {price: baseChainPrice} = this.tradeEngine.peekBids() || {};
+    let baseChainValue = Math.floor(amount * baseChainPrice);
+    let baseChainOptions = this.options.chains[this.baseChainSymbol];
+    return baseChainValue <= baseChainOptions.exchangeFeeBase;
   }
 
   async _getLatestBlocks(storage, fromTimestamp, limit) {
