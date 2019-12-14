@@ -603,7 +603,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
             if (dataParts[1] === 'limit') {
               // E.g. clsk,limit,.5,9205805648791671841L
-              let price = parseFloat(dataParts[2]);
+              let price = Number(dataParts[2]);
               let targetWalletAddress = dataParts[3];
               if (isNaN(price)) {
                 orderTxn.type = 'invalid';
