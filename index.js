@@ -87,10 +87,20 @@ module.exports = class LiskDEXModule extends BaseModule {
             } chain should have either a passphrase or encryptedPassphrase but not both`
           );
         }
-        let decipher = crypto.createDecipheriv(CIPHER_ALGORITHM, CIPHER_KEY, CIPHER_IV);
-        let decrypted = decipher.update(chainOptions.encryptedPassphrase, 'hex', 'utf8');
-        decrypted += decipher.final('utf8');
-        chainOptions.passphrase = decrypted;
+        try {
+          let decipher = crypto.createDecipheriv(CIPHER_ALGORITHM, CIPHER_KEY, CIPHER_IV);
+          let decrypted = decipher.update(chainOptions.encryptedPassphrase, 'hex', 'utf8');
+          decrypted += decipher.final('utf8');
+          chainOptions.passphrase = decrypted;
+        } catch (error) {
+          throw new Error(
+            `Failed to decrypt encryptedPassphrase in ${
+              MODULE_ALIAS
+            } config for chain ${
+              chainSymbol
+            } - Check that the LISK_DEX_PASSWORD environment variable is correct`
+          );
+        }
       }
       if (chainOptions.encryptedSharedPassphrase) {
         if (!LISK_DEX_PASSWORD) {
@@ -111,10 +121,20 @@ module.exports = class LiskDEXModule extends BaseModule {
             } chain should have either a sharedPassphrase or encryptedSharedPassphrase but not both`
           );
         }
-        let decipher = crypto.createDecipheriv(CIPHER_ALGORITHM, CIPHER_KEY, CIPHER_IV);
-        let decrypted = decipher.update(chainOptions.encryptedSharedPassphrase, 'hex', 'utf8');
-        decrypted += decipher.final('utf8');
-        chainOptions.sharedPassphrase = decrypted;
+        try {
+          let decipher = crypto.createDecipheriv(CIPHER_ALGORITHM, CIPHER_KEY, CIPHER_IV);
+          let decrypted = decipher.update(chainOptions.encryptedSharedPassphrase, 'hex', 'utf8');
+          decrypted += decipher.final('utf8');
+          chainOptions.sharedPassphrase = decrypted;
+        } catch (error) {
+          throw new Error(
+            `Failed to decrypt encryptedSharedPassphrase in ${
+              MODULE_ALIAS
+            } config for chain ${
+              chainSymbol
+            } - Check that the LISK_DEX_PASSWORD environment variable is correct`
+          );
+        }
       }
     });
 
