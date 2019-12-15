@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const defaultConfig = require('./defaults/config');
 const BaseModule = require('lisk-framework/src/modules/base_module');
 const { createStorageComponent } = require('lisk-framework/src/components/storage');
@@ -20,6 +21,10 @@ const WritableConsumableStream = require('writable-consumable-stream');
 
 const MODULE_ALIAS = 'lisk_dex';
 const REFUND_ORDER_BOOK_HEIGHT_DELAY = 5;
+const { LISK_DEX_PASSWORD } = process.env;
+const CIPHER_ALGORITHM = 'aes-192-cbc';
+const CIPHER_KEY = crypto.scryptSync(LISK_DEX_PASSWORD, 'salt', 24);
+const CIPHER_IV = Buffer.alloc(16, 0);
 
 /**
  * Lisk DEX module specification
@@ -60,6 +65,35 @@ module.exports = class LiskDEXModule extends BaseModule {
       baseOrderHeightExpiry: baseChainOptions.orderHeightExpiry,
       quoteOrderHeightExpiry: quoteChainOptions.orderHeightExpiry
     });
+
+    this.chainSymbols.forEach((chainSymbol) => {
+      let chainOptions = this.options.chains[chainSymbol];
+      if (chainOptions.encryptedPassphrase) {
+        if (!LISK_DEX_PASSWORD) {
+          throw new Error(
+            `Cannot decrypt the encryptedPassphrase from the ${
+              MODULE_ALIAS
+            } config for the ${
+              chainSymbol
+            } chain without a valid LISK_DEX_PASSWORD environment variable`
+          );
+        }
+        if (chainOptions.passphrase) {
+          throw new Error(
+            `The ${
+              MODULE_ALIAS
+            } config for the ${
+              chainSymbol
+            } chain should have either a passphrase or encryptedPassphrase but not both`
+          );
+        }
+        let decipher = crypto.createDecipheriv(CIPHER_ALGORITHM, CIPHER_KEY, CIPHER_IV);
+        let decrypted = decipher.update(chainOptions.encryptedPassphrase, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        chainOptions.passphrase = decrypted;
+      }
+    });
+
   }
 
   static get alias() {
