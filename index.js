@@ -23,7 +23,7 @@ const MODULE_ALIAS = 'lisk_dex';
 const REFUND_ORDER_BOOK_HEIGHT_DELAY = 5;
 const { LISK_DEX_PASSWORD } = process.env;
 const CIPHER_ALGORITHM = 'aes-192-cbc';
-const CIPHER_KEY = crypto.scryptSync(LISK_DEX_PASSWORD, 'salt', 24);
+const CIPHER_KEY = LISK_DEX_PASSWORD ? crypto.scryptSync(LISK_DEX_PASSWORD, 'salt', 24) : undefined;
 const CIPHER_IV = Buffer.alloc(16, 0);
 
 /**
@@ -91,6 +91,30 @@ module.exports = class LiskDEXModule extends BaseModule {
         let decrypted = decipher.update(chainOptions.encryptedPassphrase, 'hex', 'utf8');
         decrypted += decipher.final('utf8');
         chainOptions.passphrase = decrypted;
+      }
+      if (chainOptions.encryptedSharedPassphrase) {
+        if (!LISK_DEX_PASSWORD) {
+          throw new Error(
+            `Cannot decrypt the encryptedSharedPassphrase from the ${
+              MODULE_ALIAS
+            } config for the ${
+              chainSymbol
+            } chain without a valid LISK_DEX_PASSWORD environment variable`
+          );
+        }
+        if (chainOptions.sharedPassphrase) {
+          throw new Error(
+            `The ${
+              MODULE_ALIAS
+            } config for the ${
+              chainSymbol
+            } chain should have either a sharedPassphrase or encryptedSharedPassphrase but not both`
+          );
+        }
+        let decipher = crypto.createDecipheriv(CIPHER_ALGORITHM, CIPHER_KEY, CIPHER_IV);
+        let decrypted = decipher.update(chainOptions.encryptedSharedPassphrase, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        chainOptions.sharedPassphrase = decrypted;
       }
     });
 
