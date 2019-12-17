@@ -603,6 +603,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             );
           }
 
+          // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
           let [inboundTxns, outboundTxns] = await Promise.all([
             storage.adapter.db.query(
               'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."recipientId" = $2',
@@ -618,7 +619,6 @@ module.exports = class LiskDEXModule extends BaseModule {
             this.pendingTransfers.delete(txn.id);
           });
 
-          // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
           let orders = inboundTxns.map((txn) => {
             let orderTxn = {...txn};
             orderTxn.orderId = orderTxn.id;
