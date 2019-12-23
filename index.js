@@ -26,6 +26,9 @@ const CIPHER_ALGORITHM = 'aes-192-cbc';
 const CIPHER_KEY = LISK_DEX_PASSWORD ? crypto.scryptSync(LISK_DEX_PASSWORD, 'salt', 24) : undefined;
 const CIPHER_IV = Buffer.alloc(16, 0);
 
+const DEFAULT_SIGNATURE_BROADCAST_DELAY = 15000;
+const DEFAULT_TRANSACTION_SUBMIT_DELAY = 5000;
+
 /**
  * Lisk DEX module specification
  *
@@ -327,8 +330,8 @@ module.exports = class LiskDEXModule extends BaseModule {
     };
   }
 
-  _transactionHasEnoughSignatures(targetChain, transaction) {
-    return transaction.signatures.length >= this.multisigWalletInfo[targetChain].requiredSignatureCount;
+  _getSignatureQuota(targetChain, transaction) {
+    return transaction.signatures.length - (this.multisigWalletInfo[targetChain] || {}).requiredSignatureCount;
   }
 
   _verifySignature(targetChain, publicKey, transaction, signatureToVerify) {
@@ -347,7 +350,6 @@ module.exports = class LiskDEXModule extends BaseModule {
     let publicKey = signatureData.publicKey;
     if (!transactionData) {
       return {
-        isReady: false,
         isAccepted: false,
         targetChain: null,
         transaction: null,
@@ -358,7 +360,6 @@ module.exports = class LiskDEXModule extends BaseModule {
     let {transaction, processedSignatureSet, targetChain} = transactionData;
     if (processedSignatureSet.has(signature)) {
       return {
-        isReady: false,
         isAccepted: false,
         targetChain,
         transaction,
@@ -370,7 +371,6 @@ module.exports = class LiskDEXModule extends BaseModule {
     let isValidSignature = this._verifySignature(targetChain, signatureData.publicKey, transaction, signature);
     if (!isValidSignature) {
       return {
-        isReady: false,
         isAccepted: false,
         targetChain,
         transaction,
@@ -381,9 +381,10 @@ module.exports = class LiskDEXModule extends BaseModule {
     processedSignatureSet.add(signature);
     transaction.signatures.push(signature);
 
-    let hasEnoughSignatures = this._transactionHasEnoughSignatures(targetChain, transaction);
+    let signatureQuota = this._getSignatureQuota(targetChain, transaction);
+
     return {
-      isReady: hasEnoughSignatures,
+      signatureQuota,
       isAccepted: true,
       targetChain,
       transaction,
@@ -425,32 +426,39 @@ module.exports = class LiskDEXModule extends BaseModule {
         let signatureData = data || {};
         let result = this._processSignature(signatureData);
 
-        if (result.isReady) {
-          let targetChain = result.targetChain;
-          this.pendingTransfers.delete(result.transaction.id);
-          let chainOptions = this.options.chains[targetChain];
-          if (chainOptions && chainOptions.moduleAlias) {
-            let postTxnResult;
-            try {
-              postTxnResult = await this.channel.invoke(
-                `${chainOptions.moduleAlias}:postTransaction`,
-                {transaction: result.transaction}
-              );
-            } catch (error) {
-              this.logger.error(
-                `Error encountered while attempting to invoke ${chainOptions.moduleAlias}:postTransaction action - ${error.message}`
-              );
-              return;
-            }
-            if (!postTxnResult.success) {
-              this.logger.error(
-                `Failed to process ${chainOptions.moduleAlias}:postTransaction action - ${postTxnResult.message}`
-              );
-            }
-          }
-        } else if (result.isAccepted) {
+        if (result.isAccepted) {
           // Propagate valid signature to peers who are members of the DEX subnet.
           await this._broadcastSignatureToSubnet(result.transaction.id, result.signature, result.publicKey);
+
+          if (result.signatureQuota === 0) {
+            let txnSubmitDelay = this.options.transactionSubmitDelay == null ?
+              DEFAULT_TRANSACTION_SUBMIT_DELAY : this.options.transactionSubmitDelay;
+            // Wait some additional time to collect signatures from remaining DEX members.
+            // The signatures will keep accumulating in the transaction object's signatures array.
+            await wait(txnSubmitDelay);
+            let targetChain = result.targetChain;
+            this.pendingTransfers.delete(result.transaction.id);
+            let chainOptions = this.options.chains[targetChain];
+            if (chainOptions && chainOptions.moduleAlias) {
+              let postTxnResult;
+              try {
+                postTxnResult = await this.channel.invoke(
+                  `${chainOptions.moduleAlias}:postTransaction`,
+                  {transaction: result.transaction}
+                );
+              } catch (error) {
+                this.logger.error(
+                  `Error encountered while attempting to invoke ${chainOptions.moduleAlias}:postTransaction action - ${error.message}`
+                );
+                return;
+              }
+              if (!postTxnResult.success) {
+                this.logger.error(
+                  `Failed to process ${chainOptions.moduleAlias}:postTransaction action - ${postTxnResult.message}`
+                );
+              }
+            }
+          }
         }
         return;
       }
@@ -1502,7 +1510,9 @@ module.exports = class LiskDEXModule extends BaseModule {
 
     (async () => {
       // Add delay before broadcasting to give time for other nodes to independently add the transaction to their pendingTransfers lists.
-      await wait(this.options.signatureBroadcastDelay);
+      let sigBroadcastDelay = this.options.signatureBroadcastDelay == null ?
+        DEFAULT_SIGNATURE_BROADCAST_DELAY : this.options.signatureBroadcastDelay;
+      await wait(sigBroadcastDelay);
       try {
         await this._broadcastSignatureToSubnet(preparedTxn.id, multisigTxnSignature, publicKey);
       } catch (error) {
