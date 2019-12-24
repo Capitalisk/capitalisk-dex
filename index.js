@@ -1392,8 +1392,9 @@ module.exports = class LiskDEXModule extends BaseModule {
 
   _calculateReward(chainSymbol, transaction, exchangeFeeRate) {
     let memberSignatures = (transaction.signatures || '').split(',');
-    let totalFee = transaction.amount * exchangeFeeRate;
-    let feePerMember = totalFee / memberSignatures;
+    let amountBeforeFee = transaction.amount / (1 - exchangeFeeRate);
+    let totalFee = amountBeforeFee * exchangeFeeRate;
+    let feePerMember = Math.floor(totalFee / memberSignatures.length);
 
     return memberSignatures.map((signature) => {
       let memberPublicKey = Object.keys(this.multisigWalletInfo[chainSymbol].members).find((publicKey) => {
