@@ -7,6 +7,7 @@ const { createStorageComponent } = require('lisk-framework/src/components/storag
 const { createLoggerComponent } = require('lisk-framework/src/components/logger');
 const TradeEngine = require('./trade-engine');
 const liskCryptography = require('@liskhq/lisk-cryptography');
+const { getAddressFromPublicKey } = liskCryptography;
 const liskTransactions = require('@liskhq/lisk-transactions');
 const fs = require('fs');
 const util = require('util');
@@ -54,6 +55,12 @@ module.exports = class LiskDEXModule extends BaseModule {
         requiredSignatureCount: null
       };
     });
+
+    if (this.options.calculateRewardFunction) {
+      this.calculateRewardFunction = this.options.calculateRewardFunction;
+    } else {
+      this.calculateRewardFunction = this._calculateReward;
+    }
 
     this.passiveMode = this.options.passiveMode;
     this.baseChainSymbol = this.options.baseChain;
@@ -140,7 +147,6 @@ module.exports = class LiskDEXModule extends BaseModule {
         }
       }
     });
-
   }
 
   static get alias() {
@@ -625,16 +631,9 @@ module.exports = class LiskDEXModule extends BaseModule {
             );
           }
 
-          // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
           let [inboundTxns, outboundTxns] = await Promise.all([
-            storage.adapter.db.query(
-              'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."recipientId" = $2',
-              [blockData.id, chainOptions.walletAddress],
-            ),
-            storage.adapter.db.query(
-              'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."senderId" = $2',
-              [blockData.id, chainOptions.walletAddress],
-            )
+            this._getInboundTransactions(storage, blockData.id, chainOptions.walletAddress),
+            this._getOutboundTransactions(storage, blockData.id, chainOptions.walletAddress)
           ]);
 
           outboundTxns.forEach((txn) => {
@@ -1219,6 +1218,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             fromHeight = 1;
           }
 
+          let rewardData = {};
           let chainStorage = storageComponents[chainSymbol];
           let latestBlock = await this._getBlockAtHeight(chainStorage, fromHeight);
 
@@ -1230,6 +1230,16 @@ module.exports = class LiskDEXModule extends BaseModule {
             let blocksToProcess = timestampedBlockList.filter((block) => block.height <= toHeight);
             for (let block of blocksToProcess) {
               // TODO 222 FETCH TRANSACTIONS and update reward distribution object
+              let outboundTxns = this._getOutboundTransactions(chainStorage, block.id, chainOptions.walletAddress);
+              outboundTxns.forEach((txn) => {
+                let rewardList = this.calculateRewardFunction(chainSymbol, txn, chainOptions.exchangeFeeRate, chainOptions.exchangeFeeBase);
+                rewardList.forEach((reward) => {
+                  if (!rewardData[reward.walletAddress]) {
+                    rewardData[reward.walletAddress] = 0;
+                  }
+                  rewardData[reward.walletAddress] += reward.amount;
+                });
+              });
             }
             latestBlock = blocksToProcess[blocksToProcess.length];
           }
@@ -1368,6 +1378,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           if (this._readBlocksInterval) {
             stopReadBlocksInterval();
             blockProcessingStream.kill();
+            rewardProcessingStream.kill();
             this.revertToLastSnapshot();
             this.pendingTransfers.clear();
             lastProcessedHeight = this.currentProcessedHeights[this.baseChainSymbol];
@@ -1377,6 +1388,25 @@ module.exports = class LiskDEXModule extends BaseModule {
       });
     });
     channel.publish(`${MODULE_ALIAS}:bootstrap`);
+  }
+
+  _calculateReward(chainSymbol, transaction, exchangeFeeRate) {
+    let memberSignatures = (transaction.signatures || '').split(',');
+    let totalFee = transaction.amount * exchangeFeeRate;
+    let feePerMember = totalFee / memberSignatures;
+
+    return memberSignatures.map((signature) => {
+      let memberPublicKey = Object.keys(this.multisigWalletInfo[chainSymbol].members).find((publicKey) => {
+        return this._verifySignature(chainSymbol, publicKey, transaction, signature);
+      });
+      if (!memberPublicKey) {
+        return null;
+      }
+      return {
+        walletAddress: getAddressFromPublicKey(memberPublicKey),
+        amount: feePerMember
+      };
+    }).filter((reward) => !!reward);
   }
 
   _isLimitOrderTooSmallToConvert(chainSymbol, amount, price) {
@@ -1401,6 +1431,22 @@ module.exports = class LiskDEXModule extends BaseModule {
     let baseChainValue = Math.floor(amount * baseChainPrice);
     let baseChainOptions = this.options.chains[this.baseChainSymbol];
     return baseChainValue <= baseChainOptions.exchangeFeeBase;
+  }
+
+  async _getInboundTransactions(storage, blockId, walletAddress) {
+    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    return storage.adapter.db.query(
+      'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."recipientId" = $2',
+      [blockId, walletAddress]
+    );
+  }
+
+  async _getOutboundTransactions(storage, blockId, walletAddress) {
+    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    return storage.adapter.db.query(
+      'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."senderId" = $2',
+      [blockId, walletAddress]
+    );
   }
 
   async _getLatestBlocks(storage, fromTimestamp, limit) {
