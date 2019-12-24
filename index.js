@@ -532,6 +532,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     );
 
     let blockProcessingStream = new WritableConsumableStream();
+    let rewardProcessingStream = new WritableConsumableStream();
 
     (async () => {
       // If the blockProcessingStream is killed, the inner for-await-of loop will break;
@@ -546,6 +547,19 @@ module.exports = class LiskDEXModule extends BaseModule {
           let isPastDisabledHeight = chainOptions.dexDisabledFromHeight != null &&
             targetHeight >= chainOptions.dexDisabledFromHeight;
           let minOrderAmount = chainOptions.minOrderAmount;
+
+          // The height pointer for rewards needs to be delayed so that DEX member rewards are only distributed
+          // when there is no risk of fork in the underlying blockchain.
+          let rewardTargetHeight = targetHeight - chainOptions.rewardHeightOffset;
+          if (
+            rewardTargetHeight > chainOptions.rewardStartHeight &&
+            rewardTargetHeight % chainOptions.rewardHeightInterval === 0
+          ) {
+            rewardProcessingStream.write({
+              chainSymbol,
+              toHeight: rewardTargetHeight
+            });
+          }
 
           // If we are on the latest height (or latest height in a batch), rebroadcast our
           // node's signature for each pending multisig transaction in case other DEX nodes
@@ -1188,6 +1202,37 @@ module.exports = class LiskDEXModule extends BaseModule {
             }
           }
           await finishProcessing();
+        }
+      }
+    })();
+
+    (async () => {
+      // If the rewardProcessingStream is killed, the inner for-await-of loop will break;
+      // in that case, it will continue with the iteration from the end of the stream.
+      while (true) {
+        for await (let event of rewardProcessingStream) {
+          let {chainSymbol, toHeight} = event;
+          let chainOptions = this.options.chains[chainSymbol];
+          let fromHeight = toHeight - chainOptions.rewardHeightInterval + 1;
+          let {readMaxBlocks} = chainOptions;
+          if (fromHeight < 1) {
+            fromHeight = 1;
+          }
+
+          let chainStorage = storageComponents[chainSymbol];
+          let latestBlock = await this._getBlockAtHeight(chainStorage, fromHeight);
+
+          while (true) {
+            if (!latestBlock) {
+              break;
+            }
+            let timestampedBlockList = await this._getLatestBlocks(chainStorage, latestBlock.timestamp, readMaxBlocks);
+            let blocksToProcess = timestampedBlockList.filter((block) => block.height <= toHeight);
+            for (let block of blocksToProcess) {
+              // TODO 222 FETCH TRANSACTIONS and update reward distribution object
+            }
+            latestBlock = blocksToProcess[blocksToProcess.length];
+          }
         }
       }
     })();
