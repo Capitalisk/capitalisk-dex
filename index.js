@@ -52,15 +52,10 @@ module.exports = class LiskDEXModule extends BaseModule {
       this.lastSnapshotHeights[chainSymbol] = 0;
       this.multisigWalletInfo[chainSymbol] = {
         members: {},
+        memberCount: 0,
         requiredSignatureCount: null
       };
     });
-
-    if (this.options.calculateRewardFunction) {
-      this.calculateRewardFunction = this.options.calculateRewardFunction;
-    } else {
-      this.calculateRewardFunction = this._calculateReward;
-    }
 
     this.passiveMode = this.options.passiveMode;
     this.baseChainSymbol = this.options.baseChain;
@@ -147,6 +142,17 @@ module.exports = class LiskDEXModule extends BaseModule {
         }
       }
     });
+
+    if (this.options.dividendFunction) {
+      this.dividendFunction = this.options.dividendFunction;
+    } else {
+      this.dividendFunction = (chainSymbol, contributionData, chainOptions, memberCount) => {
+        return Object.keys(contributionData).map((walletAddress) => ({
+          walletAddress,
+          amount: contributionData[walletAddress] * chainOptions.exchangeFeeRate / memberCount
+        }));
+      };
+    }
   }
 
   static get alias() {
@@ -525,6 +531,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         multisigMemberRows.forEach((row) => {
           this.multisigWalletInfo[chainSymbol].members[row.dependentId] = true;
         });
+        this.multisigWalletInfo[chainSymbol].memberCount = multisigMemberRows.length;
 
         let multisigMemberMinSigRows = await storage.adapter.db.query(
           'select multimin from mem_accounts where address = $1',
@@ -538,7 +545,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     );
 
     let blockProcessingStream = new WritableConsumableStream();
-    let rewardProcessingStream = new WritableConsumableStream();
+    let dividendProcessingStream = new WritableConsumableStream();
 
     (async () => {
       // If the blockProcessingStream is killed, the inner for-await-of loop will break;
@@ -553,19 +560,6 @@ module.exports = class LiskDEXModule extends BaseModule {
           let isPastDisabledHeight = chainOptions.dexDisabledFromHeight != null &&
             targetHeight >= chainOptions.dexDisabledFromHeight;
           let minOrderAmount = chainOptions.minOrderAmount;
-
-          // The height pointer for rewards needs to be delayed so that DEX member rewards are only distributed
-          // when there is no risk of fork in the underlying blockchain.
-          let rewardTargetHeight = targetHeight - chainOptions.rewardHeightOffset;
-          if (
-            rewardTargetHeight > chainOptions.rewardStartHeight &&
-            rewardTargetHeight % chainOptions.rewardHeightInterval === 0
-          ) {
-            rewardProcessingStream.write({
-              chainSymbol,
-              toHeight: rewardTargetHeight
-            });
-          }
 
           // If we are on the latest height (or latest height in a batch), rebroadcast our
           // node's signature for each pending multisig transaction in case other DEX nodes
@@ -629,6 +623,21 @@ module.exports = class LiskDEXModule extends BaseModule {
             this.logger.trace(
               `Chain ${chainSymbol}: No transactions in block ${blockData.id} at height ${targetHeight}`
             );
+          }
+
+          // The height pointer for dividends needs to be delayed so that DEX member dividends are only distributed
+          // when there is no risk of fork in the underlying blockchain.
+          let dividendTargetHeight = targetHeight - chainOptions.dividendHeightOffset;
+          if (
+            dividendTargetHeight > chainOptions.dividendStartHeight &&
+            dividendTargetHeight % chainOptions.dividendHeightInterval === 0
+          ) {
+            dividendProcessingStream.write({
+              chainSymbol,
+              chainHeight: targetHeight,
+              toHeight: dividendTargetHeight,
+              latestBlockTimestamp
+            });
           }
 
           let [inboundTxns, outboundTxns] = await Promise.all([
@@ -1206,19 +1215,19 @@ module.exports = class LiskDEXModule extends BaseModule {
     })();
 
     (async () => {
-      // If the rewardProcessingStream is killed, the inner for-await-of loop will break;
+      // If the dividendProcessingStream is killed, the inner for-await-of loop will break;
       // in that case, it will continue with the iteration from the end of the stream.
       while (true) {
-        for await (let event of rewardProcessingStream) {
-          let {chainSymbol, toHeight} = event;
+        for await (let event of dividendProcessingStream) {
+          let {chainSymbol, chainHeight, toHeight, latestBlockTimestamp} = event;
           let chainOptions = this.options.chains[chainSymbol];
-          let fromHeight = toHeight - chainOptions.rewardHeightInterval + 1;
+          let fromHeight = toHeight - chainOptions.dividendHeightInterval;
           let {readMaxBlocks} = chainOptions;
           if (fromHeight < 1) {
             fromHeight = 1;
           }
 
-          let rewardData = {};
+          let contributionData = {};
           let chainStorage = storageComponents[chainSymbol];
           let latestBlock = await this._getBlockAtHeight(chainStorage, fromHeight);
 
@@ -1229,19 +1238,33 @@ module.exports = class LiskDEXModule extends BaseModule {
             let timestampedBlockList = await this._getLatestBlocks(chainStorage, latestBlock.timestamp, readMaxBlocks);
             let blocksToProcess = timestampedBlockList.filter((block) => block.height <= toHeight);
             for (let block of blocksToProcess) {
-              // TODO 222 FETCH TRANSACTIONS and update reward distribution object
-              let outboundTxns = this._getOutboundTransactions(chainStorage, block.id, chainOptions.walletAddress);
+              let outboundTxns = await this._getOutboundTransactions(chainStorage, block.id, chainOptions.walletAddress);
               outboundTxns.forEach((txn) => {
-                let rewardList = this.calculateRewardFunction(chainSymbol, txn, chainOptions.exchangeFeeRate, chainOptions.exchangeFeeBase);
-                rewardList.forEach((reward) => {
-                  if (!rewardData[reward.walletAddress]) {
-                    rewardData[reward.walletAddress] = 0;
+                let contributionList = this._calculateContributions(chainSymbol, txn, chainOptions.exchangeFeeRate, chainOptions.exchangeFeeBase);
+                contributionList.forEach((contribution) => {
+                  if (!contributionData[contribution.walletAddress]) {
+                    contributionData[contribution.walletAddress] = 0;
                   }
-                  rewardData[reward.walletAddress] += reward.amount;
+                  contributionData[contribution.walletAddress] += contribution.amount;
                 });
               });
             }
-            latestBlock = blocksToProcess[blocksToProcess.length];
+            latestBlock = blocksToProcess[blocksToProcess.length - 1];
+          }
+          let {memberCount} = this.multisigWalletInfo[chainSymbol];
+          let dividendList = this.dividendFunction(chainSymbol, contributionData, this.options.chains[chainSymbol], memberCount);
+          for (let dividend of dividendList) {
+            let dividendTxn = {
+              amount: dividend.amount.toString(),
+              recipientId: dividend.walletAddress,
+              height: chainHeight,
+              timestamp: latestBlockTimestamp
+            };
+            await this.execMultisigTransaction(
+              chainSymbol,
+              dividendTxn,
+              `d1,${fromHeight + 1},${toHeight}: Member dividend`
+            );
           }
         }
       }
@@ -1378,7 +1401,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           if (this._readBlocksInterval) {
             stopReadBlocksInterval();
             blockProcessingStream.kill();
-            rewardProcessingStream.kill();
+            dividendProcessingStream.kill();
             this.revertToLastSnapshot();
             this.pendingTransfers.clear();
             lastProcessedHeight = this.currentProcessedHeights[this.baseChainSymbol];
@@ -1390,11 +1413,9 @@ module.exports = class LiskDEXModule extends BaseModule {
     channel.publish(`${MODULE_ALIAS}:bootstrap`);
   }
 
-  _calculateReward(chainSymbol, transaction, exchangeFeeRate) {
+  _calculateContributions(chainSymbol, transaction, exchangeFeeRate) {
     let memberSignatures = (transaction.signatures || '').split(',');
-    let amountBeforeFee = transaction.amount / (1 - exchangeFeeRate);
-    let totalFee = amountBeforeFee * exchangeFeeRate;
-    let feePerMember = Math.floor(totalFee / memberSignatures.length);
+    let amountBeforeFee = Math.floor(transaction.amount / (1 - exchangeFeeRate));
 
     return memberSignatures.map((signature) => {
       let memberPublicKey = Object.keys(this.multisigWalletInfo[chainSymbol].members).find((publicKey) => {
@@ -1405,9 +1426,9 @@ module.exports = class LiskDEXModule extends BaseModule {
       }
       return {
         walletAddress: getAddressFromPublicKey(memberPublicKey),
-        amount: feePerMember
+        amount: amountBeforeFee
       };
-    }).filter((reward) => !!reward);
+    }).filter((dividend) => !!dividend);
   }
 
   _isLimitOrderTooSmallToConvert(chainSymbol, amount, price) {

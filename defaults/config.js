@@ -34,9 +34,9 @@ module.exports = {
       rebroadcastAfterHeight: 5,
       rebroadcastUntilHeight: 100,
       readMaxBlocks: 1000,
-      rewardStartHeight: 0,
-      rewardHeightInterval: 60480,
-      rewardHeightOffset: 303,
+      dividendStartHeight: 0,
+      dividendHeightInterval: 60480,
+      dividendHeightOffset: 303,
       // Can be used to disable the DEX starting at a specific height.
       dexDisabledFromHeight: null,
       // Can be used to specify the new address if the DEX has moved to a different wallet.
@@ -58,9 +58,9 @@ module.exports = {
       rebroadcastAfterHeight: 5,
       rebroadcastUntilHeight: 100,
       readMaxBlocks: 1000,
-      rewardStartHeight: 0,
-      rewardHeightInterval: 60480,
-      rewardHeightOffset: 303,
+      dividendStartHeight: 0,
+      dividendHeightInterval: 60480,
+      dividendHeightOffset: 303,
       // Can be used to disable the DEX starting at a specific height.
       dexDisabledFromHeight: null,
       // Can be used to specify the new address if the DEX has moved to a different wallet.
