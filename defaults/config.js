@@ -37,6 +37,7 @@ module.exports = {
       dividendStartHeight: 0,
       dividendHeightInterval: 60480,
       dividendHeightOffset: 303,
+      dividendRate: .9,
       // Can be used to disable the DEX starting at a specific height.
       dexDisabledFromHeight: null,
       // Can be used to specify the new address if the DEX has moved to a different wallet.
@@ -61,6 +62,7 @@ module.exports = {
       dividendStartHeight: 0,
       dividendHeightInterval: 60480,
       dividendHeightOffset: 303,
+      dividendRate: .9,
       // Can be used to disable the DEX starting at a specific height.
       dexDisabledFromHeight: null,
       // Can be used to specify the new address if the DEX has moved to a different wallet.

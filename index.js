@@ -147,10 +147,13 @@ module.exports = class LiskDEXModule extends BaseModule {
       this.dividendFunction = this.options.dividendFunction;
     } else {
       this.dividendFunction = (chainSymbol, contributionData, chainOptions, memberCount) => {
-        return Object.keys(contributionData).map((walletAddress) => ({
-          walletAddress,
-          amount: contributionData[walletAddress] * chainOptions.exchangeFeeRate / memberCount
-        }));
+        return Object.keys(contributionData).map((walletAddress) => {
+          let payableContribution = contributionData[walletAddress] * chainOptions.dividendRate;
+          return {
+            walletAddress,
+            amount: payableContribution * chainOptions.exchangeFeeRate / memberCount
+          };
+        });
       };
     }
   }
