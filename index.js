@@ -1257,17 +1257,24 @@ module.exports = class LiskDEXModule extends BaseModule {
           let {memberCount} = this.multisigWalletInfo[chainSymbol];
           let dividendList = this.dividendFunction(chainSymbol, contributionData, this.options.chains[chainSymbol], memberCount);
           for (let dividend of dividendList) {
+            let txnAmount = dividend.amount - chainOptions.exchangeFeeBase;
             let dividendTxn = {
-              amount: dividend.amount.toString(),
+              amount: txnAmount.toString(),
               recipientId: dividend.walletAddress,
               height: chainHeight,
               timestamp: latestBlockTimestamp
             };
-            await this.execMultisigTransaction(
-              chainSymbol,
-              dividendTxn,
-              `d1,${fromHeight + 1},${toHeight}: Member dividend`
-            );
+            try {
+              await this.execMultisigTransaction(
+                chainSymbol,
+                dividendTxn,
+                `d1,${fromHeight + 1},${toHeight}: Member dividend`
+              );
+            } catch (error) {
+              this.logger.error(
+                `Chain ${chainSymbol}: Failed to post multisig dividend transaction to member address ${dividend.walletAddress} because of error: ${error.message}`
+              );
+            }
           }
         }
       }
@@ -1419,10 +1426,17 @@ module.exports = class LiskDEXModule extends BaseModule {
     transaction = {...transaction};
     if (!transaction.asset) {
       transaction.asset = {};
-      if (transaction.transferData) {
-        transaction.asset.data = transaction.transferData.toString('utf8');
-      }
     }
+    if (!transaction.transferData) {
+      return [];
+    }
+    let txnData = transaction.transferData.toString('utf8');
+    // Only trade transactions (e.g. t1 and t2) are counted.
+    if (txnData.charAt(0) !== 't') {
+      return [];
+    }
+    transaction.asset.data = txnData;
+
     let memberSignatures = transaction.signatures ? transaction.signatures.split(',') : [];
     let amountBeforeFee = Math.floor(transaction.amount / (1 - exchangeFeeRate));
 
