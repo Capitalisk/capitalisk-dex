@@ -1404,7 +1404,6 @@ module.exports = class LiskDEXModule extends BaseModule {
           if (this._readBlocksInterval) {
             stopReadBlocksInterval();
             blockProcessingStream.kill();
-            dividendProcessingStream.kill();
             this.revertToLastSnapshot();
             this.pendingTransfers.clear();
             lastProcessedHeight = this.currentProcessedHeights[this.baseChainSymbol];
