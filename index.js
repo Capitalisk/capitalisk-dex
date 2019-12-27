@@ -151,7 +151,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           let payableContribution = contributionData[walletAddress] * chainOptions.dividendRate;
           return {
             walletAddress,
-            amount: payableContribution * chainOptions.exchangeFeeRate / memberCount
+            amount: Math.floor(payableContribution * chainOptions.exchangeFeeRate / memberCount)
           };
         });
       };
@@ -1416,7 +1416,14 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   _calculateContributions(chainSymbol, transaction, exchangeFeeRate) {
-    let memberSignatures = (transaction.signatures || '').split(',');
+    transaction = {...transaction};
+    if (!transaction.asset) {
+      transaction.asset = {};
+      if (transaction.transferData) {
+        transaction.asset.data = transaction.transferData.toString('utf8');
+      }
+    }
+    let memberSignatures = transaction.signatures ? transaction.signatures.split(',') : [];
     let amountBeforeFee = Math.floor(transaction.amount / (1 - exchangeFeeRate));
 
     return memberSignatures.map((signature) => {
@@ -1459,18 +1466,26 @@ module.exports = class LiskDEXModule extends BaseModule {
 
   async _getInboundTransactions(storage, blockId, walletAddress) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
-    return storage.adapter.db.query(
-      'select trs.id, trs.type, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."recipientId" = $2',
+    let txns = await storage.adapter.db.query(
+      'select trs.id, trs.type, trs."senderId", trs."senderPublicKey", trs."timestamp", trs."recipientId", trs."amount", trs."transferData", trs.signatures from trs where trs."blockId" = $1 and trs."recipientId" = $2',
       [blockId, walletAddress]
     );
+    return txns.map((txn) => ({
+      ...txn,
+      senderPublicKey: txn.senderPublicKey.toString('hex')
+    }));
   }
 
   async _getOutboundTransactions(storage, blockId, walletAddress) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
-    return storage.adapter.db.query(
-      'select trs.id, trs.type, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."senderId" = $2',
+    let txns = await storage.adapter.db.query(
+      'select trs.id, trs.type, trs."senderId", trs."senderPublicKey", trs."timestamp", trs."recipientId", trs."amount", trs."transferData", trs.signatures from trs where trs."blockId" = $1 and trs."senderId" = $2',
       [blockId, walletAddress]
     );
+    return txns.map((txn) => ({
+      ...txn,
+      senderPublicKey: txn.senderPublicKey.toString('hex')
+    }));
   }
 
   async _getLatestBlocks(storage, fromTimestamp, limit) {
