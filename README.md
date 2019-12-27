@@ -32,6 +32,10 @@ These status codes and messages appear in transactions created by the DEX (as pa
 - `t1,${takerChain},${takerOrderId}: Orders taken`
 - `t2,${makerChain},${makerOrderId},${takerOrderId}: Order made`
 
+**Dividends**
+
+- `d1,${fromHeight},${toHeight}: Member dividend`
+
 ### Behaviors
 
 - If the DEX does not recognize a command/order from a user (or it is invalid for whatever reason), it will send an `r1` refund transaction back to the user's wallet address which will return the full amount of the original transaction minus any blockchain transaction fees incurred by the DEX.
