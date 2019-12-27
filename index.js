@@ -1460,7 +1460,7 @@ module.exports = class LiskDEXModule extends BaseModule {
   async _getInboundTransactions(storage, blockId, walletAddress) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
     return storage.adapter.db.query(
-      'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."recipientId" = $2',
+      'select trs.id, trs.type, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."recipientId" = $2',
       [blockId, walletAddress]
     );
   }
@@ -1468,7 +1468,7 @@ module.exports = class LiskDEXModule extends BaseModule {
   async _getOutboundTransactions(storage, blockId, walletAddress) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
     return storage.adapter.db.query(
-      'select trs.id, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."senderId" = $2',
+      'select trs.id, trs.type, trs."senderId", trs."timestamp", trs."recipientId", trs."amount", trs."transferData" from trs where trs."blockId" = $1 and trs."senderId" = $2',
       [blockId, walletAddress]
     );
   }
