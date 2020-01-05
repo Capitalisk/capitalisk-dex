@@ -452,7 +452,6 @@ module.exports = class LiskDEXModule extends BaseModule {
             // The signatures will keep accumulating in the transaction object's signatures array.
             await wait(txnSubmitDelay);
             let targetChain = result.targetChain;
-            this.pendingTransfers.delete(result.transaction.id);
             let chainOptions = this.options.chains[targetChain];
             if (chainOptions && chainOptions.moduleAlias) {
               let postTxnResult;
