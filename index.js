@@ -1392,6 +1392,9 @@ module.exports = class LiskDEXModule extends BaseModule {
 
       // This is to detect forks in the underlying blockchains.
       channel.subscribe(`${chainModuleAlias}:blocks:change`, async (event) => {
+        if (chainSymbol !== this.baseChainSymbol && !this.currentProcessedHeights[this.baseChainSymbol]) {
+          return;
+        }
         let chainHeight = parseInt(event.data.height);
 
         progressingChains[chainSymbol] = chainHeight > lastSeenChainHeight;
