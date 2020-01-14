@@ -234,7 +234,6 @@ describe('TradeEngine unit tests', async () => {
         side: 'bid',
         value: 25
       });
-      console.log(2222, result);
       assert.equal(result.makers[0].lastValueTaken, 20);
     });
 
