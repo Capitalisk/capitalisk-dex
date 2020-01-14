@@ -37,13 +37,12 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'bid',
-        size: 1000
+        value: 100
       });
 
       assert.equal(result.takeSize, 100);
-      assert.equal(result.takeValue, 10);
       assert.equal(result.taker.orderId, 'order1');
-      assert.equal(result.taker.size, 1000);
+      assert.equal(result.taker.valueRemaining, 90);
     });
 
     it('Bid order is made with greater size and higher price than ask', async () => {
@@ -68,13 +67,13 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '33311111111222222333L',
         side: 'bid',
-        size: 1000
+        value: 200
       });
 
       assert.equal(result.takeSize, 100);
       assert.equal(result.takeValue, 10);
       assert.equal(result.taker.orderId, 'order1');
-      assert.equal(result.taker.size, 1000);
+      assert.equal(result.taker.value, 200);
     });
 
     it('Multiple bid orders in series', async () => {
@@ -99,10 +98,10 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '44411111111222222444L',
         side: 'bid',
-        size: 8
+        value: 4
       });
 
-      assert.equal(result.makers[0].valueTaken, 4);
+      assert.equal(result.makers[0].lastValueTaken, 4);
 
       result = tradeEngine.addOrder({
         orderId: 'order2',
@@ -112,10 +111,10 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '55511111111222222555L',
         side: 'bid',
-        size: 40
+        value: 20
       });
 
-      assert.equal(result.makers[0].valueTaken, 20);
+      assert.equal(result.makers[0].lastValueTaken, 20);
 
       result = tradeEngine.addOrder({
         orderId: 'order3',
@@ -125,10 +124,10 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '66611111111222222666L',
         side: 'bid',
-        size: 12
+        value: 6
       });
 
-      assert.equal(result.makers[0].valueTaken, 6);
+      assert.equal(result.makers[0].lastValueTaken, 6);
     });
 
     it('Order with the same ID is not added', async () => {
@@ -166,7 +165,7 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(error.name, 'DuplicateOrderError');
     });
 
-    it('Can get and set snapshot of the order book', async () => {
+    it.only('Can get and set snapshot of the order book', async () => {
       let result;
 
       result = tradeEngine.addOrder({
@@ -188,7 +187,7 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '88811111111222222333L',
         side: 'bid',
-        size: 8
+        value: 4
       });
 
       result = tradeEngine.addOrder({
@@ -199,7 +198,7 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '11555111111222226662L',
         side: 'bid',
-        size: 40
+        value: 20
       });
 
       let snapshot = tradeEngine.getSnapshot();
@@ -220,10 +219,10 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '77711111111222442222L',
         side: 'bid',
-        size: 12
+        value: 6
       });
 
-      assert.equal(result.makers[0].valueTaken, 6);
+      assert.equal(result.makers[0].lastValueTaken, 6);
 
       result = tradeEngine.addOrder({
         orderId: 'order4',
@@ -233,12 +232,13 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '33331111111222222999L',
         side: 'bid',
-        size: 50
+        value: 25
       });
-      assert.equal(result.makers[0].valueTaken, 20);
+      console.log(2222, result);
+      assert.equal(result.makers[0].lastValueTaken, 20);
     });
 
-    it('The lastSize and sizeTaken property should be updated on both taker and makers', async () => {
+    it('The lastSize and lastSizeTaken property should be updated on both taker and makers', async () => {
       let result;
 
       result = tradeEngine.addOrder({
@@ -249,7 +249,7 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'bid',
-        size: 28
+        value: 14
       });
 
       result = tradeEngine.addOrder({
@@ -282,7 +282,7 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'bid',
-        size: 3.57
+        value: 1.9992
       });
 
       result = tradeEngine.addOrder({
@@ -295,9 +295,8 @@ describe('TradeEngine unit tests', async () => {
         side: 'ask',
         size: 6
       });
-
       assert.notEqual(result.makers[0], null);
-      assert.equal(result.makers[0].sizeTaken, 2.3899999999999997);
+      assert.equal(result.makers[0].lastSizeTaken, 2.4110714285714283);
     });
 
     it('Market bid order', async () => {
@@ -321,14 +320,13 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'bid',
-        size: -1,
-        funds: 10
+        value: 10
       });
 
       assert.equal(result.takeSize, 20);
       assert.equal(result.takeValue, 10);
       assert.equal(result.taker.orderId, 'order1');
-      assert.equal(result.taker.fundsRemaining, 0);
+      assert.equal(result.taker.valueRemaining, 0);
     });
 
     it('Market ask order', async () => {
@@ -342,7 +340,7 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'bid',
-        size: 100
+        value: 50
       });
 
       result = tradeEngine.addOrder({
@@ -352,8 +350,7 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'ask',
-        size: 50,
-        funds: -1
+        size: 50
       });
 
       assert.equal(result.takeSize, 50);
@@ -383,8 +380,7 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'bid',
-        size: 0,
-        funds: 2000000000
+        value: 2000000000
       });
 
       assert.equal(result.takeSize, 4000000000);
@@ -402,7 +398,7 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'bid',
-        size: 1000000000
+        value: 500000000
       });
 
       result = tradeEngine.addOrder({
@@ -412,13 +408,11 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'ask',
-        size: 2000000000,
-        funds: 0
+        size: 2000000000
       });
 
       assert.equal(result.takeSize, 1000000000);
       assert.equal(result.takeValue, 500000000);
     });
-
   });
 });

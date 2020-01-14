@@ -1,21 +1,4 @@
-const LimitOrder = require('limit-order-book').LimitOrder;
-const MarketOrder = require('limit-order-book').MarketOrder;
-const LimitOrderBook = require('limit-order-book').LimitOrderBook;
-
-// This is necessary to fix a bug in the underlying library.
-MarketOrder.prototype.getSizeRemainingFor = function (price) {
-  var fundsTakeSize = Math.floor(this.fundsRemaining / price);
-
-  if (this.funds > 0 && this.size > 0) {
-    return Math.min(fundsTakeSize, this.sizeRemaining);
-  } else if (this.funds > 0) {
-    return fundsTakeSize;
-  } else if (this.size > 0) {
-    return this.sizeRemaining;
-  } else {
-    return 0;
-  }
-};
+const ProperOrderBook = require('proper-order-book');
 
 class TradeEngine {
   constructor(options) {
@@ -24,7 +7,7 @@ class TradeEngine {
     this.baseOrderHeightExpiry = options.baseOrderHeightExpiry;
     this.quoteOrderHeightExpiry = options.quoteOrderHeightExpiry;
     this.market = `${this.quoteCurrency}/${this.baseCurrency}`;
-    this.orderBook = new LimitOrderBook();
+    this.orderBook = new ProperOrderBook();
 
     this._askMap = new Map();
     this._bidMap = new Map();
@@ -58,9 +41,7 @@ class TradeEngine {
   }
 
   addOrder(order) {
-    let limitQueue = order.side === 'ask' ? this.orderBook.askLimits : this.orderBook.bidLimits;
-    let limit = limitQueue.map[order.price] || {map: {}};
-    let existingOrder = limit.map[order.orderId];
+    let existingOrder = this.orderBook.has(order.orderId);
 
     if (existingOrder) {
       let error = new Error(`An order with ID ${order.orderId} already exists`);
@@ -75,7 +56,8 @@ class TradeEngine {
       orderHeightExpiry = this.baseOrderHeightExpiry;
     }
 
-    let newOrder = this._createOrderInstance(order);
+    let newOrder = {...order};
+    newOrder.id = order.orderId;
     newOrder.type = order.type;
     newOrder.targetChain = order.targetChain;
     newOrder.targetWalletAddress = order.targetWalletAddress;
@@ -90,10 +72,6 @@ class TradeEngine {
     let result = this.orderBook.add(newOrder);
 
     result.makers.forEach((makerOrder) => {
-      makerOrder.sizeTaken = makerOrder.lastSize == null ? makerOrder.size - makerOrder.sizeRemaining : makerOrder.lastSize - makerOrder.sizeRemaining;
-      makerOrder.valueTaken = makerOrder.sizeTaken * makerOrder.price;
-      makerOrder.lastSize = makerOrder.sizeRemaining;
-
       if (makerOrder.sizeRemaining <= 0) {
         if (makerOrder.side === 'ask') {
           this._askMap.delete(makerOrder.orderId);
@@ -103,8 +81,6 @@ class TradeEngine {
         this._orderMap.delete(makerOrder.orderId);
       }
     });
-
-    result.taker.lastSize = result.taker.sizeRemaining;
 
     if (newOrder.type !== 'market' && result.taker.sizeRemaining > 0) {
       if (newOrder.side === 'ask') {
@@ -130,7 +106,7 @@ class TradeEngine {
       );
     }
 
-    let result = this.orderBook.remove(order.side, order.price, orderId);
+    let result = this.orderBook.remove(orderId);
     if (order.side === 'ask') {
       this._askMap.delete(orderId);
     } else {
@@ -141,11 +117,11 @@ class TradeEngine {
   }
 
   peekBids() {
-    return this.orderBook.bidLimits.peek();
+    return this.orderBook.peekBids();
   }
 
   peekAsks() {
-    return this.orderBook.askLimits.peek();
+    return this.orderBook.peekAsks();
   }
 
   getBidIterator() {
@@ -182,16 +158,6 @@ class TradeEngine {
     };
   }
 
-  _createOrderInstance(order) {
-    let newOrder;
-    if (order.type === 'market') {
-      newOrder = new MarketOrder(order.orderId, order.side, order.size, order.funds);
-    } else {
-      newOrder = new LimitOrder(order.orderId, order.side, order.price, order.size);
-    }
-    return newOrder;
-  }
-
   setSnapshot(snapshot) {
     this.clear();
     snapshot.askLimitOrders.sort((a, b) => {
@@ -213,22 +179,16 @@ class TradeEngine {
       return 0;
     });
     snapshot.askLimitOrders.forEach((order) => {
-      let newOrder = this._createOrderInstance(order);
+      let newOrder = {...order};
       this._askMap.set(newOrder.orderId, newOrder);
       this._orderMap.set(newOrder.orderId, newOrder);
-      Object.keys(order).forEach((key) => {
-        newOrder[key] = order[key];
-      });
-      this.orderBook.askLimits.addOrder(newOrder);
+      this.orderBook.add(newOrder);
     });
     snapshot.bidLimitOrders.forEach((order) => {
-      let newOrder = this._createOrderInstance(order);
+      let newOrder = {...order};
       this._bidMap.set(newOrder.orderId, newOrder);
       this._orderMap.set(newOrder.orderId, newOrder);
-      Object.keys(order).forEach((key) => {
-        newOrder[key] = order[key];
-      });
-      this.orderBook.bidLimits.addOrder(newOrder);
+      this.orderBook.add(newOrder);
     });
   }
 

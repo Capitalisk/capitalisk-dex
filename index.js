@@ -1161,7 +1161,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   let makerChainOptions = this.options.chains[makerOrder.targetChain];
                   let makerTargetChainModuleAlias = makerChainOptions.moduleAlias;
                   let makerAddress = makerOrder.targetWalletAddress;
-                  let makerAmount = makerOrder.targetChain === this.baseChainSymbol ? makerOrder.valueTaken : makerOrder.sizeTaken;
+                  let makerAmount = makerOrder.targetChain === this.baseChainSymbol ? makerOrder.lastValueTaken : makerOrder.lastSizeTaken;
                   makerAmount -= makerChainOptions.exchangeFeeBase;
                   makerAmount -= makerAmount * makerChainOptions.exchangeFeeRate;
                   makerAmount = Math.floor(makerAmount);
