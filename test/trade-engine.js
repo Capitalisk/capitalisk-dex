@@ -165,7 +165,7 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(error.name, 'DuplicateOrderError');
     });
 
-    it.only('Can get and set snapshot of the order book', async () => {
+    it('Can get and set snapshot of the order book', async () => {
       let result;
 
       result = tradeEngine.addOrder({
