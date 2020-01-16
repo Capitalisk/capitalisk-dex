@@ -22,9 +22,8 @@ module.exports = {
       database: 'lisk_test',
       moduleAlias: 'chain',
       walletAddress: '',
-      // sharedEncryptedPassphrase: '', // TODO 2: Use encrypted passphrase
       sharedPassphrase: '',
-      // encryptedPassphrase: '' // TODO 2: Use encrypted passphrase
+      // encryptedPassphrase: '',
       passphrase: '',
       requiredConfirmations: 2,
       orderHeightExpiry: 259200,
@@ -47,9 +46,8 @@ module.exports = {
       database: 'capitalisk_test',
       moduleAlias: 'capitalisk',
       walletAddress: '',
-      // sharedEncryptedPassphrase: '', // TODO 2: Use encrypted passphrase
       sharedPassphrase: '',
-      // encryptedPassphrase: '' // TODO 2: Use encrypted passphrase
+      // encryptedPassphrase: '',
       passphrase: '',
       requiredConfirmations: 2,
       orderHeightExpiry: 259200,

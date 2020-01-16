@@ -294,6 +294,7 @@ describe('TradeEngine unit tests', async () => {
         side: 'ask',
         size: 6
       });
+
       assert.notEqual(result.makers[0], null);
       assert.equal(result.makers[0].lastSizeTaken, 2.4110714285714283);
     });
