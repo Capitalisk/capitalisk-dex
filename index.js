@@ -1119,7 +1119,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                 let takerTxn = {
                   amount: takerAmount.toString(),
                   recipientId: takerAddress,
-                  height: orderTxn.height,
+                  height: this.currentProcessedHeights[takerTargetChain],
                   timestamp: orderTxn.timestamp
                 };
                 try {
@@ -1181,7 +1181,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                     let makerTxn = {
                       amount: makerAmount.toString(),
                       recipientId: makerAddress,
-                      height: orderTxn.height,
+                      height: this.currentProcessedHeights[makerOrder.targetChain],
                       timestamp: orderTxn.timestamp
                     };
                     try {
