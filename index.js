@@ -338,6 +338,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             transaction: transfer.transaction,
             targetChain: transfer.targetChain,
             collectedSignatures: [...transfer.processedSignatureSet.values()],
+            contributors: [...transfer.contributors],
             timestamp: transfer.timestamp
           }));
         }
@@ -372,7 +373,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         publicKey
       };
     }
-    let {transaction, processedSignatureSet, targetChain} = transactionData;
+    let {transaction, processedSignatureSet, contributors, targetChain} = transactionData;
     if (processedSignatureSet.has(signature)) {
       return {
         isAccepted: false,
@@ -393,8 +394,12 @@ module.exports = class LiskDEXModule extends BaseModule {
         publicKey
       };
     }
+
     processedSignatureSet.add(signature);
     transaction.signatures.push(signature);
+
+    let memberAddress = getAddressFromPublicKey(signatureData.publicKey);
+    contributors.add(memberAddress);
 
     let signatureQuota = this._getSignatureQuota(targetChain, transaction);
 
@@ -1389,6 +1394,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       let chainModuleAlias = chainOptions.moduleAlias;
 
       let lastSeenChainHeight = 0;
+      let lastSeenBlockId;
 
       // This is to detect forks in the underlying blockchains.
       channel.subscribe(`${chainModuleAlias}:blocks:change`, async (event) => {
@@ -1397,8 +1403,17 @@ module.exports = class LiskDEXModule extends BaseModule {
         }
         let chainHeight = parseInt(event.data.height);
 
-        progressingChains[chainSymbol] = chainHeight > lastSeenChainHeight;
+        let isChainProgressing;
+        if (chainHeight > lastSeenChainHeight) {
+          isChainProgressing = true;
+        } else if (chainHeight === lastSeenChainHeight && event.data.id === lastSeenBlockId) {
+          isChainProgressing = true;
+        } else {
+          isChainProgressing = false;
+        }
+        progressingChains[chainSymbol] = isChainProgressing;
         lastSeenChainHeight = chainHeight;
+        lastSeenBlockId = event.data.id;
 
         if (!this.currentProcessedHeights[chainSymbol]) {
           this.currentProcessedHeights[chainSymbol] = chainHeight;
@@ -1443,17 +1458,25 @@ module.exports = class LiskDEXModule extends BaseModule {
     let amountBeforeFee = Math.floor(transaction.amount / (1 - exchangeFeeRate));
 
     return memberSignatures.map((signature) => {
-      let memberPublicKey = Object.keys(this.multisigWalletInfo[chainSymbol].members).find((publicKey) => {
-        return this._verifySignature(chainSymbol, publicKey, transaction, signature);
-      });
-      if (!memberPublicKey) {
+      let walletAddress = this._getMemberWalletAddress(chainSymbol, transaction, signature);
+      if (!walletAddress) {
         return null;
       }
       return {
-        walletAddress: getAddressFromPublicKey(memberPublicKey),
+        walletAddress,
         amount: amountBeforeFee
       };
     }).filter((dividend) => !!dividend);
+  }
+
+  _getMemberWalletAddress(chainSymbol, transaction, signature) {
+    let memberPublicKey = Object.keys(this.multisigWalletInfo[chainSymbol].members).find((publicKey) => {
+      return this._verifySignature(chainSymbol, publicKey, transaction, signature);
+    });
+    if (!memberPublicKey) {
+      return null;
+    }
+    return getAddressFromPublicKey(memberPublicKey);
   }
 
   _isLimitOrderTooSmallToConvert(chainSymbol, amount, price) {
@@ -1634,10 +1657,14 @@ module.exports = class LiskDEXModule extends BaseModule {
     let txnHash = liskCryptography.hash(liskTransactions.utils.getTransactionBytes(transactionToHash));
     let multisigTxnSignature = liskCryptography.signData(txnHash, chainOptions.passphrase);
     let publicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(chainOptions.passphrase).publicKey;
+    let walletAddress = getAddressFromPublicKey(publicKey);
 
     preparedTxn.signatures = [multisigTxnSignature];
     let processedSignatureSet = new Set();
     processedSignatureSet.add(multisigTxnSignature);
+
+    let contributors = new Set();
+    contributors.add(walletAddress);
 
     // If the pendingTransfers map already has a transaction with the specified id, delete the existing entry so
     // that when it is re-inserted, it will be added at the end of the queue.
@@ -1649,6 +1676,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       transaction: preparedTxn,
       targetChain,
       processedSignatureSet,
+      contributors,
       publicKey,
       height: transactionData.height,
       timestamp: Date.now()
