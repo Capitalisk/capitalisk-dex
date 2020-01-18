@@ -41,10 +41,10 @@ class TradeEngine {
   }
 
   addOrder(order) {
-    let existingOrder = this.orderBook.has(order.orderId);
+    let existingOrder = this.orderBook.has(order.id);
 
     if (existingOrder) {
-      let error = new Error(`An order with ID ${order.orderId} already exists`);
+      let error = new Error(`An order with ID ${order.id} already exists`);
       error.name = 'DuplicateOrderError';
       throw error;
     }
@@ -56,8 +56,18 @@ class TradeEngine {
       orderHeightExpiry = this.baseOrderHeightExpiry;
     }
 
-    let newOrder = {...order};
-    newOrder.id = order.orderId;
+    let newOrder = {};
+    newOrder.id = order.id;
+    newOrder.side = order.side;
+    if (order.size != null) {
+      newOrder.size = order.size;
+    }
+    if (order.value != null) {
+      newOrder.value = order.value;
+    }
+    if (order.price != null) {
+      newOrder.price = order.price;
+    }
     newOrder.type = order.type;
     newOrder.targetChain = order.targetChain;
     newOrder.targetWalletAddress = order.targetWalletAddress;
@@ -72,23 +82,29 @@ class TradeEngine {
     let result = this.orderBook.add(newOrder);
 
     result.makers.forEach((makerOrder) => {
-      if (makerOrder.sizeRemaining <= 0) {
-        if (makerOrder.side === 'ask') {
-          this._askMap.delete(makerOrder.orderId);
-        } else {
-          this._bidMap.delete(makerOrder.orderId);
+      if (makerOrder.side === 'ask') {
+        if (makerOrder.sizeRemaining <= 0) {
+          this._askMap.delete(makerOrder.id);
+          this._orderMap.delete(makerOrder.id);
         }
-        this._orderMap.delete(makerOrder.orderId);
+      } else {
+        if (makerOrder.valueRemaining <= 0) {
+          this._bidMap.delete(makerOrder.id);
+          this._orderMap.delete(makerOrder.id);
+        }
       }
     });
 
-    if (newOrder.type !== 'market' && result.taker.sizeRemaining > 0) {
+    if (newOrder.type !== 'market') {
       if (newOrder.side === 'ask') {
-        this._askMap.set(newOrder.orderId, newOrder);
-      } else {
-        this._bidMap.set(newOrder.orderId, newOrder);
+        if (result.taker.sizeRemaining > 0) {
+          this._askMap.set(newOrder.id, newOrder);
+          this._orderMap.set(newOrder.id, newOrder);
+        }
+      } else if (result.taker.valueRemaining > 0) {
+        this._bidMap.set(newOrder.id, newOrder);
+        this._orderMap.set(newOrder.id, newOrder);
       }
-      this._orderMap.set(newOrder.orderId, newOrder);
     }
 
     return result;
@@ -180,14 +196,14 @@ class TradeEngine {
     });
     snapshot.askLimitOrders.forEach((order) => {
       let newOrder = {...order};
-      this._askMap.set(newOrder.orderId, newOrder);
-      this._orderMap.set(newOrder.orderId, newOrder);
+      this._askMap.set(newOrder.id, newOrder);
+      this._orderMap.set(newOrder.id, newOrder);
       this.orderBook.add(newOrder);
     });
     snapshot.bidLimitOrders.forEach((order) => {
       let newOrder = {...order};
-      this._bidMap.set(newOrder.orderId, newOrder);
-      this._orderMap.set(newOrder.orderId, newOrder);
+      this._bidMap.set(newOrder.id, newOrder);
+      this._orderMap.set(newOrder.id, newOrder);
       this.orderBook.add(newOrder);
     });
   }
