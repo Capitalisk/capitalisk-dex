@@ -117,11 +117,11 @@ class TradeEngine {
   }
 
   peekBids() {
-    return this.orderBook.peekBids();
+    return this.orderBook.getMaxBid();
   }
 
   peekAsks() {
-    return this.orderBook.peekAsks();
+    return this.orderBook.getMinAsk();
   }
 
   getBidIterator() {

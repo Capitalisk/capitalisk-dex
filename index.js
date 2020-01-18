@@ -747,7 +747,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               orderTxn.targetWalletAddress = targetWalletAddress;
               if (chainSymbol === this.baseChainSymbol) {
                 orderTxn.side = 'bid';
-                orderTxn.size = Math.floor(amount / orderTxn.price);
+                orderTxn.value = amount;
               } else {
                 orderTxn.side = 'ask';
                 orderTxn.size = amount;
@@ -776,12 +776,10 @@ module.exports = class LiskDEXModule extends BaseModule {
               orderTxn.targetWalletAddress = targetWalletAddress;
               if (chainSymbol === this.baseChainSymbol) {
                 orderTxn.side = 'bid';
-                orderTxn.size = 0;
-                orderTxn.funds = amount;
+                orderTxn.value = amount;
               } else {
                 orderTxn.side = 'ask';
                 orderTxn.size = amount;
-                orderTxn.funds = 0;
               }
             } else if (dataParts[1] === 'close') {
               // E.g. clsk,close,1787318409505302601
@@ -1037,7 +1035,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                 height: orderTxn.height
               };
               if (refundTxn.sourceChain === this.baseChainSymbol) {
-                refundTxn.sourceChainAmount = targetOrder.sizeRemaining * targetOrder.price;
+                refundTxn.sourceChainAmount = targetOrder.valueRemaining;
               } else {
                 refundTxn.sourceChainAmount = targetOrder.sizeRemaining;
               }
@@ -1090,12 +1088,7 @@ module.exports = class LiskDEXModule extends BaseModule {
               let takerChainOptions = this.options.chains[takerTargetChain];
               let takerTargetChainModuleAlias = takerChainOptions.moduleAlias;
               let takerAddress = result.taker.targetWalletAddress;
-              let takerAmount;
-              if (orderTxn.type === 'market') {
-                takerAmount = takerTargetChain === this.baseChainSymbol ? Math.abs(result.taker.fundsRemaining) : result.takeSize;
-              } else {
-                takerAmount = takerTargetChain === this.baseChainSymbol ? result.takeSize * result.taker.price : result.takeSize;
-              }
+              let takerAmount = takerTargetChain === this.baseChainSymbol ? result.taker.takeValue : result.takeSize;
               takerAmount -= takerChainOptions.exchangeFeeBase;
               takerAmount -= takerAmount * takerChainOptions.exchangeFeeRate;
               takerAmount = Math.floor(takerAmount);
@@ -1139,7 +1132,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                     height: orderTxn.height
                   };
                   if (result.taker.sourceChain === this.baseChainSymbol) {
-                    refundTxn.sourceChainAmount = result.taker.fundsRemaining;
+                    refundTxn.sourceChainAmount = result.taker.valueRemaining;
                   } else {
                     refundTxn.sourceChainAmount = result.taker.sizeRemaining;
                   }
@@ -1612,7 +1605,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       height: refundHeight
     };
     if (order.sourceChain === this.baseChainSymbol) {
-      refundTxn.sourceChainAmount = order.sizeRemaining * order.price;
+      refundTxn.sourceChainAmount = order.valueRemaining;
     } else {
       refundTxn.sourceChainAmount = order.sizeRemaining;
     }
