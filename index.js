@@ -384,7 +384,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       };
     }
 
-    let isValidSignature = this._verifySignature(targetChain, signatureData.publicKey, transaction, signature);
+    let isValidSignature = this._verifySignature(targetChain, publicKey, transaction, signature);
     if (!isValidSignature) {
       return {
         isAccepted: false,
@@ -398,7 +398,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     processedSignatureSet.add(signature);
     transaction.signatures.push(signature);
 
-    let memberAddress = getAddressFromPublicKey(signatureData.publicKey);
+    let memberAddress = getAddressFromPublicKey(publicKey);
     contributors.add(memberAddress);
 
     let signatureQuota = this._getSignatureQuota(targetChain, transaction);
