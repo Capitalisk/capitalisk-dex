@@ -1108,7 +1108,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                   amount: takerAmount.toString(),
                   recipientId: takerAddress,
                   height: latestChainHeights[takerTargetChain],
-                  timestamp: orderTxn.timestamp
+                  timestamp: orderTxn.timestamp + 1
                 };
                 try {
                   await this.execMultisigTransaction(
@@ -1170,7 +1170,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                       amount: makerAmount.toString(),
                       recipientId: makerAddress,
                       height: latestChainHeights[makerOrder.targetChain],
-                      timestamp: orderTxn.timestamp
+                      timestamp: orderTxn.timestamp + 1
                     };
                     try {
                       await this.execMultisigTransaction(
