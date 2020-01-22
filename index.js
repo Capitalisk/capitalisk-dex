@@ -29,6 +29,7 @@ const CIPHER_IV = Buffer.alloc(16, 0);
 
 const DEFAULT_SIGNATURE_BROADCAST_DELAY = 15000;
 const DEFAULT_TRANSACTION_SUBMIT_DELAY = 5000;
+const FETCH_DATA_RETRY_DELAY = 100;
 
 /**
  * Lisk DEX module specification
@@ -44,12 +45,10 @@ module.exports = class LiskDEXModule extends BaseModule {
       throw new Error('The DEX module must operate only on 2 chains');
     }
     this.multisigWalletInfo = {};
-    this.currentProcessedHeights = {};
-    this.lastSnapshotHeights = {};
+    this.isForked = false;
+    this.lastSnapshot = null;
     this.pendingTransfers = new Map();
     this.chainSymbols.forEach((chainSymbol) => {
-      this.currentProcessedHeights[chainSymbol] = 0;
-      this.lastSnapshotHeights[chainSymbol] = 0;
       this.multisigWalletInfo[chainSymbol] = {
         members: {},
         memberCount: 0,
@@ -503,20 +502,12 @@ module.exports = class LiskDEXModule extends BaseModule {
       }
     }
 
-    try {
-      await this.loadSnapshot();
-    } catch (error) {
-      this.logger.error(
-        `Failed to load initial snapshot because of error: ${error.message} - DEX node will start with an empty order book`
-      );
-    }
-
     let storageConfigOptions = await channel.invoke(
       'app:getComponentConfig',
       'storage',
     );
 
-    let storageComponents = {};
+    this._storageComponents = {};
 
     await Promise.all(
       this.chainSymbols.map(async (chainSymbol) => {
@@ -527,7 +518,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         };
         let storage = createStorageComponent(storageConfig, this.logger);
         await storage.bootstrap();
-        storageComponents[chainSymbol] = storage;
+        this._storageComponents[chainSymbol] = storage;
 
         // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
         let multisigMemberRows = await storage.adapter.db.query(
@@ -551,6 +542,15 @@ module.exports = class LiskDEXModule extends BaseModule {
       })
     );
 
+    let lastProcessedTimestamp = null;
+    try {
+      lastProcessedTimestamp = await this.loadSnapshot();
+    } catch (error) {
+      this.logger.error(
+        `Failed to load initial snapshot because of error: ${error.message} - DEX node will start with an empty order book`
+      );
+    }
+
     let blockProcessingStream = new WritableConsumableStream();
     let dividendProcessingStream = new WritableConsumableStream();
 
@@ -559,8 +559,8 @@ module.exports = class LiskDEXModule extends BaseModule {
       // in that case, it will continue with the iteration from the end of the stream.
       while (true) {
         for await (let event of blockProcessingStream) {
-          let {chainSymbol, chainHeight, isLastBlock} = event;
-          let storage = storageComponents[chainSymbol];
+          let {chainSymbol, chainHeight, latestChainHeights, isLastBlock} = event;
+          let storage = this._storageComponents[chainSymbol];
           let chainOptions = this.options.chains[chainSymbol];
 
           let targetHeight = chainHeight - chainOptions.requiredConfirmations;
@@ -591,37 +591,21 @@ module.exports = class LiskDEXModule extends BaseModule {
             }
           }
 
-          let finishProcessing = async () => {
-            this.currentProcessedHeights[chainSymbol] = targetHeight;
-
-            if (chainSymbol === this.baseChainSymbol) {
-              let lastSnapshotHeight = this.lastSnapshotHeights[chainSymbol];
-              if (
-                targetHeight > lastSnapshotHeight + this.options.orderBookSnapshotFinality &&
-                targetHeight % this.options.orderBookSnapshotFinality === 0
-              ) {
-                try {
-                  await this.saveSnapshot();
-                } catch (error) {
-                  this.logger.error(`Failed to save snapshot because of error: ${error.message}`);
-                }
-              }
-            }
-          };
-
           this.logger.trace(
             `Chain ${chainSymbol}: Processing block at height ${targetHeight}`
           );
 
-          let blockData = await this._getBlockAtHeight(storage, targetHeight);
+          let blockData;
 
-          if (!blockData) {
-            this.logger.error(
-              `Chain ${chainSymbol}: Failed to fetch block at height ${targetHeight}`
-            );
-
-            await finishProcessing();
-            continue;
+          while (!blockData) {
+            try {
+              blockData = await this._getBlockAtHeight(storage, targetHeight);
+            } catch (error) {
+              this.logger.error(
+                `Chain ${chainSymbol}: Failed to fetch block at height ${targetHeight} because of error: ${error.message}`
+              );
+              await wait(FETCH_DATA_RETRY_DELAY);
+            }
           }
 
           let latestBlockTimestamp = blockData.timestamp;
@@ -647,10 +631,22 @@ module.exports = class LiskDEXModule extends BaseModule {
             });
           }
 
-          let [inboundTxns, outboundTxns] = await Promise.all([
-            this._getInboundTransactions(storage, blockData.id, chainOptions.walletAddress),
-            this._getOutboundTransactions(storage, blockData.id, chainOptions.walletAddress)
-          ]);
+          let blockTransactions;
+
+          while (!blockTransactions) {
+            try {
+              blockTransactions = await Promise.all([
+                this._getInboundTransactions(storage, blockData.id, chainOptions.walletAddress),
+                this._getOutboundTransactions(storage, blockData.id, chainOptions.walletAddress)
+              ]);
+            } catch (error) {
+              this.logger.error(
+                `Chain ${chainSymbol}: Failed to fetch block at height ${targetHeight} because of error: ${error.message}`
+              );
+              await wait(FETCH_DATA_RETRY_DELAY);
+            }
+          }
+          let [inboundTxns, outboundTxns] = blockTransactions;
 
           outboundTxns.forEach((txn) => {
             this.pendingTransfers.delete(txn.id);
@@ -1119,7 +1115,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                 let takerTxn = {
                   amount: takerAmount.toString(),
                   recipientId: takerAddress,
-                  height: this.currentProcessedHeights[takerTargetChain],
+                  height: latestChainHeights[takerTargetChain],
                   timestamp: orderTxn.timestamp
                 };
                 try {
@@ -1181,7 +1177,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                     let makerTxn = {
                       amount: makerAmount.toString(),
                       recipientId: makerAddress,
-                      height: this.currentProcessedHeights[makerOrder.targetChain],
+                      height: latestChainHeights[makerOrder.targetChain],
                       timestamp: orderTxn.timestamp
                     };
                     try {
@@ -1203,20 +1199,43 @@ module.exports = class LiskDEXModule extends BaseModule {
 
           if (
             isPastDisabledHeight &&
-            targetHeight === chainOptions.dexDisabledFromHeight + REFUND_ORDER_BOOK_HEIGHT_DELAY
+            targetHeight === chainOptions.dexDisabledFromHeight + REFUND_ORDER_BOOK_HEIGHT_DELAY &&
+            !this.isForked
           ) {
-            if (chainOptions.dexMovedToAddress) {
-              await this.refundOrderBook(
-                chainSymbol,
-                latestBlockTimestamp,
-                targetHeight,
-                chainOptions.dexMovedToAddress
-              );
-            } else {
-              await this.refundOrderBook(chainSymbol, latestBlockTimestamp, targetHeight);
+            try {
+              if (chainOptions.dexMovedToAddress) {
+                await this.refundOrderBook(
+                  chainSymbol,
+                  latestBlockTimestamp,
+                  targetHeight,
+                  latestChainHeights,
+                  chainOptions.dexMovedToAddress
+                );
+              } else {
+                await this.refundOrderBook(chainSymbol, latestBlockTimestamp, targetHeight, latestChainHeights);
+              }
+            } catch (error) {
+              this.logger.error(`Failed to refund the order book as part of DEX address change because of error: ${error.message}`);
             }
           }
-          await finishProcessing();
+
+          if (chainSymbol === this.baseChainSymbol) {
+            if (
+              targetHeight % this.options.orderBookSnapshotFinality === 0
+            ) {
+              if (this.lastSnapshot) {
+                try {
+                  await this.saveSnapshot(this.lastSnapshot);
+                } catch (error) {
+                  this.logger.error(`Failed to save snapshot because of error: ${error.message}`);
+                }
+              }
+              this.lastSnapshot = {
+                orderBook: this.tradeEngine.getSnapshot(),
+                chainHeights: {...latestChainHeights}
+              };
+            }
+          }
         }
       }
     })();
@@ -1235,7 +1254,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           }
 
           let contributionData = {};
-          let chainStorage = storageComponents[chainSymbol];
+          let chainStorage = this._storageComponents[chainSymbol];
           let latestBlock = await this._getBlockAtHeight(chainStorage, fromHeight);
 
           while (true) {
@@ -1284,31 +1303,39 @@ module.exports = class LiskDEXModule extends BaseModule {
       }
     })();
 
-    let getBaseChainBlockTimestamp = async (height) => {
-      let baseChainStorage = storageComponents[this.baseChainSymbol];
-      let firstBaseChainBlock = await this._getBlockAtHeight(baseChainStorage, height);
-      return firstBaseChainBlock.timestamp;
-    };
-
-    let lastProcessedHeight;
-    let lastProcessedTimestamp;
+    let wasForked = this.isForked;
 
     let processBlockchains = async () => {
+      if (lastProcessedTimestamp == null) {
+        return;
+      }
+      if (this.isForked && !wasForked) {
+        wasForked = this.isForked;
+        blockProcessingStream.kill();
+        this.pendingTransfers.clear();
+        await this.revertToLastSnapshot();
+      } else {
+        wasForked = this.isForked;
+      }
       let orderedChainSymbols = [
         this.baseChainSymbol,
         this.quoteChainSymbol
       ];
       let [baseChainBlocks, quoteChainBlocks] = await Promise.all(
         orderedChainSymbols.map(async (chainSymbol) => {
-          let storage = storageComponents[chainSymbol];
+          let storage = this._storageComponents[chainSymbol];
           let chainOptions = this.options.chains[chainSymbol];
-          let timestampedBlockList = await this._getLatestBlocks(storage, lastProcessedTimestamp, chainOptions.readMaxBlocks);
+          let timestampedBlockList = await this._getLatestBlocks(storage, lastProcessedTimestamp - 1, chainOptions.readMaxBlocks);
           return timestampedBlockList.map((block) => ({
             ...block,
             chainSymbol
           }));
         })
       );
+
+      let baseChainFirstBlock = baseChainBlocks.shift();
+      let quoteChainFirstBlock = quoteChainBlocks.shift();
+
       let baseChainLastBlock = baseChainBlocks[baseChainBlocks.length - 1];
       let quoteChainLastBlock = quoteChainBlocks[quoteChainBlocks.length - 1];
 
@@ -1353,31 +1380,31 @@ module.exports = class LiskDEXModule extends BaseModule {
         return 1;
       });
 
+      let latestChainHeights = {
+        [this.baseChainSymbol]: baseChainFirstBlock.height,
+        [this.quoteChainSymbol]: quoteChainFirstBlock.height
+      };
+
       orderedBlockList.forEach((block) => {
+        latestChainHeights[block.chainSymbol] = block.height;
         blockProcessingStream.write({
           chainSymbol: block.chainSymbol,
           chainHeight: block.height,
+          latestChainHeights: {...latestChainHeights},
           isLastBlock: block.isLastBlock
         });
       });
     };
 
-    let startReadBlocksInterval = () => {
-      let isReadingBlocks = false;
-      this._readBlocksInterval = setInterval(async () => {
-        if (isReadingBlocks) {
-          return;
-        }
-        isReadingBlocks = true;
-        await processBlockchains();
-        isReadingBlocks = false;
-      }, this.options.readBlocksInterval);
-    };
-
-    let stopReadBlocksInterval = () => {
-      clearInterval(this._readBlocksInterval);
-      delete this._readBlocksInterval;
-    };
+    let isReadingBlocks = false;
+    this._readBlocksInterval = setInterval(async () => {
+      if (isReadingBlocks) {
+        return;
+      }
+      isReadingBlocks = true;
+      await processBlockchains();
+      isReadingBlocks = false;
+    }, this.options.readBlocksInterval);
 
     let progressingChains = {};
 
@@ -1398,9 +1425,6 @@ module.exports = class LiskDEXModule extends BaseModule {
 
       // This is to detect forks in the underlying blockchains.
       channel.subscribe(`${chainModuleAlias}:blocks:change`, async (event) => {
-        if (chainSymbol !== this.baseChainSymbol && !this.currentProcessedHeights[this.baseChainSymbol]) {
-          return;
-        }
         let chainHeight = parseInt(event.data.height);
 
         let isChainProgressing;
@@ -1415,24 +1439,14 @@ module.exports = class LiskDEXModule extends BaseModule {
         lastSeenChainHeight = chainHeight;
         lastSeenBlockId = event.data.id;
 
-        if (!this.currentProcessedHeights[chainSymbol]) {
-          this.currentProcessedHeights[chainSymbol] = chainHeight;
-        }
         if (areAllChainsProgressing()) {
-          if (!this._readBlocksInterval) {
-            lastProcessedHeight = this.currentProcessedHeights[this.baseChainSymbol];
-            lastProcessedTimestamp = await getBaseChainBlockTimestamp(lastProcessedHeight) - 1;
-            startReadBlocksInterval();
+          this.isForked = false;
+          // If starting without a snapshot, use the timestamp of the first new block.
+          if (lastProcessedTimestamp == null) {
+            lastProcessedTimestamp = parseInt(event.data.timestamp); // TODO 2: Check this is correct
           }
         } else {
-          if (this._readBlocksInterval) {
-            stopReadBlocksInterval();
-            blockProcessingStream.kill();
-            this.revertToLastSnapshot();
-            this.pendingTransfers.clear();
-            lastProcessedHeight = this.currentProcessedHeights[this.baseChainSymbol];
-            lastProcessedTimestamp = await getBaseChainBlockTimestamp(lastProcessedHeight) - 1;
-          }
+          this.isForked = true;
         }
       });
     });
@@ -1545,7 +1559,13 @@ module.exports = class LiskDEXModule extends BaseModule {
     )[0];
   }
 
-  async refundOrderBook(chainSymbol, timestamp, refundHeight, movedToAddress) {
+  async _getBaseChainBlockTimestamp(height) {
+    let baseChainStorage = this._storageComponents[this.baseChainSymbol];
+    let firstBaseChainBlock = await this._getBlockAtHeight(baseChainStorage, height);
+    return firstBaseChainBlock.timestamp;
+  };
+
+  async refundOrderBook(chainSymbol, timestamp, refundHeight, latestChainHeights, movedToAddress) {
     let snapshot = this.tradeEngine.getSnapshot();
 
     let ordersToRefund;
@@ -1558,7 +1578,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     }
 
     this.tradeEngine.setSnapshot(snapshot);
-    await this.saveSnapshot();
+    await this.saveSnapshot(latestChainHeights);
 
     if (movedToAddress) {
       await Promise.all(
@@ -1702,38 +1722,24 @@ module.exports = class LiskDEXModule extends BaseModule {
     let snapshot = JSON.parse(serializedSnapshot);
     this.lastSnapshot = snapshot;
     this.tradeEngine.setSnapshot(snapshot.orderBook);
-    this.lastSnapshotHeights = snapshot.chainHeights;
-    this.currentProcessedHeights = {};
-    Object.keys(this.lastSnapshotHeights).forEach((chainSymbol) => {
-      this.currentProcessedHeights[chainSymbol] = this.lastSnapshotHeights[chainSymbol];
-    });
+    let baseChainHeight = snapshot.chainHeights[this.baseChainSymbol];
+    return this._getBaseChainBlockTimestamp(baseChainHeight);
   }
 
   async revertToLastSnapshot() {
+    if (!this.lastSnapshot) {
+      this.tradeEngine.clear();
+      return;
+    }
     this.tradeEngine.setSnapshot(this.lastSnapshot.orderBook);
-    this.lastSnapshotHeights = this.lastSnapshot.chainHeights;
-    this.currentProcessedHeights = {};
-    Object.keys(this.lastSnapshotHeights).forEach((chainSymbol) => {
-      this.currentProcessedHeights[chainSymbol] = this.lastSnapshotHeights[chainSymbol];
-    });
+    let baseChainHeight = this.lastSnapshot.chainHeights[this.baseChainSymbol];
+    return this._getBaseChainBlockTimestamp(baseChainHeight);
   }
 
-  async saveSnapshot() {
-    let snapshot = {};
-    snapshot.orderBook = this.tradeEngine.getSnapshot();
-    snapshot.chainHeights = {};
-    Object.keys(this.currentProcessedHeights).forEach((chainSymbol) => {
-      let targetHeight = this.currentProcessedHeights[chainSymbol];
-      if (targetHeight < 0) {
-        targetHeight = 0;
-      }
-      snapshot.chainHeights[chainSymbol] = targetHeight;
-    });
-    this.lastSnapshot = snapshot;
+  async saveSnapshot(snapshot) {
     let baseChainHeight = snapshot.chainHeights[this.baseChainSymbol] || 0;
     let serializedSnapshot = JSON.stringify(snapshot);
     await writeFile(this.options.orderBookSnapshotFilePath, serializedSnapshot);
-    this.lastSnapshotHeights = snapshot.chainHeights;
 
     try {
       await writeFile(
