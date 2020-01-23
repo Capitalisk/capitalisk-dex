@@ -401,6 +401,9 @@ module.exports = class LiskDEXModule extends BaseModule {
     contributors.add(memberAddress);
 
     let signatureQuota = this._getSignatureQuota(targetChain, transaction);
+    if (signatureQuota >= 0) {
+      transactionData.isReady = true;
+    }
 
     return {
       signatureQuota,
@@ -419,6 +422,29 @@ module.exports = class LiskDEXModule extends BaseModule {
         break;
       }
       this.pendingTransfers.delete(txnId);
+    }
+  }
+
+  async _postTransactionToChain(targetChain, transaction) {
+    let chainOptions = this.options.chains[targetChain];
+    if (chainOptions && chainOptions.moduleAlias) {
+      let postTxnResult;
+      try {
+        postTxnResult = await this.channel.invoke(
+          `${chainOptions.moduleAlias}:postTransaction`,
+          {transaction}
+        );
+      } catch (error) {
+        this.logger.error(
+          `Error encountered while attempting to invoke ${chainOptions.moduleAlias}:postTransaction action - ${error.message}`
+        );
+        return;
+      }
+      if (!postTxnResult.success) {
+        this.logger.error(
+          `Failed to process ${chainOptions.moduleAlias}:postTransaction action - ${postTxnResult.message}`
+        );
+      }
     }
   }
 
@@ -455,27 +481,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             // Wait some additional time to collect signatures from remaining DEX members.
             // The signatures will keep accumulating in the transaction object's signatures array.
             await wait(txnSubmitDelay);
-            let targetChain = result.targetChain;
-            let chainOptions = this.options.chains[targetChain];
-            if (chainOptions && chainOptions.moduleAlias) {
-              let postTxnResult;
-              try {
-                postTxnResult = await this.channel.invoke(
-                  `${chainOptions.moduleAlias}:postTransaction`,
-                  {transaction: result.transaction}
-                );
-              } catch (error) {
-                this.logger.error(
-                  `Error encountered while attempting to invoke ${chainOptions.moduleAlias}:postTransaction action - ${error.message}`
-                );
-                return;
-              }
-              if (!postTxnResult.success) {
-                this.logger.error(
-                  `Failed to process ${chainOptions.moduleAlias}:postTransaction action - ${postTxnResult.message}`
-                );
-              }
-            }
+            await this._postTransactionToChain(result.targetChain, result.transaction);
           }
         }
         return;
@@ -582,11 +588,15 @@ module.exports = class LiskDEXModule extends BaseModule {
                 heightDiff < chainOptions.rebroadcastUntilHeight &&
                 transfer.transaction.signatures.length
               ) {
-                this._broadcastSignatureToSubnet(
-                  transfer.transaction.id,
-                  transfer.transaction.signatures[0],
-                  transfer.publicKey
-                );
+                if (transfer.isReady) {
+                  this._postTransactionToChain(transfer.targetChain, transfer.transaction);
+                } else {
+                  this._broadcastSignatureToSubnet(
+                    transfer.transaction.id,
+                    transfer.transaction.signatures[0],
+                    transfer.publicKey
+                  );
+                }
               }
             }
           }
