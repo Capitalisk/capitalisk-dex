@@ -28,7 +28,6 @@ const CIPHER_IV = Buffer.alloc(16, 0);
 
 const DEFAULT_SIGNATURE_BROADCAST_DELAY = 15000;
 const DEFAULT_TRANSACTION_SUBMIT_DELAY = 5000;
-const FETCH_DATA_RETRY_DELAY = 100;
 
 /**
  * Lisk DEX module specification
@@ -556,685 +555,654 @@ module.exports = class LiskDEXModule extends BaseModule {
       );
     }
 
-    let blockProcessingStream = new WritableConsumableStream();
     let dividendProcessingStream = new WritableConsumableStream();
 
-    (async () => {
-      // If the blockProcessingStream is killed, the inner for-await-of loop will break;
-      // in that case, it will continue with the iteration from the end of the stream.
-      while (true) {
-        for await (let event of blockProcessingStream) {
-          let {chainSymbol, chainHeight, latestChainHeights, isLastBlock} = event;
-          let storage = this._storageComponents[chainSymbol];
-          let chainOptions = this.options.chains[chainSymbol];
+    let processBlock = async ({chainSymbol, chainHeight, latestChainHeights, isLastBlock, blockData}) => {
+      let storage = this._storageComponents[chainSymbol];
+      let chainOptions = this.options.chains[chainSymbol];
 
-          let targetHeight = chainHeight - chainOptions.requiredConfirmations;
-          let minOrderAmount = chainOptions.minOrderAmount;
+      let targetHeight = chainHeight - chainOptions.requiredConfirmations;
+      let minOrderAmount = chainOptions.minOrderAmount;
 
-          // If we are on the latest height (or latest height in a batch), rebroadcast our
-          // node's signature for each pending multisig transaction in case other DEX nodes
-          // did not receive it.
-          if (isLastBlock) {
-            for (let transfer of this.pendingTransfers.values()) {
-              if (transfer.targetChain !== chainSymbol) {
-                continue;
-              }
-              let heightDiff = targetHeight - transfer.height;
-              if (
-                heightDiff > chainOptions.rebroadcastAfterHeight &&
-                heightDiff < chainOptions.rebroadcastUntilHeight &&
-                transfer.transaction.signatures.length
-              ) {
-                if (transfer.isReady) {
-                  this._postTransactionToChain(transfer.targetChain, transfer.transaction);
-                } else {
-                  this._broadcastSignatureToSubnet(
-                    transfer.transaction.id,
-                    transfer.transaction.signatures[0],
-                    transfer.publicKey
-                  );
-                }
-              }
-            }
+      // If we are on the latest height (or latest height in a batch), rebroadcast our
+      // node's signature for each pending multisig transaction in case other DEX nodes
+      // did not receive it.
+      if (isLastBlock) {
+        for (let transfer of this.pendingTransfers.values()) {
+          if (transfer.targetChain !== chainSymbol) {
+            continue;
           }
-
-          this.logger.trace(
-            `Chain ${chainSymbol}: Processing block at height ${targetHeight}`
-          );
-
-          let blockData;
-
-          while (!blockData) { // TODO 2222
-            try {
-              blockData = await this._getBlockAtHeight(storage, targetHeight);
-            } catch (error) {
-              this.logger.error(
-                `Chain ${chainSymbol}: Failed to fetch block at height ${targetHeight} because of error: ${error.message}`
-              );
-              await wait(FETCH_DATA_RETRY_DELAY);
-            }
-          }
-
-          let latestBlockTimestamp = blockData.timestamp;
-
-          if (!blockData.numberOfTransactions) {
-            this.logger.trace(
-              `Chain ${chainSymbol}: No transactions in block ${blockData.id} at height ${targetHeight}`
-            );
-          }
-
-          // The height pointer for dividends needs to be delayed so that DEX member dividends are only distributed
-          // when there is no risk of fork in the underlying blockchain.
-          let dividendTargetHeight = targetHeight - chainOptions.dividendHeightOffset;
+          let heightDiff = targetHeight - transfer.height;
           if (
-            dividendTargetHeight > chainOptions.dividendStartHeight &&
-            dividendTargetHeight % chainOptions.dividendHeightInterval === 0
+            heightDiff > chainOptions.rebroadcastAfterHeight &&
+            heightDiff < chainOptions.rebroadcastUntilHeight &&
+            transfer.transaction.signatures.length
           ) {
-            dividendProcessingStream.write({
-              chainSymbol,
-              chainHeight: targetHeight,
-              toHeight: dividendTargetHeight,
-              latestBlockTimestamp
-            });
-          }
-
-          let blockTransactions;
-
-          while (!blockTransactions) { // TODO 2222
-            try {
-              blockTransactions = await Promise.all([
-                this._getInboundTransactions(storage, blockData.id, chainOptions.walletAddress),
-                this._getOutboundTransactions(storage, blockData.id, chainOptions.walletAddress)
-              ]);
-            } catch (error) {
-              this.logger.error(
-                `Chain ${chainSymbol}: Failed to fetch block at height ${targetHeight} because of error: ${error.message}`
-              );
-              await wait(FETCH_DATA_RETRY_DELAY);
-            }
-          }
-          let [inboundTxns, outboundTxns] = blockTransactions;
-
-          outboundTxns.forEach((txn) => {
-            this.pendingTransfers.delete(txn.id);
-          });
-
-          let orders = inboundTxns.map((txn) => {
-            let orderTxn = {...txn};
-            orderTxn.sourceChain = chainSymbol;
-            orderTxn.sourceWalletAddress = orderTxn.senderId;
-            let amount = parseInt(orderTxn.amount);
-
-            if (amount > Number.MAX_SAFE_INTEGER) {
-              orderTxn.type = 'oversized';
-              orderTxn.sourceChainAmount = BigInt(orderTxn.amount);
-              this.logger.debug(
-                `Chain ${chainSymbol}: Incoming order ${orderTxn.id} amount ${orderTxn.sourceChainAmount.toString()} was too large - Maximum order amount is ${Number.MAX_SAFE_INTEGER}`
-              );
-              return orderTxn;
-            }
-
-            orderTxn.sourceChainAmount = amount;
-
-            if (
-              chainOptions.dexDisabledFromHeight != null &&
-              targetHeight >= chainOptions.dexDisabledFromHeight
-            ) {
-              if (chainOptions.dexMovedToAddress) {
-                orderTxn.type = 'moved';
-                orderTxn.movedToAddress = chainOptions.dexMovedToAddress;
-                this.logger.debug(
-                  `Chain ${chainSymbol}: Cannot process order ${orderTxn.id} because the DEX has moved to the address ${chainOptions.dexMovedToAddress}`
-                );
-                return orderTxn;
-              }
-              orderTxn.type = 'disabled';
-              this.logger.debug(
-                `Chain ${chainSymbol}: Cannot process order ${orderTxn.id} because the DEX has been disabled`
-              );
-              return orderTxn;
-            }
-
-            let transferDataString = txn.transferData == null ? '' : txn.transferData.toString('utf8');
-            let dataParts = transferDataString.split(',');
-
-            let targetChain = dataParts[0];
-            orderTxn.targetChain = targetChain;
-            let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainSymbol;
-            if (!isSupportedChain) {
-              orderTxn.type = 'invalid';
-              orderTxn.reason = 'Invalid target chain';
-              this.logger.debug(
-                `Chain ${chainSymbol}: Incoming order ${orderTxn.id} has an invalid target chain ${targetChain}`
-              );
-              return orderTxn;
-            }
-
-            if (
-              (dataParts[1] === 'limit' || dataParts[1] === 'market') &&
-              amount < minOrderAmount
-            ) {
-              orderTxn.type = 'undersized';
-              this.logger.debug(
-                `Chain ${chainSymbol}: Incoming order ${orderTxn.id} amount ${orderTxn.sourceChainAmount.toString()} was too small - Minimum order amount is ${minOrderAmount}`
-              );
-              return orderTxn;
-            }
-
-            if (dataParts[1] === 'limit') {
-              // E.g. clsk,limit,.5,9205805648791671841L
-              let price = Number(dataParts[2]);
-              let targetWalletAddress = dataParts[3];
-              if (isNaN(price)) {
-                orderTxn.type = 'invalid';
-                orderTxn.reason = 'Invalid price';
-                this.logger.debug(
-                  `Chain ${chainSymbol}: Incoming limit order ${orderTxn.id} has an invalid price`
-                );
-                return orderTxn;
-              }
-              if (!targetWalletAddress) {
-                orderTxn.type = 'invalid';
-                orderTxn.reason = 'Invalid wallet address';
-                this.logger.debug(
-                  `Chain ${chainSymbol}: Incoming limit order ${orderTxn.id} has an invalid wallet address`
-                );
-                return orderTxn;
-              }
-              if (this._isLimitOrderTooSmallToConvert(chainSymbol, amount, price)) {
-                orderTxn.type = 'invalid';
-                orderTxn.reason = 'Too small to convert';
-                this.logger.debug(
-                  `Chain ${chainSymbol}: Incoming limit order ${orderTxn.id} was too small to cover base blockchain fees`
-                );
-                return orderTxn;
-              }
-
-              orderTxn.type = 'limit';
-              orderTxn.height = targetHeight;
-              orderTxn.price = price;
-              orderTxn.targetWalletAddress = targetWalletAddress;
-              if (chainSymbol === this.baseChainSymbol) {
-                orderTxn.side = 'bid';
-                orderTxn.value = amount;
-              } else {
-                orderTxn.side = 'ask';
-                orderTxn.size = amount;
-              }
-            } else if (dataParts[1] === 'market') {
-              // E.g. clsk,market,9205805648791671841L
-              let targetWalletAddress = dataParts[2];
-              if (!targetWalletAddress) {
-                orderTxn.type = 'invalid';
-                orderTxn.reason = 'Invalid wallet address';
-                this.logger.debug(
-                  `Chain ${chainSymbol}: Incoming market order ${orderTxn.id} has an invalid wallet address`
-                );
-                return orderTxn;
-              }
-              if (this._isMarketOrderTooSmallToConvert(chainSymbol, amount)) {
-                orderTxn.type = 'invalid';
-                orderTxn.reason = 'Too small to convert';
-                this.logger.debug(
-                  `Chain ${chainSymbol}: Incoming market order ${orderTxn.id} was too small to cover base blockchain fees`
-                );
-                return orderTxn;
-              }
-              orderTxn.type = 'market';
-              orderTxn.height = targetHeight;
-              orderTxn.targetWalletAddress = targetWalletAddress;
-              if (chainSymbol === this.baseChainSymbol) {
-                orderTxn.side = 'bid';
-                orderTxn.value = amount;
-              } else {
-                orderTxn.side = 'ask';
-                orderTxn.size = amount;
-              }
-            } else if (dataParts[1] === 'close') {
-              // E.g. clsk,close,1787318409505302601
-              let targetOrderId = dataParts[2];
-              if (!targetOrderId) {
-                orderTxn.type = 'invalid';
-                orderTxn.reason = 'Missing order ID';
-                this.logger.debug(
-                  `Chain ${chainSymbol}: Incoming close order ${orderTxn.id} is missing an order ID`
-                );
-                return orderTxn;
-              }
-              let targetOrder = this.tradeEngine.getOrder(targetOrderId);
-              if (!targetOrder) {
-                orderTxn.type = 'invalid';
-                orderTxn.reason = 'Invalid order ID';
-                this.logger.error(
-                  `Chain ${chainSymbol}: Failed to close order with ID ${targetOrderId} because it could not be found`
-                );
-                return orderTxn;
-              }
-              if (targetOrder.sourceChain !== orderTxn.sourceChain) {
-                orderTxn.type = 'invalid';
-                orderTxn.reason = 'Wrong chain';
-                this.logger.error(
-                  `Chain ${chainSymbol}: Could not close order ID ${targetOrderId} because it is on a different chain`
-                );
-                return orderTxn;
-              }
-              if (targetOrder.sourceWalletAddress !== orderTxn.sourceWalletAddress) {
-                orderTxn.type = 'invalid';
-                orderTxn.reason = 'Not authorized';
-                this.logger.error(
-                  `Chain ${chainSymbol}: Could not close order ID ${targetOrderId} because it belongs to a different account`
-                );
-                return orderTxn;
-              }
-              orderTxn.type = 'close';
-              orderTxn.height = targetHeight;
-              orderTxn.orderIdToClose = targetOrderId;
+            if (transfer.isReady) {
+              this._postTransactionToChain(transfer.targetChain, transfer.transaction);
             } else {
-              orderTxn.type = 'invalid';
-              orderTxn.reason = 'Invalid operation';
-              this.logger.debug(
-                `Chain ${chainSymbol}: Incoming transaction ${orderTxn.id} is not a supported DEX order`
+              this._broadcastSignatureToSubnet(
+                transfer.transaction.id,
+                transfer.transaction.signatures[0],
+                transfer.publicKey
               );
             }
+          }
+        }
+      }
+
+      this.logger.trace(
+        `Chain ${chainSymbol}: Processing block at height ${targetHeight}`
+      );
+
+      let latestBlockTimestamp = blockData.timestamp;
+
+      if (!blockData.numberOfTransactions) {
+        this.logger.trace(
+          `Chain ${chainSymbol}: No transactions in block ${blockData.id} at height ${targetHeight}`
+        );
+      }
+
+      // The height pointer for dividends needs to be delayed so that DEX member dividends are only distributed
+      // when there is no risk of fork in the underlying blockchain.
+      let dividendTargetHeight = targetHeight - chainOptions.dividendHeightOffset;
+      if (
+        dividendTargetHeight > chainOptions.dividendStartHeight &&
+        dividendTargetHeight % chainOptions.dividendHeightInterval === 0
+      ) {
+        dividendProcessingStream.write({
+          chainSymbol,
+          chainHeight: targetHeight,
+          toHeight: dividendTargetHeight,
+          latestBlockTimestamp
+        });
+      }
+
+      let blockTransactions = await Promise.all([
+        this._getInboundTransactions(storage, blockData.id, chainOptions.walletAddress),
+        this._getOutboundTransactions(storage, blockData.id, chainOptions.walletAddress)
+      ]);
+
+      let [inboundTxns, outboundTxns] = blockTransactions;
+
+      outboundTxns.forEach((txn) => {
+        this.pendingTransfers.delete(txn.id);
+      });
+
+      let orders = inboundTxns.map((txn) => {
+        let orderTxn = {...txn};
+        orderTxn.sourceChain = chainSymbol;
+        orderTxn.sourceWalletAddress = orderTxn.senderId;
+        let amount = parseInt(orderTxn.amount);
+
+        if (amount > Number.MAX_SAFE_INTEGER) {
+          orderTxn.type = 'oversized';
+          orderTxn.sourceChainAmount = BigInt(orderTxn.amount);
+          this.logger.debug(
+            `Chain ${chainSymbol}: Incoming order ${orderTxn.id} amount ${orderTxn.sourceChainAmount.toString()} was too large - Maximum order amount is ${Number.MAX_SAFE_INTEGER}`
+          );
+          return orderTxn;
+        }
+
+        orderTxn.sourceChainAmount = amount;
+
+        if (
+          chainOptions.dexDisabledFromHeight != null &&
+          targetHeight >= chainOptions.dexDisabledFromHeight
+        ) {
+          if (chainOptions.dexMovedToAddress) {
+            orderTxn.type = 'moved';
+            orderTxn.movedToAddress = chainOptions.dexMovedToAddress;
+            this.logger.debug(
+              `Chain ${chainSymbol}: Cannot process order ${orderTxn.id} because the DEX has moved to the address ${chainOptions.dexMovedToAddress}`
+            );
             return orderTxn;
-          });
+          }
+          orderTxn.type = 'disabled';
+          this.logger.debug(
+            `Chain ${chainSymbol}: Cannot process order ${orderTxn.id} because the DEX has been disabled`
+          );
+          return orderTxn;
+        }
 
-          let closeOrders = orders.filter((orderTxn) => {
-            return orderTxn.type === 'close';
-          });
+        let transferDataString = txn.transferData == null ? '' : txn.transferData.toString('utf8');
+        let dataParts = transferDataString.split(',');
 
-          let limitAndMarketOrders = orders.filter((orderTxn) => {
-            return orderTxn.type === 'limit' || orderTxn.type === 'market';
-          });
+        let targetChain = dataParts[0];
+        orderTxn.targetChain = targetChain;
+        let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainSymbol;
+        if (!isSupportedChain) {
+          orderTxn.type = 'invalid';
+          orderTxn.reason = 'Invalid target chain';
+          this.logger.debug(
+            `Chain ${chainSymbol}: Incoming order ${orderTxn.id} has an invalid target chain ${targetChain}`
+          );
+          return orderTxn;
+        }
 
-          let invalidOrders = orders.filter((orderTxn) => {
-            return orderTxn.type === 'invalid';
-          });
+        if (
+          (dataParts[1] === 'limit' || dataParts[1] === 'market') &&
+          amount < minOrderAmount
+        ) {
+          orderTxn.type = 'undersized';
+          this.logger.debug(
+            `Chain ${chainSymbol}: Incoming order ${orderTxn.id} amount ${orderTxn.sourceChainAmount.toString()} was too small - Minimum order amount is ${minOrderAmount}`
+          );
+          return orderTxn;
+        }
 
-          let oversizedOrders = orders.filter((orderTxn) => {
-            return orderTxn.type === 'oversized';
-          });
-
-          let undersizedOrders = orders.filter((orderTxn) => {
-            return orderTxn.type === 'undersized';
-          });
-
-          let movedOrders = orders.filter((orderTxn) => {
-            return orderTxn.type === 'moved';
-          });
-
-          let disabledOrders = orders.filter((orderTxn) => {
-            return orderTxn.type === 'disabled';
-          });
-
-          if (!this.passiveMode) {
-            await Promise.all(
-              movedOrders.map(async (orderTxn) => {
-                try {
-                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r5,${orderTxn.id},${orderTxn.movedToAddress}: DEX has moved`);
-                } catch (error) {
-                  this.logger.error(
-                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for moved DEX order ID ${
-                      orderTxn.id
-                    } to ${
-                      orderTxn.sourceWalletAddress
-                    } on chain ${
-                      orderTxn.sourceChain
-                    } because of error: ${
-                      error.message
-                    }`
-                  );
-                }
-              })
+        if (dataParts[1] === 'limit') {
+          // E.g. clsk,limit,.5,9205805648791671841L
+          let price = Number(dataParts[2]);
+          let targetWalletAddress = dataParts[3];
+          if (isNaN(price)) {
+            orderTxn.type = 'invalid';
+            orderTxn.reason = 'Invalid price';
+            this.logger.debug(
+              `Chain ${chainSymbol}: Incoming limit order ${orderTxn.id} has an invalid price`
             );
-
-            await Promise.all(
-              disabledOrders.map(async (orderTxn) => {
-                try {
-                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r6,${orderTxn.id}: DEX has been disabled`);
-                } catch (error) {
-                  this.logger.error(
-                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for disabled DEX order ID ${
-                      orderTxn.id
-                    } to ${
-                      orderTxn.sourceWalletAddress
-                    } on chain ${
-                      orderTxn.sourceChain
-                    } because of error: ${
-                      error.message
-                    }`
-                  );
-                }
-              })
+            return orderTxn;
+          }
+          if (!targetWalletAddress) {
+            orderTxn.type = 'invalid';
+            orderTxn.reason = 'Invalid wallet address';
+            this.logger.debug(
+              `Chain ${chainSymbol}: Incoming limit order ${orderTxn.id} has an invalid wallet address`
             );
-
-            await Promise.all(
-              invalidOrders.map(async (orderTxn) => {
-                let reasonMessage = 'Invalid order';
-                if (orderTxn.reason) {
-                  reasonMessage += ` - ${orderTxn.reason}`;
-                }
-                try {
-                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: ${reasonMessage}`);
-                } catch (error) {
-                  this.logger.error(
-                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for invalid order ID ${
-                      orderTxn.id
-                    } to ${
-                      orderTxn.sourceWalletAddress
-                    } on chain ${
-                      orderTxn.sourceChain
-                    } because of error: ${
-                      error.message
-                    }`
-                  );
-                }
-              })
+            return orderTxn;
+          }
+          if (this._isLimitOrderTooSmallToConvert(chainSymbol, amount, price)) {
+            orderTxn.type = 'invalid';
+            orderTxn.reason = 'Too small to convert';
+            this.logger.debug(
+              `Chain ${chainSymbol}: Incoming limit order ${orderTxn.id} was too small to cover base blockchain fees`
             );
-
-            await Promise.all(
-              oversizedOrders.map(async (orderTxn) => {
-                try {
-                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: Oversized order`);
-                } catch (error) {
-                  this.logger.error(
-                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for oversized order ID ${
-                      orderTxn.id
-                    } to ${
-                      orderTxn.sourceWalletAddress
-                    } on chain ${
-                      orderTxn.sourceChain
-                    } because of error: ${
-                      error.message
-                    }`
-                  );
-                }
-              })
-            );
-
-            await Promise.all(
-              undersizedOrders.map(async (orderTxn) => {
-                try {
-                  await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: Undersized order`);
-                } catch (error) {
-                  this.logger.error(
-                    `Chain ${chainSymbol}: Failed to post multisig refund transaction for undersized order ID ${
-                      orderTxn.id
-                    } to ${
-                      orderTxn.sourceWalletAddress
-                    } on chain ${
-                      orderTxn.sourceChain
-                    } because of error: ${
-                      error.message
-                    }`
-                  );
-                }
-              })
-            );
+            return orderTxn;
           }
 
-          let expiredOrders;
+          orderTxn.type = 'limit';
+          orderTxn.height = targetHeight;
+          orderTxn.price = price;
+          orderTxn.targetWalletAddress = targetWalletAddress;
           if (chainSymbol === this.baseChainSymbol) {
-            expiredOrders = this.tradeEngine.expireBidOrders(targetHeight);
+            orderTxn.side = 'bid';
+            orderTxn.value = amount;
           } else {
-            expiredOrders = this.tradeEngine.expireAskOrders(targetHeight);
+            orderTxn.side = 'ask';
+            orderTxn.size = amount;
           }
-          expiredOrders.forEach(async (expiredOrder) => {
-            this.logger.trace(
-              `Chain ${chainSymbol}: Order ${expiredOrder.id} at height ${expiredOrder.height} expired`
+        } else if (dataParts[1] === 'market') {
+          // E.g. clsk,market,9205805648791671841L
+          let targetWalletAddress = dataParts[2];
+          if (!targetWalletAddress) {
+            orderTxn.type = 'invalid';
+            orderTxn.reason = 'Invalid wallet address';
+            this.logger.debug(
+              `Chain ${chainSymbol}: Incoming market order ${orderTxn.id} has an invalid wallet address`
             );
-            if (this.passiveMode) {
-              return;
-            }
-            let refundTimestamp;
-            if (expiredOrder.expiryHeight === targetHeight) {
-              refundTimestamp = latestBlockTimestamp;
-            } else {
-              try {
-                let expiryBlock = await this._getBlockAtHeight(storage, expiredOrder.expiryHeight);
-                if (!expiryBlock) {
-                  throw new Error(
-                    `No block found at height ${expiredOrder.expiryHeight}`
-                  );
-                }
-                refundTimestamp = expiryBlock.timestamp;
-              } catch (error) {
-                this.logger.error(
-                  `Chain ${chainSymbol}: Failed to create multisig refund transaction for expired order ID ${
-                    expiredOrder.id
-                  } to ${
-                    expiredOrder.sourceWalletAddress
-                  } on chain ${
-                    expiredOrder.sourceChain
-                  } because it could not calculate the timestamp due to error: ${
-                    error.message
-                  }`
-                );
-                return;
-              }
-            }
+            return orderTxn;
+          }
+          if (this._isMarketOrderTooSmallToConvert(chainSymbol, amount)) {
+            orderTxn.type = 'invalid';
+            orderTxn.reason = 'Too small to convert';
+            this.logger.debug(
+              `Chain ${chainSymbol}: Incoming market order ${orderTxn.id} was too small to cover base blockchain fees`
+            );
+            return orderTxn;
+          }
+          orderTxn.type = 'market';
+          orderTxn.height = targetHeight;
+          orderTxn.targetWalletAddress = targetWalletAddress;
+          if (chainSymbol === this.baseChainSymbol) {
+            orderTxn.side = 'bid';
+            orderTxn.value = amount;
+          } else {
+            orderTxn.side = 'ask';
+            orderTxn.size = amount;
+          }
+        } else if (dataParts[1] === 'close') {
+          // E.g. clsk,close,1787318409505302601
+          let targetOrderId = dataParts[2];
+          if (!targetOrderId) {
+            orderTxn.type = 'invalid';
+            orderTxn.reason = 'Missing order ID';
+            this.logger.debug(
+              `Chain ${chainSymbol}: Incoming close order ${orderTxn.id} is missing an order ID`
+            );
+            return orderTxn;
+          }
+          let targetOrder = this.tradeEngine.getOrder(targetOrderId);
+          if (!targetOrder) {
+            orderTxn.type = 'invalid';
+            orderTxn.reason = 'Invalid order ID';
+            this.logger.error(
+              `Chain ${chainSymbol}: Failed to close order with ID ${targetOrderId} because it could not be found`
+            );
+            return orderTxn;
+          }
+          if (targetOrder.sourceChain !== orderTxn.sourceChain) {
+            orderTxn.type = 'invalid';
+            orderTxn.reason = 'Wrong chain';
+            this.logger.error(
+              `Chain ${chainSymbol}: Could not close order ID ${targetOrderId} because it is on a different chain`
+            );
+            return orderTxn;
+          }
+          if (targetOrder.sourceWalletAddress !== orderTxn.sourceWalletAddress) {
+            orderTxn.type = 'invalid';
+            orderTxn.reason = 'Not authorized';
+            this.logger.error(
+              `Chain ${chainSymbol}: Could not close order ID ${targetOrderId} because it belongs to a different account`
+            );
+            return orderTxn;
+          }
+          orderTxn.type = 'close';
+          orderTxn.height = targetHeight;
+          orderTxn.orderIdToClose = targetOrderId;
+        } else {
+          orderTxn.type = 'invalid';
+          orderTxn.reason = 'Invalid operation';
+          this.logger.debug(
+            `Chain ${chainSymbol}: Incoming transaction ${orderTxn.id} is not a supported DEX order`
+          );
+        }
+        return orderTxn;
+      });
+
+      let closeOrders = orders.filter((orderTxn) => {
+        return orderTxn.type === 'close';
+      });
+
+      let limitAndMarketOrders = orders.filter((orderTxn) => {
+        return orderTxn.type === 'limit' || orderTxn.type === 'market';
+      });
+
+      let invalidOrders = orders.filter((orderTxn) => {
+        return orderTxn.type === 'invalid';
+      });
+
+      let oversizedOrders = orders.filter((orderTxn) => {
+        return orderTxn.type === 'oversized';
+      });
+
+      let undersizedOrders = orders.filter((orderTxn) => {
+        return orderTxn.type === 'undersized';
+      });
+
+      let movedOrders = orders.filter((orderTxn) => {
+        return orderTxn.type === 'moved';
+      });
+
+      let disabledOrders = orders.filter((orderTxn) => {
+        return orderTxn.type === 'disabled';
+      });
+
+      if (!this.passiveMode) {
+        await Promise.all(
+          movedOrders.map(async (orderTxn) => {
             try {
-              await this.refundOrder(
-                expiredOrder,
-                refundTimestamp,
-                expiredOrder.expiryHeight,
-                `r2,${expiredOrder.id}: Expired order`
-              );
+              await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r5,${orderTxn.id},${orderTxn.movedToAddress}: DEX has moved`);
             } catch (error) {
               this.logger.error(
-                `Chain ${chainSymbol}: Failed to post multisig refund transaction for expired order ID ${
-                  expiredOrder.id
+                `Chain ${chainSymbol}: Failed to post multisig refund transaction for moved DEX order ID ${
+                  orderTxn.id
                 } to ${
-                  expiredOrder.sourceWalletAddress
+                  orderTxn.sourceWalletAddress
                 } on chain ${
-                  expiredOrder.sourceChain
+                  orderTxn.sourceChain
                 } because of error: ${
                   error.message
                 }`
               );
             }
-          });
+          })
+        );
 
-          await Promise.all(
-            closeOrders.map(async (orderTxn) => {
-              let targetOrder = this.tradeEngine.getOrder(orderTxn.orderIdToClose);
+        await Promise.all(
+          disabledOrders.map(async (orderTxn) => {
+            try {
+              await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r6,${orderTxn.id}: DEX has been disabled`);
+            } catch (error) {
+              this.logger.error(
+                `Chain ${chainSymbol}: Failed to post multisig refund transaction for disabled DEX order ID ${
+                  orderTxn.id
+                } to ${
+                  orderTxn.sourceWalletAddress
+                } on chain ${
+                  orderTxn.sourceChain
+                } because of error: ${
+                  error.message
+                }`
+              );
+            }
+          })
+        );
+
+        await Promise.all(
+          invalidOrders.map(async (orderTxn) => {
+            let reasonMessage = 'Invalid order';
+            if (orderTxn.reason) {
+              reasonMessage += ` - ${orderTxn.reason}`;
+            }
+            try {
+              await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: ${reasonMessage}`);
+            } catch (error) {
+              this.logger.error(
+                `Chain ${chainSymbol}: Failed to post multisig refund transaction for invalid order ID ${
+                  orderTxn.id
+                } to ${
+                  orderTxn.sourceWalletAddress
+                } on chain ${
+                  orderTxn.sourceChain
+                } because of error: ${
+                  error.message
+                }`
+              );
+            }
+          })
+        );
+
+        await Promise.all(
+          oversizedOrders.map(async (orderTxn) => {
+            try {
+              await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: Oversized order`);
+            } catch (error) {
+              this.logger.error(
+                `Chain ${chainSymbol}: Failed to post multisig refund transaction for oversized order ID ${
+                  orderTxn.id
+                } to ${
+                  orderTxn.sourceWalletAddress
+                } on chain ${
+                  orderTxn.sourceChain
+                } because of error: ${
+                  error.message
+                }`
+              );
+            }
+          })
+        );
+
+        await Promise.all(
+          undersizedOrders.map(async (orderTxn) => {
+            try {
+              await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: Undersized order`);
+            } catch (error) {
+              this.logger.error(
+                `Chain ${chainSymbol}: Failed to post multisig refund transaction for undersized order ID ${
+                  orderTxn.id
+                } to ${
+                  orderTxn.sourceWalletAddress
+                } on chain ${
+                  orderTxn.sourceChain
+                } because of error: ${
+                  error.message
+                }`
+              );
+            }
+          })
+        );
+      }
+
+      let expiredOrders;
+      if (chainSymbol === this.baseChainSymbol) {
+        expiredOrders = this.tradeEngine.expireBidOrders(targetHeight);
+      } else {
+        expiredOrders = this.tradeEngine.expireAskOrders(targetHeight);
+      }
+      expiredOrders.forEach(async (expiredOrder) => {
+        this.logger.trace(
+          `Chain ${chainSymbol}: Order ${expiredOrder.id} at height ${expiredOrder.height} expired`
+        );
+        if (this.passiveMode) {
+          return;
+        }
+        let refundTimestamp;
+        if (expiredOrder.expiryHeight === targetHeight) {
+          refundTimestamp = latestBlockTimestamp;
+        } else {
+          try {
+            let expiryBlock = await this._getBlockAtHeight(storage, expiredOrder.expiryHeight);
+            if (!expiryBlock) {
+              throw new Error(
+                `No block found at height ${expiredOrder.expiryHeight}`
+              );
+            }
+            refundTimestamp = expiryBlock.timestamp;
+          } catch (error) {
+            this.logger.error(
+              `Chain ${chainSymbol}: Failed to create multisig refund transaction for expired order ID ${
+                expiredOrder.id
+              } to ${
+                expiredOrder.sourceWalletAddress
+              } on chain ${
+                expiredOrder.sourceChain
+              } because it could not calculate the timestamp due to error: ${
+                error.message
+              }`
+            );
+            return;
+          }
+        }
+        try {
+          await this.refundOrder(
+            expiredOrder,
+            refundTimestamp,
+            expiredOrder.expiryHeight,
+            `r2,${expiredOrder.id}: Expired order`
+          );
+        } catch (error) {
+          this.logger.error(
+            `Chain ${chainSymbol}: Failed to post multisig refund transaction for expired order ID ${
+              expiredOrder.id
+            } to ${
+              expiredOrder.sourceWalletAddress
+            } on chain ${
+              expiredOrder.sourceChain
+            } because of error: ${
+              error.message
+            }`
+          );
+        }
+      });
+
+      await Promise.all(
+        closeOrders.map(async (orderTxn) => {
+          let targetOrder = this.tradeEngine.getOrder(orderTxn.orderIdToClose);
+          let refundTxn = {
+            sourceChain: targetOrder.sourceChain,
+            sourceWalletAddress: targetOrder.sourceWalletAddress,
+            height: orderTxn.height
+          };
+          if (refundTxn.sourceChain === this.baseChainSymbol) {
+            refundTxn.sourceChainAmount = targetOrder.valueRemaining;
+          } else {
+            refundTxn.sourceChainAmount = targetOrder.sizeRemaining;
+          }
+          // Also send back any amount which was sent as part of the close order.
+          refundTxn.sourceChainAmount += orderTxn.sourceChainAmount;
+
+          let result;
+          try {
+            result = this.tradeEngine.closeOrder(orderTxn.orderIdToClose);
+          } catch (error) {
+            this.logger.error(error);
+            return;
+          }
+          if (this.passiveMode) {
+            return;
+          }
+          try {
+            await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r3,${targetOrder.id},${orderTxn.id}: Closed order`);
+          } catch (error) {
+            this.logger.error(
+              `Chain ${chainSymbol}: Failed to post multisig refund transaction for closed order ID ${
+                targetOrder.id
+              } to ${
+                targetOrder.sourceWalletAddress
+              } on chain ${
+                targetOrder.sourceChain
+              } because of error: ${
+                error.message
+              }`
+            );
+          }
+        })
+      );
+
+      await Promise.all(
+        limitAndMarketOrders.map(async (orderTxn) => {
+          let result;
+          try {
+            result = this.tradeEngine.addOrder(orderTxn);
+          } catch (error) {
+            this.logger.error(error);
+            return;
+          }
+
+          if (result.takeSize <= 0) {
+            return;
+          }
+
+          let takerTargetChain = result.taker.targetChain;
+          let takerChainOptions = this.options.chains[takerTargetChain];
+          let takerTargetChainModuleAlias = takerChainOptions.moduleAlias;
+          let takerAddress = result.taker.targetWalletAddress;
+          let takerAmount = takerTargetChain === this.baseChainSymbol ? result.takeValue : result.takeSize;
+          takerAmount -= takerChainOptions.exchangeFeeBase;
+          takerAmount -= takerAmount * takerChainOptions.exchangeFeeRate;
+          takerAmount = Math.floor(takerAmount);
+
+          if (this.passiveMode) {
+            return;
+          }
+
+          if (takerAmount <= 0) {
+            this.logger.error(
+              `Chain ${chainSymbol}: Failed to post the taker trade order ${orderTxn.id} because the amount after fees was less than or equal to 0`
+            );
+            return;
+          }
+
+          (async () => {
+            let takerTxn = {
+              amount: takerAmount.toString(),
+              recipientId: takerAddress,
+              height: latestChainHeights[takerTargetChain],
+              timestamp: orderTxn.timestamp + 1
+            };
+            try {
+              await this.execMultisigTransaction(
+                takerTargetChain,
+                takerTxn,
+                `t1,${result.taker.sourceChain},${result.taker.id}: Orders taken`
+              );
+            } catch (error) {
+              this.logger.error(
+                `Chain ${chainSymbol}: Failed to post multisig transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
+              );
+            }
+          })();
+
+          (async () => {
+            if (orderTxn.type === 'market') {
               let refundTxn = {
-                sourceChain: targetOrder.sourceChain,
-                sourceWalletAddress: targetOrder.sourceWalletAddress,
+                sourceChain: result.taker.sourceChain,
+                sourceWalletAddress: result.taker.sourceWalletAddress,
                 height: orderTxn.height
               };
-              if (refundTxn.sourceChain === this.baseChainSymbol) {
-                refundTxn.sourceChainAmount = targetOrder.valueRemaining;
+              if (result.taker.sourceChain === this.baseChainSymbol) {
+                refundTxn.sourceChainAmount = result.taker.valueRemaining;
               } else {
-                refundTxn.sourceChainAmount = targetOrder.sizeRemaining;
+                refundTxn.sourceChainAmount = result.taker.sizeRemaining;
               }
-              // Also send back any amount which was sent as part of the close order.
-              refundTxn.sourceChainAmount += orderTxn.sourceChainAmount;
-
-              let result;
-              try {
-                result = this.tradeEngine.closeOrder(orderTxn.orderIdToClose);
-              } catch (error) {
-                this.logger.error(error);
-                return;
-              }
-              if (this.passiveMode) {
+              if (refundTxn.sourceChainAmount <= 0) {
                 return;
               }
               try {
-                await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r3,${targetOrder.id},${orderTxn.id}: Closed order`);
+                await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r4,${orderTxn.id}: Unmatched market order part`);
               } catch (error) {
                 this.logger.error(
-                  `Chain ${chainSymbol}: Failed to post multisig refund transaction for closed order ID ${
-                    targetOrder.id
-                  } to ${
-                    targetOrder.sourceWalletAddress
-                  } on chain ${
-                    targetOrder.sourceChain
-                  } because of error: ${
-                    error.message
-                  }`
+                  `Chain ${chainSymbol}: Failed to post multisig market order refund transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
                 );
               }
-            })
-          );
+            }
+          })();
 
           await Promise.all(
-            limitAndMarketOrders.map(async (orderTxn) => {
-              let result;
-              try {
-                result = this.tradeEngine.addOrder(orderTxn);
-              } catch (error) {
-                this.logger.error(error);
-                return;
-              }
+            result.makers.map(async (makerOrder) => {
+              let makerChainOptions = this.options.chains[makerOrder.targetChain];
+              let makerTargetChainModuleAlias = makerChainOptions.moduleAlias;
+              let makerAddress = makerOrder.targetWalletAddress;
+              let makerAmount = makerOrder.targetChain === this.baseChainSymbol ? makerOrder.lastValueTaken : makerOrder.lastSizeTaken;
+              makerAmount -= makerChainOptions.exchangeFeeBase;
+              makerAmount -= makerAmount * makerChainOptions.exchangeFeeRate;
+              makerAmount = Math.floor(makerAmount);
 
-              if (result.takeSize <= 0) {
-                return;
-              }
-
-              let takerTargetChain = result.taker.targetChain;
-              let takerChainOptions = this.options.chains[takerTargetChain];
-              let takerTargetChainModuleAlias = takerChainOptions.moduleAlias;
-              let takerAddress = result.taker.targetWalletAddress;
-              let takerAmount = takerTargetChain === this.baseChainSymbol ? result.takeValue : result.takeSize;
-              takerAmount -= takerChainOptions.exchangeFeeBase;
-              takerAmount -= takerAmount * takerChainOptions.exchangeFeeRate;
-              takerAmount = Math.floor(takerAmount);
-
-              if (this.passiveMode) {
-                return;
-              }
-
-              if (takerAmount <= 0) {
+              if (makerAmount <= 0) {
                 this.logger.error(
-                  `Chain ${chainSymbol}: Failed to post the taker trade order ${orderTxn.id} because the amount after fees was less than or equal to 0`
+                  `Chain ${chainSymbol}: Failed to post the maker trade order ${makerOrder.id} because the amount after fees was less than or equal to 0`
                 );
                 return;
               }
 
               (async () => {
-                let takerTxn = {
-                  amount: takerAmount.toString(),
-                  recipientId: takerAddress,
-                  height: latestChainHeights[takerTargetChain],
+                let makerTxn = {
+                  amount: makerAmount.toString(),
+                  recipientId: makerAddress,
+                  height: latestChainHeights[makerOrder.targetChain],
                   timestamp: orderTxn.timestamp + 1
                 };
                 try {
                   await this.execMultisigTransaction(
-                    takerTargetChain,
-                    takerTxn,
-                    `t1,${result.taker.sourceChain},${result.taker.id}: Orders taken`
+                    makerOrder.targetChain,
+                    makerTxn,
+                    `t2,${makerOrder.sourceChain},${makerOrder.id},${result.taker.id}: Order made`
                   );
                 } catch (error) {
                   this.logger.error(
-                    `Chain ${chainSymbol}: Failed to post multisig transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
+                    `Chain ${chainSymbol}: Failed to post multisig transaction of maker ${makerAddress} on chain ${makerOrder.targetChain} because of error: ${error.message}`
                   );
                 }
               })();
-
-              (async () => {
-                if (orderTxn.type === 'market') {
-                  let refundTxn = {
-                    sourceChain: result.taker.sourceChain,
-                    sourceWalletAddress: result.taker.sourceWalletAddress,
-                    height: orderTxn.height
-                  };
-                  if (result.taker.sourceChain === this.baseChainSymbol) {
-                    refundTxn.sourceChainAmount = result.taker.valueRemaining;
-                  } else {
-                    refundTxn.sourceChainAmount = result.taker.sizeRemaining;
-                  }
-                  if (refundTxn.sourceChainAmount <= 0) {
-                    return;
-                  }
-                  try {
-                    await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r4,${orderTxn.id}: Unmatched market order part`);
-                  } catch (error) {
-                    this.logger.error(
-                      `Chain ${chainSymbol}: Failed to post multisig market order refund transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
-                    );
-                  }
-                }
-              })();
-
-              await Promise.all(
-                result.makers.map(async (makerOrder) => {
-                  let makerChainOptions = this.options.chains[makerOrder.targetChain];
-                  let makerTargetChainModuleAlias = makerChainOptions.moduleAlias;
-                  let makerAddress = makerOrder.targetWalletAddress;
-                  let makerAmount = makerOrder.targetChain === this.baseChainSymbol ? makerOrder.lastValueTaken : makerOrder.lastSizeTaken;
-                  makerAmount -= makerChainOptions.exchangeFeeBase;
-                  makerAmount -= makerAmount * makerChainOptions.exchangeFeeRate;
-                  makerAmount = Math.floor(makerAmount);
-
-                  if (makerAmount <= 0) {
-                    this.logger.error(
-                      `Chain ${chainSymbol}: Failed to post the maker trade order ${makerOrder.id} because the amount after fees was less than or equal to 0`
-                    );
-                    return;
-                  }
-
-                  (async () => {
-                    let makerTxn = {
-                      amount: makerAmount.toString(),
-                      recipientId: makerAddress,
-                      height: latestChainHeights[makerOrder.targetChain],
-                      timestamp: orderTxn.timestamp + 1
-                    };
-                    try {
-                      await this.execMultisigTransaction(
-                        makerOrder.targetChain,
-                        makerTxn,
-                        `t2,${makerOrder.sourceChain},${makerOrder.id},${result.taker.id}: Order made`
-                      );
-                    } catch (error) {
-                      this.logger.error(
-                        `Chain ${chainSymbol}: Failed to post multisig transaction of maker ${makerAddress} on chain ${makerOrder.targetChain} because of error: ${error.message}`
-                      );
-                    }
-                  })();
-                })
-              );
             })
           );
+        })
+      );
 
-          if (chainSymbol === this.baseChainSymbol) {
-            if (targetHeight % this.options.orderBookSnapshotFinality === 0) {
-              if (this.lastSnapshot) {
-                let snapshotBaseChainHeight = this.lastSnapshot.chainHeights[this.baseChainSymbol];
-                // Only refund if dexDisabledFromHeight is within the snapshot height range.
-                if (
-                  chainOptions.dexDisabledFromHeight != null &&
-                  snapshotBaseChainHeight >= chainOptions.dexDisabledFromHeight &&
-                  snapshotBaseChainHeight - this.options.orderBookSnapshotFinality < chainOptions.dexDisabledFromHeight
-                ) {
-                  try {
-                    await this.refundOrderBook(
-                      this.lastSnapshot,
-                      latestBlockTimestamp,
-                      targetHeight,
-                      chainOptions.dexMovedToAddress
-                    );
-                  } catch (error) {
-                    this.logger.error(`Failed to refund the order book according to config because of error: ${error.message}`);
-                  }
-                }
-                try {
-                  await this.saveSnapshot(this.lastSnapshot);
-                } catch (error) {
-                  this.logger.error(`Failed to save snapshot because of error: ${error.message}`);
-                }
+      if (chainSymbol === this.baseChainSymbol) {
+        if (targetHeight % this.options.orderBookSnapshotFinality === 0) {
+          if (this.lastSnapshot) {
+            let snapshotBaseChainHeight = this.lastSnapshot.chainHeights[this.baseChainSymbol];
+            // Only refund if dexDisabledFromHeight is within the snapshot height range.
+            if (
+              chainOptions.dexDisabledFromHeight != null &&
+              snapshotBaseChainHeight >= chainOptions.dexDisabledFromHeight &&
+              snapshotBaseChainHeight - this.options.orderBookSnapshotFinality < chainOptions.dexDisabledFromHeight
+            ) {
+              try {
+                await this.refundOrderBook(
+                  this.lastSnapshot,
+                  latestBlockTimestamp,
+                  targetHeight,
+                  chainOptions.dexMovedToAddress
+                );
+              } catch (error) {
+                this.logger.error(`Failed to refund the order book according to config because of error: ${error.message}`);
               }
-              this.lastSnapshot = { // TODO 2 wasSaved already??
-                orderBook: this.tradeEngine.getSnapshot(),
-                chainHeights: {...latestChainHeights}
-              };
+            }
+            try {
+              await this.saveSnapshot(this.lastSnapshot);
+            } catch (error) {
+              this.logger.error(`Failed to save snapshot because of error: ${error.message}`);
             }
           }
+          this.lastSnapshot = {
+            orderBook: this.tradeEngine.getSnapshot(),
+            chainHeights: {...latestChainHeights}
+          };
         }
       }
-    })();
+    }
 
     (async () => {
       // If the dividendProcessingStream is killed, the inner for-await-of loop will break;
@@ -1299,19 +1267,20 @@ module.exports = class LiskDEXModule extends BaseModule {
       }
     })();
 
-    let wasForked = this.isForked;
+    let latestBlockReceivedTimestamp = null;
+    let isInForkRecovery = false;
 
     let processBlockchains = async () => {
       if (lastProcessedTimestamp == null) {
         return;
       }
-      if (this.isForked && !wasForked) {
-        wasForked = this.isForked;
-        blockProcessingStream.kill(); // TODO 2222 what to do if isForked and wasForked both true?
+      if (isInForkRecovery) {
+        if (this.isForked) {
+          return;
+        }
+        isInForkRecovery = false;
         this.pendingTransfers.clear();
         lastProcessedTimestamp = await this.revertToLastSnapshot();
-      } else {
-        wasForked = this.isForked;
       }
       let orderedChainSymbols = [
         this.baseChainSymbol,
@@ -1342,8 +1311,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       let orderedBlockList = [];
 
       if (baseChainLastBlock.timestamp <= quoteChainLastBlock.timestamp) {
-        lastProcessedTimestamp = baseChainLastBlock.timestamp;
-        let safeQuoteChainBlocks = quoteChainBlocks.filter((block) => block.timestamp <= lastProcessedTimestamp);
+        let safeQuoteChainBlocks = quoteChainBlocks.filter((block) => block.timestamp <= baseChainLastBlock.timestamp);
         let lastSafeBlock = safeQuoteChainBlocks[safeQuoteChainBlocks.length - 1];
         if (lastSafeBlock) {
           lastSafeBlock.isLastBlock = true;
@@ -1351,8 +1319,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         baseChainLastBlock.isLastBlock = true;
         orderedBlockList = baseChainBlocks.concat(safeQuoteChainBlocks);
       } else {
-        lastProcessedTimestamp = quoteChainLastBlock.timestamp;
-        let safeBaseChainBlocks = baseChainBlocks.filter((block) => block.timestamp <= lastProcessedTimestamp);
+        let safeBaseChainBlocks = baseChainBlocks.filter((block) => block.timestamp <= quoteChainLastBlock.timestamp);
         let lastSafeBlock = safeBaseChainBlocks[safeBaseChainBlocks.length - 1];
         if (lastSafeBlock) {
           lastSafeBlock.isLastBlock = true;
@@ -1381,25 +1348,37 @@ module.exports = class LiskDEXModule extends BaseModule {
         [this.quoteChainSymbol]: quoteChainFirstBlock.height
       };
 
-      orderedBlockList.forEach((block) => {
+      for (let block of orderedBlockList) {
+        if (isInForkRecovery) {
+          break;
+        }
         latestChainHeights[block.chainSymbol] = block.height;
-        blockProcessingStream.write({
-          chainSymbol: block.chainSymbol,
-          chainHeight: block.height,
-          latestChainHeights: {...latestChainHeights},
-          isLastBlock: block.isLastBlock
-        });
-      });
+        try {
+          await processBlock({
+            chainSymbol: block.chainSymbol,
+            chainHeight: block.height,
+            latestChainHeights: {...latestChainHeights},
+            isLastBlock: block.isLastBlock,
+            blockData: {...block}
+          });
+          lastProcessedTimestamp = block.timestamp;
+        } catch (error) {
+          this.logger.error(
+            `Encountered the following error while processing block id ${block.id} on chain ${block.chainSymbol} at height ${block.height}: ${error.stack}`
+          );
+          break;
+        }
+      }
     };
 
-    let isReadingBlocks = false;
+    let isProcessingBlocks = false;
     this._readBlocksInterval = setInterval(async () => {
-      if (isReadingBlocks) {
+      if (isProcessingBlocks) {
         return;
       }
-      isReadingBlocks = true;
+      isProcessingBlocks = true;
       await processBlockchains();
-      isReadingBlocks = false;
+      isProcessingBlocks = false;
     }, this.options.readBlocksInterval);
 
     let progressingChains = {};
@@ -1422,6 +1401,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       // This is to detect forks in the underlying blockchains.
       channel.subscribe(`${chainModuleAlias}:blocks:change`, async (event) => {
         let chainHeight = parseInt(event.data.height);
+        latestBlockReceivedTimestamp = parseInt(event.data.timestamp);
 
         let isChainProgressing;
         if (chainHeight > lastSeenChainHeight) {
@@ -1435,14 +1415,15 @@ module.exports = class LiskDEXModule extends BaseModule {
         lastSeenChainHeight = chainHeight;
         lastSeenBlockId = event.data.id;
 
+        // If starting without a snapshot, use the timestamp of the first new block.
+        if (lastProcessedTimestamp == null) {
+          lastProcessedTimestamp = latestBlockReceivedTimestamp;
+        }
         if (areAllChainsProgressing()) {
           this.isForked = false;
-          // If starting without a snapshot, use the timestamp of the first new block.
-          if (lastProcessedTimestamp == null) {
-            lastProcessedTimestamp = parseInt(event.data.timestamp);
-          }
         } else {
           this.isForked = true;
+          isInForkRecovery = true;
         }
       });
     });
@@ -1540,7 +1521,7 @@ module.exports = class LiskDEXModule extends BaseModule {
   async _getLatestBlocks(storage, fromTimestamp, limit) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
     return storage.adapter.db.query(
-      'select blocks.id, blocks.height, blocks.timestamp from blocks where timestamp > $1 limit $2',
+      'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where timestamp > $1 limit $2',
       [fromTimestamp, limit]
     );
   }
