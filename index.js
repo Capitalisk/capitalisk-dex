@@ -439,8 +439,12 @@ module.exports = class LiskDEXModule extends BaseModule {
         return;
       }
       if (!postTxnResult.success) {
+        let message = postTxnResult.message;
+        if (postTxnResult.errors && postTxnResult.errors.length) {
+          message += ` (${postTxnResult.errors.map(err => err.message).join(', ')})`;
+        }
         this.logger.error(
-          `Failed to process ${chainOptions.moduleAlias}:postTransaction action - ${postTxnResult.message}`
+          `Failed to process ${chainOptions.moduleAlias}:postTransaction action - ${message}`
         );
       }
     }
@@ -1298,6 +1302,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         })
       );
 
+      // These first blocks are already processed from the last batch.
       let baseChainFirstBlock = baseChainBlocks.shift();
       let quoteChainFirstBlock = quoteChainBlocks.shift();
 
@@ -1361,7 +1366,9 @@ module.exports = class LiskDEXModule extends BaseModule {
             isLastBlock: block.isLastBlock,
             blockData: {...block}
           });
-          lastProcessedTimestamp = block.timestamp;
+          if (block.chainSymbol === this.baseChainSymbol) {
+            lastProcessedTimestamp = block.timestamp;
+          }
         } catch (error) {
           this.logger.error(
             `Encountered the following error while processing block id ${block.id} on chain ${block.chainSymbol} at height ${block.height}: ${error.stack}`
