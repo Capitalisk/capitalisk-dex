@@ -21,7 +21,6 @@ const mkdir = util.promisify(fs.mkdir);
 const WritableConsumableStream = require('writable-consumable-stream');
 
 const MODULE_ALIAS = 'lisk_dex';
-const REFUND_ORDER_BOOK_HEIGHT_DELAY = 5;
 const { LISK_DEX_PASSWORD } = process.env;
 const CIPHER_ALGORITHM = 'aes-192-cbc';
 const CIPHER_KEY = LISK_DEX_PASSWORD ? crypto.scryptSync(LISK_DEX_PASSWORD, 'salt', 24) : undefined;
@@ -570,8 +569,6 @@ module.exports = class LiskDEXModule extends BaseModule {
           let chainOptions = this.options.chains[chainSymbol];
 
           let targetHeight = chainHeight - chainOptions.requiredConfirmations;
-          let isPastDisabledHeight = chainOptions.dexDisabledFromHeight != null &&
-            targetHeight >= chainOptions.dexDisabledFromHeight;
           let minOrderAmount = chainOptions.minOrderAmount;
 
           // If we are on the latest height (or latest height in a batch), rebroadcast our
@@ -607,7 +604,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
           let blockData;
 
-          while (!blockData) {
+          while (!blockData) { // TODO 2222
             try {
               blockData = await this._getBlockAtHeight(storage, targetHeight);
             } catch (error) {
@@ -643,7 +640,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
           let blockTransactions;
 
-          while (!blockTransactions) {
+          while (!blockTransactions) { // TODO 2222
             try {
               blockTransactions = await Promise.all([
                 this._getInboundTransactions(storage, blockData.id, chainOptions.walletAddress),
@@ -679,7 +676,10 @@ module.exports = class LiskDEXModule extends BaseModule {
 
             orderTxn.sourceChainAmount = amount;
 
-            if (isPastDisabledHeight) {
+            if (
+              chainOptions.dexDisabledFromHeight != null &&
+              targetHeight >= chainOptions.dexDisabledFromHeight
+            ) {
               if (chainOptions.dexMovedToAddress) {
                 orderTxn.type = 'moved';
                 orderTxn.movedToAddress = chainOptions.dexMovedToAddress;
@@ -1199,40 +1199,34 @@ module.exports = class LiskDEXModule extends BaseModule {
             })
           );
 
-          if (
-            isPastDisabledHeight &&
-            targetHeight === chainOptions.dexDisabledFromHeight + REFUND_ORDER_BOOK_HEIGHT_DELAY &&
-            !this.isForked
-          ) {
-            try {
-              if (chainOptions.dexMovedToAddress) {
-                await this.refundOrderBook(
-                  chainSymbol,
-                  latestBlockTimestamp,
-                  targetHeight,
-                  latestChainHeights,
-                  chainOptions.dexMovedToAddress
-                );
-              } else {
-                await this.refundOrderBook(chainSymbol, latestBlockTimestamp, targetHeight, latestChainHeights);
-              }
-            } catch (error) {
-              this.logger.error(`Failed to refund the order book as part of DEX address change because of error: ${error.message}`);
-            }
-          }
-
           if (chainSymbol === this.baseChainSymbol) {
-            if (
-              targetHeight % this.options.orderBookSnapshotFinality === 0
-            ) {
+            if (targetHeight % this.options.orderBookSnapshotFinality === 0) {
               if (this.lastSnapshot) {
+                let snapshotBaseChainHeight = this.lastSnapshot.chainHeights[this.baseChainSymbol];
+                // Only refund if dexDisabledFromHeight is within the snapshot height range.
+                if (
+                  chainOptions.dexDisabledFromHeight != null &&
+                  snapshotBaseChainHeight >= chainOptions.dexDisabledFromHeight &&
+                  snapshotBaseChainHeight - this.options.orderBookSnapshotFinality < chainOptions.dexDisabledFromHeight
+                ) {
+                  try {
+                    await this.refundOrderBook(
+                      this.lastSnapshot,
+                      latestBlockTimestamp,
+                      targetHeight,
+                      chainOptions.dexMovedToAddress
+                    );
+                  } catch (error) {
+                    this.logger.error(`Failed to refund the order book according to config because of error: ${error.message}`);
+                  }
+                }
                 try {
                   await this.saveSnapshot(this.lastSnapshot);
                 } catch (error) {
                   this.logger.error(`Failed to save snapshot because of error: ${error.message}`);
                 }
               }
-              this.lastSnapshot = {
+              this.lastSnapshot = { // TODO 2 wasSaved already??
                 orderBook: this.tradeEngine.getSnapshot(),
                 chainHeights: {...latestChainHeights}
               };
@@ -1313,9 +1307,9 @@ module.exports = class LiskDEXModule extends BaseModule {
       }
       if (this.isForked && !wasForked) {
         wasForked = this.isForked;
-        blockProcessingStream.kill();
+        blockProcessingStream.kill(); // TODO 2222 what to do if isForked and wasForked both true?
         this.pendingTransfers.clear();
-        await this.revertToLastSnapshot();
+        lastProcessedTimestamp = await this.revertToLastSnapshot();
       } else {
         wasForked = this.isForked;
       }
@@ -1445,7 +1439,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           this.isForked = false;
           // If starting without a snapshot, use the timestamp of the first new block.
           if (lastProcessedTimestamp == null) {
-            lastProcessedTimestamp = parseInt(event.data.timestamp); // TODO 2: Check this is correct
+            lastProcessedTimestamp = parseInt(event.data.timestamp);
           }
         } else {
           this.isForked = true;
@@ -1567,24 +1561,11 @@ module.exports = class LiskDEXModule extends BaseModule {
     return firstBaseChainBlock.timestamp;
   };
 
-  async refundOrderBook(chainSymbol, timestamp, refundHeight, latestChainHeights, movedToAddress) {
-    let snapshot = this.tradeEngine.getSnapshot();
-
-    let ordersToRefund;
-    if (chainSymbol === this.baseChainSymbol) {
-      ordersToRefund = snapshot.bidLimitOrders;
-      snapshot.bidLimitOrders = [];
-    } else {
-      ordersToRefund = snapshot.askLimitOrders;
-      snapshot.askLimitOrders = [];
-    }
-
-    this.tradeEngine.setSnapshot(snapshot);
-    await this.saveSnapshot(latestChainHeights);
-
+  async refundOrderBook(snapshot, timestamp, refundHeight, movedToAddress) {
+    let allOrders = snapshot.bidLimitOrders.concat(snapshot.askLimitOrders);
     if (movedToAddress) {
       await Promise.all(
-        ordersToRefund.map(async (order) => {
+        allOrders.map(async (order) => {
           await this.refundOrder(
             order,
             timestamp,
@@ -1595,7 +1576,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       );
     } else {
       await Promise.all(
-        ordersToRefund.map(async (order) => {
+        allOrders.map(async (order) => {
           await this.refundOrder(
             order,
             timestamp,
@@ -1605,6 +1586,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         })
       );
     }
+    this.tradeEngine.clear();
   }
 
   async refundOrder(order, timestamp, refundHeight, reason) {
