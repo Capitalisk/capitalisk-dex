@@ -1276,11 +1276,11 @@ module.exports = class LiskDEXModule extends BaseModule {
 
     let processBlockchains = async () => {
       if (lastProcessedTimestamp == null) {
-        return;
+        return 0;
       }
       if (isInForkRecovery) {
         if (this.isForked) {
-          return;
+          return 0;
         }
         isInForkRecovery = false;
         this.pendingTransfers.clear();
@@ -1310,7 +1310,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       let quoteChainLastBlock = quoteChainBlocks[quoteChainBlocks.length - 1];
 
       if (!baseChainLastBlock || !quoteChainLastBlock) {
-        return;
+        return 0;
       }
 
       let orderedBlockList = [];
@@ -1376,17 +1376,22 @@ module.exports = class LiskDEXModule extends BaseModule {
           break;
         }
       }
+
+      return orderedBlockList.length;
     };
 
-    let isProcessingBlocks = false;
-    this._readBlocksInterval = setInterval(async () => {
-      if (isProcessingBlocks) {
-        return;
+    this._processBlockchains = true;
+
+    let startProcessingBlockchains = async () => {
+      while (this._processBlockchains) {
+        let blockCount = await processBlockchains();
+        if (blockCount <= 0) {
+          await wait(this.options.readBlocksInterval);
+        }
       }
-      isProcessingBlocks = true;
-      await processBlockchains();
-      isProcessingBlocks = false;
-    }, this.options.readBlocksInterval);
+    };
+
+    startProcessingBlockchains();
 
     let progressingChains = {};
 
@@ -1772,9 +1777,8 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   async unload() {
+    this._processBlockchains = false;
     clearInterval(this._multisigExpiryInterval);
-    clearInterval(this._readBlocksInterval);
-    delete this._readBlocksInterval;
   }
 };
 
