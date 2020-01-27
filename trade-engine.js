@@ -12,6 +12,17 @@ class TradeEngine {
     this._askMap = new Map();
     this._bidMap = new Map();
     this._orderMap = new Map();
+
+    this.lastProcessedHeightsInfo = {
+      [this.baseCurrency]: {
+        height: 0,
+        orderIds: new Set()
+      },
+      [this.quoteCurrency]: {
+        height: 0,
+        orderIds: new Set()
+      }
+    };
   }
 
   expireBidOrders(heightThreshold) {
@@ -47,6 +58,34 @@ class TradeEngine {
       let error = new Error(`An order with ID ${order.id} already exists`);
       error.name = 'DuplicateOrderError';
       throw error;
+    }
+
+    let lastChainProcessedHeightInfo = this.lastProcessedHeightsInfo[order.sourceChain];
+    let topChainHeight = lastChainProcessedHeightInfo.height;
+    if (order.height > topChainHeight) {
+      lastChainProcessedHeightInfo.height = order.height;
+      lastChainProcessedHeightInfo.orderIds = new Set([order.id]);
+    } else if (order.height < topChainHeight) {
+      let error = new Error(
+        `Could not process order with ID ${
+          order.id
+        } because it was below the last processed height of ${
+          topChainHeight
+        } for the chain ${order.sourceChain}`
+      );
+      error.name = 'HeightAlreadyProcessedError';
+      throw error;
+    } else {
+      if (lastChainProcessedHeightInfo.orderIds.has(order.id)) {
+        let error = new Error(
+          `Could not process order with ID ${
+            order.id
+          } because it was already processed`
+        );
+        error.name = 'OrderAlreadyProcessedError';
+        throw error;
+      }
+      lastChainProcessedHeightInfo.orderIds.add(order.id);
     }
 
     let orderHeightExpiry;

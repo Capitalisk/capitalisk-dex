@@ -1058,7 +1058,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           try {
             result = this.tradeEngine.addOrder(orderTxn);
           } catch (error) {
-            this.logger.error(error);
+            this.logger.warn(error);
             return;
           }
 
