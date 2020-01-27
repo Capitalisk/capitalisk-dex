@@ -165,8 +165,8 @@ class TradeEngine {
   }
 
   getSnapshot() {
-    let askLimitOrders = this.getAsks();
-    let bidLimitOrders = this.getBids();
+    let askLimitOrders = this.getAsks().map(order => ({...order}));
+    let bidLimitOrders = this.getBids().map(order => ({...order}));
 
     return {
       askLimitOrders,

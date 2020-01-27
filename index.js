@@ -1175,6 +1175,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
       if (chainSymbol === this.baseChainSymbol) {
         if (targetHeight % this.options.orderBookSnapshotFinality === 0) {
+          let currentOrderBook = this.tradeEngine.getSnapshot();
           if (this.lastSnapshot) {
             let snapshotBaseChainHeight = this.lastSnapshot.chainHeights[this.baseChainSymbol];
             // Only refund if dexDisabledFromHeight is within the snapshot height range.
@@ -1201,7 +1202,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             }
           }
           this.lastSnapshot = {
-            orderBook: this.tradeEngine.getSnapshot(),
+            orderBook: currentOrderBook,
             chainHeights: {...latestChainHeights}
           };
         }
