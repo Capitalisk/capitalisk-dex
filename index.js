@@ -565,7 +565,6 @@ module.exports = class LiskDEXModule extends BaseModule {
       let storage = this._storageComponents[chainSymbol];
       let chainOptions = this.options.chains[chainSymbol];
 
-      let targetHeight = chainHeight - chainOptions.requiredConfirmations;
       let minOrderAmount = chainOptions.minOrderAmount;
 
       // If we are on the latest height (or latest height in a batch), rebroadcast our
@@ -576,7 +575,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           if (transfer.targetChain !== chainSymbol) {
             continue;
           }
-          let heightDiff = targetHeight - transfer.height;
+          let heightDiff = chainHeight - transfer.height;
           if (
             heightDiff > chainOptions.rebroadcastAfterHeight &&
             heightDiff < chainOptions.rebroadcastUntilHeight &&
@@ -596,27 +595,27 @@ module.exports = class LiskDEXModule extends BaseModule {
       }
 
       this.logger.trace(
-        `Chain ${chainSymbol}: Processing block at height ${targetHeight}`
+        `Chain ${chainSymbol}: Processing block at height ${chainHeight}`
       );
 
       let latestBlockTimestamp = blockData.timestamp;
 
       if (!blockData.numberOfTransactions) {
         this.logger.trace(
-          `Chain ${chainSymbol}: No transactions in block ${blockData.id} at height ${targetHeight}`
+          `Chain ${chainSymbol}: No transactions in block ${blockData.id} at height ${chainHeight}`
         );
       }
 
       // The height pointer for dividends needs to be delayed so that DEX member dividends are only distributed
       // when there is no risk of fork in the underlying blockchain.
-      let dividendTargetHeight = targetHeight - chainOptions.dividendHeightOffset;
+      let dividendTargetHeight = chainHeight - chainOptions.dividendHeightOffset;
       if (
         dividendTargetHeight > chainOptions.dividendStartHeight &&
         dividendTargetHeight % chainOptions.dividendHeightInterval === 0
       ) {
         dividendProcessingStream.write({
           chainSymbol,
-          chainHeight: targetHeight,
+          chainHeight,
           toHeight: dividendTargetHeight,
           latestBlockTimestamp
         });
@@ -652,7 +651,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
         if (
           chainOptions.dexDisabledFromHeight != null &&
-          targetHeight >= chainOptions.dexDisabledFromHeight
+          chainHeight >= chainOptions.dexDisabledFromHeight
         ) {
           if (chainOptions.dexMovedToAddress) {
             orderTxn.type = 'moved';
@@ -725,7 +724,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           }
 
           orderTxn.type = 'limit';
-          orderTxn.height = targetHeight;
+          orderTxn.height = chainHeight;
           orderTxn.price = price;
           orderTxn.targetWalletAddress = targetWalletAddress;
           if (chainSymbol === this.baseChainSymbol) {
@@ -755,7 +754,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             return orderTxn;
           }
           orderTxn.type = 'market';
-          orderTxn.height = targetHeight;
+          orderTxn.height = chainHeight;
           orderTxn.targetWalletAddress = targetWalletAddress;
           if (chainSymbol === this.baseChainSymbol) {
             orderTxn.side = 'bid';
@@ -801,7 +800,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             return orderTxn;
           }
           orderTxn.type = 'close';
-          orderTxn.height = targetHeight;
+          orderTxn.height = chainHeight;
           orderTxn.orderIdToClose = targetOrderId;
         } else {
           orderTxn.type = 'invalid';
@@ -949,9 +948,9 @@ module.exports = class LiskDEXModule extends BaseModule {
 
       let expiredOrders;
       if (chainSymbol === this.baseChainSymbol) {
-        expiredOrders = this.tradeEngine.expireBidOrders(targetHeight);
+        expiredOrders = this.tradeEngine.expireBidOrders(chainHeight);
       } else {
-        expiredOrders = this.tradeEngine.expireAskOrders(targetHeight);
+        expiredOrders = this.tradeEngine.expireAskOrders(chainHeight);
       }
       expiredOrders.forEach(async (expiredOrder) => {
         this.logger.trace(
@@ -961,7 +960,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           return;
         }
         let refundTimestamp;
-        if (expiredOrder.expiryHeight === targetHeight) {
+        if (expiredOrder.expiryHeight === chainHeight) {
           refundTimestamp = latestBlockTimestamp;
         } else {
           try {
@@ -1174,7 +1173,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       );
 
       if (chainSymbol === this.baseChainSymbol) {
-        if (targetHeight % this.options.orderBookSnapshotFinality === 0) {
+        if (chainHeight % this.options.orderBookSnapshotFinality === 0) {
           let currentOrderBook = this.tradeEngine.getSnapshot();
           if (this.lastSnapshot) {
             let snapshotBaseChainHeight = this.lastSnapshot.chainHeights[this.baseChainSymbol];
@@ -1188,7 +1187,7 @@ module.exports = class LiskDEXModule extends BaseModule {
                 await this.refundOrderBook(
                   this.lastSnapshot,
                   latestBlockTimestamp,
-                  targetHeight,
+                  chainHeight,
                   chainOptions.dexMovedToAddress
                 );
               } catch (error) {
@@ -1230,7 +1229,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             if (!latestBlock) {
               break;
             }
-            let timestampedBlockList = await this._getLatestBlocks(chainStorage, latestBlock.timestamp, readMaxBlocks);
+            let timestampedBlockList = await this._getBlocks(chainStorage, latestBlock.timestamp, readMaxBlocks);
             let blocksToProcess = timestampedBlockList.filter((block) => block.height <= toHeight);
             for (let block of blocksToProcess) {
               let outboundTxns = await this._getOutboundTransactions(chainStorage, block.id, chainOptions.walletAddress);
@@ -1295,7 +1294,12 @@ module.exports = class LiskDEXModule extends BaseModule {
         orderedChainSymbols.map(async (chainSymbol) => {
           let storage = this._storageComponents[chainSymbol];
           let chainOptions = this.options.chains[chainSymbol];
-          let timestampedBlockList = await this._getLatestBlocks(storage, lastProcessedTimestamp - 1, chainOptions.readMaxBlocks);
+          let timestampedBlockList = await this._getLatestSafeBlocks(
+            storage,
+            lastProcessedTimestamp - 1,
+            chainOptions.requiredConfirmations,
+            chainOptions.readMaxBlocks
+          );
           return timestampedBlockList.map((block) => ({
             ...block,
             chainSymbol
@@ -1531,11 +1535,19 @@ module.exports = class LiskDEXModule extends BaseModule {
     }));
   }
 
-  async _getLatestBlocks(storage, fromTimestamp, limit) {
+  async _getBlocks(storage, fromTimestamp, limit) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
     return storage.adapter.db.query(
       'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where timestamp > $1 limit $2',
       [fromTimestamp, limit]
+    );
+  }
+
+  async _getLatestSafeBlocks(storage, fromTimestamp, safeHeightOffset, limit) {
+    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    return storage.adapter.db.query(
+      'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where timestamp > $1 and height <= (select max(height) from blocks) - $2 limit $3',
+      [fromTimestamp, safeHeightOffset, limit]
     );
   }
 
