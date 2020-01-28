@@ -1271,7 +1271,6 @@ module.exports = class LiskDEXModule extends BaseModule {
       }
     })();
 
-    let latestBlockReceivedTimestamp = null;
     let isInForkRecovery = false;
 
     let processBlockchains = async () => {
@@ -1290,13 +1289,27 @@ module.exports = class LiskDEXModule extends BaseModule {
         this.baseChainSymbol,
         this.quoteChainSymbol
       ];
+
+      let [baseChainLastProcessedHeight, quoteChainLastProcessedHeight] = await Promise.all(
+        orderedChainSymbols.map(async (chainSymbol) => {
+          let storage = this._storageComponents[chainSymbol];
+          let lastProcessedBlock = await this._getBlockAtTimestamp(storage, lastProcessedTimestamp);
+          return lastProcessedBlock.height;
+        })
+      );
+
+      let latestChainHeights = {
+        [this.baseChainSymbol]: baseChainLastProcessedHeight,
+        [this.quoteChainSymbol]: quoteChainLastProcessedHeight
+      };
+
       let [baseChainBlocks, quoteChainBlocks] = await Promise.all(
         orderedChainSymbols.map(async (chainSymbol) => {
           let storage = this._storageComponents[chainSymbol];
           let chainOptions = this.options.chains[chainSymbol];
           let timestampedBlockList = await this._getLatestSafeBlocks(
             storage,
-            lastProcessedTimestamp,
+            latestChainHeights[chainSymbol],
             chainOptions.requiredConfirmations,
             chainOptions.readMaxBlocks
           );
@@ -1304,14 +1317,6 @@ module.exports = class LiskDEXModule extends BaseModule {
             ...block,
             chainSymbol
           }));
-        })
-      );
-
-      let [baseChainLastProcessedHeight, quoteChainLastProcessedHeight] = await Promise.all(
-        orderedChainSymbols.map(async (chainSymbol) => {
-          let storage = this._storageComponents[chainSymbol];
-          let lastProcessedBlock = await this._getBlockAtTimestamp(storage, lastProcessedTimestamp);
-          return lastProcessedBlock.height;
         })
       );
 
@@ -1324,23 +1329,14 @@ module.exports = class LiskDEXModule extends BaseModule {
 
       let orderedBlockList = [];
 
-      if (baseChainLastBlock.timestamp <= quoteChainLastBlock.timestamp) {
-        let safeQuoteChainBlocks = quoteChainBlocks.filter((block) => block.timestamp <= baseChainLastBlock.timestamp);
-        let lastSafeBlock = safeQuoteChainBlocks[safeQuoteChainBlocks.length - 1];
-        if (lastSafeBlock) {
-          lastSafeBlock.isLastBlock = true;
-        }
-        baseChainLastBlock.isLastBlock = true;
-        orderedBlockList = baseChainBlocks.concat(safeQuoteChainBlocks);
-      } else {
-        let safeBaseChainBlocks = baseChainBlocks.filter((block) => block.timestamp <= quoteChainLastBlock.timestamp);
-        let lastSafeBlock = safeBaseChainBlocks[safeBaseChainBlocks.length - 1];
-        if (lastSafeBlock) {
-          lastSafeBlock.isLastBlock = true;
-        }
-        quoteChainLastBlock.isLastBlock = true;
-        orderedBlockList = quoteChainBlocks.concat(safeBaseChainBlocks);
+      let safeQuoteChainBlocks = quoteChainBlocks.filter((block) => block.timestamp <= baseChainLastBlock.timestamp);
+      let lastSafeBlock = safeQuoteChainBlocks[safeQuoteChainBlocks.length - 1];
+      if (!lastSafeBlock) {
+        return 0;
       }
+      lastSafeBlock.isLastBlock = true;
+      baseChainLastBlock.isLastBlock = true;
+      orderedBlockList = baseChainBlocks.concat(safeQuoteChainBlocks);
 
       orderedBlockList.sort((a, b) => {
         let timestampA = a.timestamp;
@@ -1357,13 +1353,6 @@ module.exports = class LiskDEXModule extends BaseModule {
         return 1;
       });
 
-      let latestChainHeights = {
-        [this.baseChainSymbol]: baseChainLastProcessedHeight,
-        [this.quoteChainSymbol]: quoteChainLastProcessedHeight
-      };
-
-      let topTimestamp = lastProcessedTimestamp;
-
       for (let block of orderedBlockList) {
         if (isInForkRecovery) {
           break;
@@ -1377,9 +1366,8 @@ module.exports = class LiskDEXModule extends BaseModule {
             isLastBlock: block.isLastBlock,
             blockData: {...block}
           });
-          if (block.timestamp > topTimestamp) {
-            lastProcessedTimestamp = topTimestamp;
-            topTimestamp = block.timestamp;
+          if (block.chainSymbol === this.quoteChainSymbol) {
+            lastProcessedTimestamp = block.timestamp;
           }
         } catch (error) {
           this.logger.error(
@@ -1388,7 +1376,8 @@ module.exports = class LiskDEXModule extends BaseModule {
           return orderedBlockList.length;
         }
       }
-      lastProcessedTimestamp = topTimestamp;
+      let lastBlock = orderedBlockList[orderedBlockList.length - 1];
+      lastProcessedTimestamp = lastBlock.timestamp;
 
       return orderedBlockList.length;
     };
@@ -1426,7 +1415,6 @@ module.exports = class LiskDEXModule extends BaseModule {
       // This is to detect forks in the underlying blockchains.
       channel.subscribe(`${chainModuleAlias}:blocks:change`, async (event) => {
         let chainHeight = parseInt(event.data.height);
-        latestBlockReceivedTimestamp = parseInt(event.data.timestamp);
 
         let isChainProgressing;
         if (chainHeight > lastSeenChainHeight) {
@@ -1442,7 +1430,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
         // If starting without a snapshot, use the timestamp of the first new block.
         if (lastProcessedTimestamp == null) {
-          lastProcessedTimestamp = latestBlockReceivedTimestamp;
+          lastProcessedTimestamp = parseInt(event.data.timestamp);
         }
         if (areAllChainsProgressing()) {
           this.isForked = false;
@@ -1551,11 +1539,21 @@ module.exports = class LiskDEXModule extends BaseModule {
     );
   }
 
-  async _getLatestSafeBlocks(storage, fromTimestamp, safeHeightOffset, limit) {
+  async _getBlockAtTimestamp(storage, timestamp) {
+    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    return (
+      await storage.adapter.db.query(
+        'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where timestamp <= $1 order by timestamp desc limit 1',
+        [timestamp]
+      )
+    )[0];
+  }
+
+  async _getLatestSafeBlocks(storage, fromHeight, safeHeightOffset, limit) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
     return storage.adapter.db.query(
-      'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where timestamp > $1 and height <= (select max(height) from blocks) - $2 limit $3',
-      [fromTimestamp, safeHeightOffset, limit]
+      'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where height > $1 and height <= (select max(height) from blocks) - $2 limit $3',
+      [fromHeight, safeHeightOffset, limit]
     );
   }
 
@@ -1565,16 +1563,6 @@ module.exports = class LiskDEXModule extends BaseModule {
       await storage.adapter.db.query(
         'select blocks.id, blocks."numberOfTransactions", blocks.timestamp from blocks where height = $1 limit 1',
         [targetHeight]
-      )
-    )[0];
-  }
-
-  async _getBlockAtTimestamp(storage, timestamp) {
-    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
-    return (
-      await storage.adapter.db.query(
-        'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where timestamp <= $1 order by timestamp desc limit 1',
-        [timestamp]
       )
     )[0];
   }
