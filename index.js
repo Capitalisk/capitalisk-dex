@@ -1049,7 +1049,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           return;
         }
 
-        if (result.takeSize <= 0) {
+        if (result.takeSize <= 0 || this.passiveMode) {
           return;
         }
 
@@ -1061,10 +1061,6 @@ module.exports = class LiskDEXModule extends BaseModule {
         takerAmount -= takerChainOptions.exchangeFeeBase;
         takerAmount -= takerAmount * takerChainOptions.exchangeFeeRate;
         takerAmount = Math.floor(takerAmount);
-
-        if (this.passiveMode) {
-          return;
-        }
 
         if (takerAmount <= 0) {
           this.logger.error(
@@ -1392,23 +1388,13 @@ module.exports = class LiskDEXModule extends BaseModule {
       let chainModuleAlias = chainOptions.moduleAlias;
 
       let lastSeenChainHeight = 0;
-      let lastSeenBlockId;
 
       // This is to detect forks in the underlying blockchains.
       channel.subscribe(`${chainModuleAlias}:blocks:change`, async (event) => {
         let chainHeight = parseInt(event.data.height);
 
-        let isChainProgressing;
-        if (chainHeight > lastSeenChainHeight) {
-          isChainProgressing = true;
-        } else if (chainHeight === lastSeenChainHeight && event.data.id === lastSeenBlockId) {
-          isChainProgressing = true;
-        } else {
-          isChainProgressing = false;
-        }
-        progressingChains[chainSymbol] = isChainProgressing;
+        progressingChains[chainSymbol] = chainHeight > lastSeenChainHeight;
         lastSeenChainHeight = chainHeight;
-        lastSeenBlockId = event.data.id;
 
         // If starting without a snapshot, use the timestamp of the first new block.
         if (lastProcessedTimestamp == null) {
@@ -1489,16 +1475,43 @@ module.exports = class LiskDEXModule extends BaseModule {
     return baseChainValue <= baseChainOptions.exchangeFeeBase;
   }
 
+  _md5(string) {
+    return crypto.createHash('md5').update(string).digest("hex");
+  }
+
+  _transactionComparator(a, b) {
+    // The sort order cannot be predicted before the block is forged.
+    if (a.sortKey < b.sortKey) {
+      return -1;
+    }
+    if (a.sortKey > b.sortKey) {
+      return 1;
+    }
+
+    // This should never happen unless there is an md5 hash collision.
+    this.logger.error(
+      `Failed to compare transactions ${
+        a.id
+      } and ${
+        b.id
+      } from block ID ${
+        blockId
+      } because they had the same sortKey - This may lead to nondeterministic output`
+    );
+    return 0;
+  }
+
   async _getInboundTransactions(storage, blockId, walletAddress) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
     let txns = await storage.adapter.db.query(
-      'select trs.id, trs.type, trs."senderId", trs."senderPublicKey", trs."timestamp", trs."recipientId", trs."amount", trs."transferData", trs.signatures from trs where trs."blockId" = $1 and trs."recipientId" = $2',
+      'select trs.id, trs.type, trs."senderId", trs."senderPublicKey", trs.timestamp, trs."recipientId", trs.amount, trs."transferData", trs.signatures from trs where trs."blockId" = $1 and trs."recipientId" = $2',
       [blockId, walletAddress]
     );
-    return txns.map((txn) => ({
+    return txns.map(txn => ({
       ...txn,
-      senderPublicKey: txn.senderPublicKey.toString('hex')
-    }));
+      senderPublicKey: txn.senderPublicKey.toString('hex'),
+      sortKey: this._md5(txn.id + blockId)
+    })).sort((a, b) => this._transactionComparator(a, b));
   }
 
   async _getOutboundTransactions(storage, blockId, walletAddress) {
@@ -1507,16 +1520,17 @@ module.exports = class LiskDEXModule extends BaseModule {
       'select trs.id, trs.type, trs."senderId", trs."senderPublicKey", trs."timestamp", trs."recipientId", trs."amount", trs."transferData", trs.signatures from trs where trs."blockId" = $1 and trs."senderId" = $2',
       [blockId, walletAddress]
     );
-    return txns.map((txn) => ({
+    return txns.map(txn => ({
       ...txn,
-      senderPublicKey: txn.senderPublicKey.toString('hex')
-    }));
+      senderPublicKey: txn.senderPublicKey.toString('hex'),
+      sortKey: this._md5(txn.id + blockId)
+    })).sort((a, b) => this._transactionComparator(a, b));
   }
 
   async _getBlocks(storage, fromTimestamp, limit) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
     return storage.adapter.db.query(
-      'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where timestamp > $1 limit $2',
+      'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where blocks.timestamp > $1 order by blocks.timestamp asc limit $2',
       [fromTimestamp, limit]
     );
   }
@@ -1525,7 +1539,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
     return (
       await storage.adapter.db.query(
-        'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where timestamp <= $1 order by timestamp desc limit 1',
+        'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where blocks.timestamp <= $1 order by blocks.timestamp desc limit 1',
         [timestamp]
       )
     )[0];
@@ -1534,7 +1548,7 @@ module.exports = class LiskDEXModule extends BaseModule {
   async _getLatestSafeBlocks(storage, fromHeight, safeHeightOffset, limit) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
     return storage.adapter.db.query(
-      'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where height > $1 and height <= (select max(height) from blocks) - $2 limit $3',
+      'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where height > $1 and height <= (select max(height) from blocks) - $2 order by blocks.timestamp asc limit $3',
       [fromHeight, safeHeightOffset, limit]
     );
   }
@@ -1733,7 +1747,7 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   async saveSnapshot(snapshot) {
-    let baseChainHeight = snapshot.chainHeights[this.baseChainSymbol] || 0;
+    let baseChainHeight = snapshot.chainHeights[this.baseChainSymbol];
     let serializedSnapshot = JSON.stringify(snapshot);
     await writeFile(this.options.orderBookSnapshotFilePath, serializedSnapshot);
 
