@@ -13,6 +13,10 @@ class TradeEngine {
     this._bidMap = new Map();
     this._orderMap = new Map();
 
+    this._resetProcessedHeightsInfo();
+  }
+
+  _resetProcessedHeightsInfo() {
     this.lastProcessedHeightsInfo = {
       [this.baseCurrency]: {
         height: 0,
@@ -248,6 +252,7 @@ class TradeEngine {
   }
 
   clear() {
+    this._resetProcessedHeightsInfo();
     this._askMap.clear();
     this._bidMap.clear();
     this._orderMap.clear();
