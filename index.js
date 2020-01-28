@@ -1296,7 +1296,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           let chainOptions = this.options.chains[chainSymbol];
           let timestampedBlockList = await this._getLatestSafeBlocks(
             storage,
-            lastProcessedTimestamp - 1,
+            lastProcessedTimestamp,
             chainOptions.requiredConfirmations,
             chainOptions.readMaxBlocks
           );
@@ -1307,9 +1307,13 @@ module.exports = class LiskDEXModule extends BaseModule {
         })
       );
 
-      // These first blocks are already processed from the last batch.
-      let baseChainFirstBlock = baseChainBlocks.shift();
-      let quoteChainFirstBlock = quoteChainBlocks.shift();
+      let [baseChainLastProcessedHeight, quoteChainLastProcessedHeight] = await Promise.all(
+        orderedChainSymbols.map(async (chainSymbol) => {
+          let storage = this._storageComponents[chainSymbol];
+          let lastProcessedBlock = await this._getBlockAtTimestamp(storage, lastProcessedTimestamp);
+          return lastProcessedBlock.height;
+        })
+      );
 
       let baseChainLastBlock = baseChainBlocks[baseChainBlocks.length - 1];
       let quoteChainLastBlock = quoteChainBlocks[quoteChainBlocks.length - 1];
@@ -1354,9 +1358,11 @@ module.exports = class LiskDEXModule extends BaseModule {
       });
 
       let latestChainHeights = {
-        [this.baseChainSymbol]: baseChainFirstBlock.height,
-        [this.quoteChainSymbol]: quoteChainFirstBlock.height
+        [this.baseChainSymbol]: baseChainLastProcessedHeight,
+        [this.quoteChainSymbol]: quoteChainLastProcessedHeight
       };
+
+      let topTimestamp = lastProcessedTimestamp;
 
       for (let block of orderedBlockList) {
         if (isInForkRecovery) {
@@ -1371,16 +1377,18 @@ module.exports = class LiskDEXModule extends BaseModule {
             isLastBlock: block.isLastBlock,
             blockData: {...block}
           });
-          if (block.chainSymbol === this.baseChainSymbol) {
-            lastProcessedTimestamp = block.timestamp;
+          if (block.timestamp > topTimestamp) {
+            lastProcessedTimestamp = topTimestamp;
+            topTimestamp = block.timestamp;
           }
         } catch (error) {
           this.logger.error(
             `Encountered the following error while processing block id ${block.id} on chain ${block.chainSymbol} at height ${block.height}: ${error.stack}`
           );
-          break;
+          return orderedBlockList.length;
         }
       }
+      lastProcessedTimestamp = topTimestamp;
 
       return orderedBlockList.length;
     };
@@ -1555,8 +1563,18 @@ module.exports = class LiskDEXModule extends BaseModule {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
     return (
       await storage.adapter.db.query(
-        'select blocks.id, blocks."numberOfTransactions", blocks.timestamp from blocks where height = $1',
+        'select blocks.id, blocks."numberOfTransactions", blocks.timestamp from blocks where height = $1 limit 1',
         [targetHeight]
+      )
+    )[0];
+  }
+
+  async _getBlockAtTimestamp(storage, timestamp) {
+    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    return (
+      await storage.adapter.db.query(
+        'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where timestamp <= $1 order by timestamp desc limit 1',
+        [timestamp]
       )
     )[0];
   }
