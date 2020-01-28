@@ -6,8 +6,8 @@ describe('TradeEngine unit tests', async () => {
 
   beforeEach(async () => {
     tradeEngine = new TradeEngine({
-      baseCurrency: 'chain',
-      quoteCurrency: 'capitalisk',
+      baseCurrency: 'lsk',
+      quoteCurrency: 'clsk',
       baseOrderHeightExpiry: 100,
       quoteOrderHeightExpiry: 100
     });
@@ -19,10 +19,12 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        orderId: 'order0',
+        id: 'order0',
         type: 'limit',
         price: .1,
+        sourceChain: 'clsk',
         targetChain: 'lsk',
+        height: 1,
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'ask',
@@ -30,10 +32,12 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        orderId: 'order1',
+        id: 'order1',
         type: 'limit',
         price: .1,
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'bid',
@@ -41,7 +45,7 @@ describe('TradeEngine unit tests', async () => {
       });
 
       assert.equal(result.takeSize, 100);
-      assert.equal(result.taker.orderId, 'order1');
+      assert.equal(result.taker.id, 'order1');
       assert.equal(result.taker.valueRemaining, 90);
     });
 
@@ -49,10 +53,12 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        orderId: 'order0',
+        id: 'order0',
         type: 'limit',
         price: .1,
+        sourceChain: 'clsk',
         targetChain: 'lsk',
+        height: 1,
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'ask',
@@ -60,10 +66,12 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        orderId: 'order1',
+        id: 'order1',
         type: 'limit',
         price: .2,
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '33311111111222222333L',
         side: 'bid',
@@ -72,7 +80,7 @@ describe('TradeEngine unit tests', async () => {
 
       assert.equal(result.takeSize, 100);
       assert.equal(result.takeValue, 10);
-      assert.equal(result.taker.orderId, 'order1');
+      assert.equal(result.taker.id, 'order1');
       assert.equal(result.taker.value, 200);
     });
 
@@ -80,10 +88,12 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        orderId: 'order0',
+        id: 'order0',
         type: 'limit',
         price: .5,
+        sourceChain: 'clsk',
         targetChain: 'lsk',
+        height: 1,
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'ask',
@@ -91,10 +101,12 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        orderId: 'order1',
+        id: 'order1',
         type: 'limit',
         price: .5,
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '44411111111222222444L',
         side: 'bid',
@@ -104,10 +116,12 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(result.makers[0].lastValueTaken, 4);
 
       result = tradeEngine.addOrder({
-        orderId: 'order2',
+        id: 'order2',
         type: 'limit',
         price: .5,
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '55511111111222222555L',
         side: 'bid',
@@ -117,10 +131,12 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(result.makers[0].lastValueTaken, 20);
 
       result = tradeEngine.addOrder({
-        orderId: 'order3',
+        id: 'order3',
         type: 'limit',
         price: .5,
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '66611111111222222666L',
         side: 'bid',
@@ -134,10 +150,12 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        orderId: 'order0',
+        id: 'order0',
         type: 'limit',
         price: .1,
+        sourceChain: 'clsk',
         targetChain: 'lsk',
+        height: 1,
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'ask',
@@ -148,10 +166,12 @@ describe('TradeEngine unit tests', async () => {
 
       try {
         result = tradeEngine.addOrder({
-          orderId: 'order0',
+          id: 'order0',
           type: 'limit',
           price: .1,
+          sourceChain: 'clsk',
           targetChain: 'lsk',
+          height: 1,
           targetWalletAddress: '22245678912345678222L',
           senderId: '55511111111222222777L',
           side: 'ask',
@@ -169,10 +189,12 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        orderId: 'order0',
+        id: 'order0',
         type: 'limit',
         price: .5,
+        sourceChain: 'clsk',
         targetChain: 'lsk',
+        height: 1,
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'ask',
@@ -180,10 +202,12 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        orderId: 'order1',
+        id: 'order1',
         type: 'limit',
         price: .5,
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '88811111111222222333L',
         side: 'bid',
@@ -191,10 +215,12 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        orderId: 'order2',
+        id: 'order2',
         type: 'limit',
         price: .5,
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '11555111111222226662L',
         side: 'bid',
@@ -212,10 +238,12 @@ describe('TradeEngine unit tests', async () => {
       tradeEngine.setSnapshot(snapshot);
 
       result = tradeEngine.addOrder({
-        orderId: 'order3',
+        id: 'order3',
         type: 'limit',
         price: .5,
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '77711111111222442222L',
         side: 'bid',
@@ -225,10 +253,12 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(result.makers[0].lastValueTaken, 6);
 
       result = tradeEngine.addOrder({
-        orderId: 'order4',
+        id: 'order4',
         type: 'limit',
         price: .5,
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '33331111111222222999L',
         side: 'bid',
@@ -241,10 +271,12 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        orderId: 'order0',
+        id: 'order0',
         type: 'limit',
         price: .5,
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'bid',
@@ -252,10 +284,12 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        orderId: 'order841',
+        id: 'order841',
         type: 'limit',
         price: .55,
+        sourceChain: 'clsk',
         targetChain: 'lsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'ask',
@@ -263,10 +297,12 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        orderId: 'order3',
+        id: 'order3',
         type: 'limit',
         price: .6,
+        sourceChain: 'clsk',
         targetChain: 'lsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'ask',
@@ -274,10 +310,12 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        orderId: 'order567',
+        id: 'order567',
         type: 'limit',
         price: .56,
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'bid',
@@ -285,10 +323,12 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        orderId: 'order630',
+        id: 'order630',
         type: 'limit',
         price: .56,
+        sourceChain: 'clsk',
         targetChain: 'lsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'ask',
@@ -303,10 +343,12 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        orderId: 'order0',
+        id: 'order0',
         type: 'limit',
         price: .5,
+        sourceChain: 'clsk',
         targetChain: 'lsk',
+        height: 1,
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'ask',
@@ -314,9 +356,11 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        orderId: 'order1',
+        id: 'order1',
         type: 'market',
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'bid',
@@ -325,7 +369,7 @@ describe('TradeEngine unit tests', async () => {
 
       assert.equal(result.takeSize, 20);
       assert.equal(result.takeValue, 10);
-      assert.equal(result.taker.orderId, 'order1');
+      assert.equal(result.taker.id, 'order1');
       assert.equal(result.taker.valueRemaining, 0);
     });
 
@@ -333,10 +377,12 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        orderId: 'order0',
+        id: 'order0',
         type: 'limit',
         price: .5,
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'bid',
@@ -344,9 +390,11 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        orderId: 'order1',
+        id: 'order1',
         type: 'market',
+        sourceChain: 'clsk',
         targetChain: 'lsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'ask',
@@ -355,7 +403,7 @@ describe('TradeEngine unit tests', async () => {
 
       assert.equal(result.takeSize, 50);
       assert.equal(result.takeValue, 25);
-      assert.equal(result.taker.orderId, 'order1');
+      assert.equal(result.taker.id, 'order1');
       assert.equal(result.taker.sizeRemaining, 0);
     });
 
@@ -363,10 +411,12 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        orderId: 'order0',
+        id: 'order0',
         type: 'limit',
         price: .5,
+        sourceChain: 'clsk',
         targetChain: 'lsk',
+        height: 1,
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'ask',
@@ -374,9 +424,11 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        orderId: 'order1',
+        id: 'order1',
         type: 'market',
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'bid',
@@ -391,10 +443,12 @@ describe('TradeEngine unit tests', async () => {
       let result;
 
       result = tradeEngine.addOrder({
-        orderId: 'order0',
+        id: 'order0',
         type: 'limit',
         price: .5,
+        sourceChain: 'lsk',
         targetChain: 'clsk',
+        height: 1,
         targetWalletAddress: '22245678912345678222L',
         senderId: '11111111111222222222L',
         side: 'bid',
@@ -402,9 +456,11 @@ describe('TradeEngine unit tests', async () => {
       });
 
       result = tradeEngine.addOrder({
-        orderId: 'order1',
+        id: 'order1',
         type: 'market',
+        sourceChain: 'clsk',
         targetChain: 'lsk',
+        height: 1,
         targetWalletAddress: '11145678912345678111L',
         senderId: '22222222211111111111L',
         side: 'ask',
