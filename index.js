@@ -586,6 +586,43 @@ module.exports = class LiskDEXModule extends BaseModule {
         }
       }
 
+      if (chainSymbol === this.baseChainSymbol) {
+        if (chainHeight % this.options.orderBookSnapshotFinality === 0) {
+          let currentOrderBook = this.tradeEngine.getSnapshot();
+          if (this.lastSnapshot) {
+            let snapshotBaseChainHeight = this.lastSnapshot.chainHeights[this.baseChainSymbol];
+            // Only refund if dexDisabledFromHeight is within the snapshot height range.
+            if (
+              chainOptions.dexDisabledFromHeight != null &&
+              snapshotBaseChainHeight >= chainOptions.dexDisabledFromHeight &&
+              snapshotBaseChainHeight - this.options.orderBookSnapshotFinality < chainOptions.dexDisabledFromHeight
+            ) {
+              try {
+                await this.refundOrderBook(
+                  this.lastSnapshot,
+                  latestBlockTimestamp,
+                  chainHeight,
+                  chainOptions.dexMovedToAddress
+                );
+              } catch (error) {
+                this.logger.error(`Failed to refund the order book according to config because of error: ${error.message}`);
+              }
+            }
+            try {
+              await this.saveSnapshot(this.lastSnapshot);
+            } catch (error) {
+              this.logger.error(`Failed to save snapshot because of error: ${error.message}`);
+            }
+          }
+          let processedChainHeights = {...latestChainHeights};
+          processedChainHeights[this.baseChainSymbol]--;
+          this.lastSnapshot = {
+            orderBook: currentOrderBook,
+            chainHeights: processedChainHeights
+          };
+        }
+      }
+
       this.logger.trace(
         `Chain ${chainSymbol}: Processing block at height ${chainHeight}`
       );
@@ -1141,41 +1178,6 @@ module.exports = class LiskDEXModule extends BaseModule {
           }
         });
       });
-
-      if (chainSymbol === this.baseChainSymbol) {
-        if (chainHeight % this.options.orderBookSnapshotFinality === 0) {
-          let currentOrderBook = this.tradeEngine.getSnapshot();
-          if (this.lastSnapshot) {
-            let snapshotBaseChainHeight = this.lastSnapshot.chainHeights[this.baseChainSymbol];
-            // Only refund if dexDisabledFromHeight is within the snapshot height range.
-            if (
-              chainOptions.dexDisabledFromHeight != null &&
-              snapshotBaseChainHeight >= chainOptions.dexDisabledFromHeight &&
-              snapshotBaseChainHeight - this.options.orderBookSnapshotFinality < chainOptions.dexDisabledFromHeight
-            ) {
-              try {
-                await this.refundOrderBook(
-                  this.lastSnapshot,
-                  latestBlockTimestamp,
-                  chainHeight,
-                  chainOptions.dexMovedToAddress
-                );
-              } catch (error) {
-                this.logger.error(`Failed to refund the order book according to config because of error: ${error.message}`);
-              }
-            }
-            try {
-              await this.saveSnapshot(this.lastSnapshot);
-            } catch (error) {
-              this.logger.error(`Failed to save snapshot because of error: ${error.message}`);
-            }
-          }
-          this.lastSnapshot = {
-            orderBook: currentOrderBook,
-            chainHeights: {...latestChainHeights}
-          };
-        }
-      }
     }
 
     (async () => {
