@@ -528,26 +528,18 @@ module.exports = class LiskDEXModule extends BaseModule {
         let storage = createStorageComponent(storageConfig, this.logger);
         await storage.bootstrap();
         this._storageComponents[chainSymbol] = storage;
+      })
+    );
 
-        // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
-        let multisigMemberRows = await storage.adapter.db.query(
-          'select mem_accounts2multisignatures."dependentId" from mem_accounts2multisignatures where mem_accounts2multisignatures."accountId" = $1',
-          [chainOptions.walletAddress],
-        );
-
-        multisigMemberRows.forEach((row) => {
-          this.multisigWalletInfo[chainSymbol].members[row.dependentId] = true;
+    await Promise.all(
+      this.chainSymbols.map(async (chainSymbol) => {
+        let chainOptions = this.options.chains[chainSymbol];
+        let multisigMembers = await this._getMultisigWalletMembers(chainSymbol, chainOptions.walletAddress);
+        multisigMembers.forEach((member) => {
+          this.multisigWalletInfo[chainSymbol].members[member.dependentId] = true;
         });
-        this.multisigWalletInfo[chainSymbol].memberCount = multisigMemberRows.length;
-
-        let multisigMemberMinSigRows = await storage.adapter.db.query(
-          'select multimin from mem_accounts where address = $1',
-          [chainOptions.walletAddress],
-        );
-
-        multisigMemberMinSigRows.forEach((row) => {
-          this.multisigWalletInfo[chainSymbol].requiredSignatureCount = Number(row.multimin);
-        });
+        this.multisigWalletInfo[chainSymbol].memberCount = multisigMembers.length;
+        this.multisigWalletInfo[chainSymbol].requiredSignatureCount = await this._getMinMultisigRequiredSignatures(chainSymbol, chainOptions.walletAddress);
       })
     );
 
@@ -563,7 +555,6 @@ module.exports = class LiskDEXModule extends BaseModule {
     let dividendProcessingStream = new WritableConsumableStream();
 
     let processBlock = async ({chainSymbol, chainHeight, latestChainHeights, isLastBlock, blockData}) => {
-      let storage = this._storageComponents[chainSymbol];
       let chainOptions = this.options.chains[chainSymbol];
 
       let minOrderAmount = chainOptions.minOrderAmount;
@@ -623,8 +614,8 @@ module.exports = class LiskDEXModule extends BaseModule {
       }
 
       let blockTransactions = await Promise.all([
-        this._getInboundTransactions(storage, blockData.id, chainOptions.walletAddress),
-        this._getOutboundTransactions(storage, blockData.id, chainOptions.walletAddress)
+        this._getInboundTransactions(chainSymbol, blockData.id, chainOptions.walletAddress),
+        this._getOutboundTransactions(chainSymbol, blockData.id, chainOptions.walletAddress)
       ]);
 
       let [inboundTxns, outboundTxns] = blockTransactions;
@@ -955,7 +946,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           refundTimestamp = latestBlockTimestamp;
         } else {
           try {
-            let expiryBlock = await this._getBlockAtHeight(storage, expiredOrder.expiryHeight);
+            let expiryBlock = await this._getBlockAtHeight(chainSymbol, expiredOrder.expiryHeight);
             if (!expiryBlock) {
               throw new Error(
                 `No block found at height ${expiredOrder.expiryHeight}`
@@ -1201,17 +1192,16 @@ module.exports = class LiskDEXModule extends BaseModule {
           }
 
           let contributionData = {};
-          let chainStorage = this._storageComponents[chainSymbol];
-          let latestBlock = await this._getBlockAtHeight(chainStorage, fromHeight);
+          let latestBlock = await this._getBlockAtHeight(chainSymbol, fromHeight);
 
           while (true) {
             if (!latestBlock) {
               break;
             }
-            let timestampedBlockList = await this._getBlocks(chainStorage, latestBlock.timestamp, readMaxBlocks);
+            let timestampedBlockList = await this._getBlocksAfterTimestamp(chainSymbol, latestBlock.timestamp, readMaxBlocks);
             let blocksToProcess = timestampedBlockList.filter((block) => block.height <= toHeight);
             for (let block of blocksToProcess) {
-              let outboundTxns = await this._getOutboundTransactions(chainStorage, block.id, chainOptions.walletAddress);
+              let outboundTxns = await this._getOutboundTransactions(chainSymbol, block.id, chainOptions.walletAddress);
               outboundTxns.forEach((txn) => {
                 let contributionList = this._calculateContributions(chainSymbol, txn, chainOptions.exchangeFeeRate, chainOptions.exchangeFeeBase);
                 contributionList.forEach((contribution) => {
@@ -1271,25 +1261,26 @@ module.exports = class LiskDEXModule extends BaseModule {
 
       let [baseChainLastProcessedHeight, quoteChainLastProcessedHeight] = await Promise.all(
         orderedChainSymbols.map(async (chainSymbol) => {
-          let storage = this._storageComponents[chainSymbol];
-          let lastProcessedBlock = await this._getBlockAtTimestamp(storage, lastProcessedTimestamp);
+          let lastProcessedBlock = await this._getBlockAtTimestamp(chainSymbol, lastProcessedTimestamp);
           return lastProcessedBlock.height;
         })
       );
 
-      let latestChainHeights = {
+      let latestProcessedChainHeights = {
         [this.baseChainSymbol]: baseChainLastProcessedHeight,
         [this.quoteChainSymbol]: quoteChainLastProcessedHeight
       };
 
       let [baseChainBlocks, quoteChainBlocks] = await Promise.all(
         orderedChainSymbols.map(async (chainSymbol) => {
-          let storage = this._storageComponents[chainSymbol];
           let chainOptions = this.options.chains[chainSymbol];
-          let timestampedBlockList = await this._getLatestSafeBlocks(
-            storage,
-            latestChainHeights[chainSymbol],
-            chainOptions.requiredConfirmations,
+          let maxBlockHeight = await this._getMaxBlockHeight(chainSymbol);
+          let maxSafeBlockHeight = maxBlockHeight - chainOptions.requiredConfirmations;
+
+          let timestampedBlockList = await this._getBlocksBetweenHeights(
+            chainSymbol,
+            latestProcessedChainHeights[chainSymbol],
+            maxSafeBlockHeight,
             chainOptions.readMaxBlocks
           );
           return timestampedBlockList.map((block) => ({
@@ -1336,12 +1327,12 @@ module.exports = class LiskDEXModule extends BaseModule {
         if (isInForkRecovery) {
           break;
         }
-        latestChainHeights[block.chainSymbol] = block.height;
+        latestProcessedChainHeights[block.chainSymbol] = block.height;
         try {
           await processBlock({
             chainSymbol: block.chainSymbol,
             chainHeight: block.height,
-            latestChainHeights: {...latestChainHeights},
+            latestChainHeights: {...latestProcessedChainHeights},
             isLastBlock: block.isLastBlock,
             blockData: {...block}
           });
@@ -1502,8 +1493,33 @@ module.exports = class LiskDEXModule extends BaseModule {
     return 0;
   }
 
-  async _getInboundTransactions(storage, blockId, walletAddress) {
+  async _getMultisigWalletMembers(chainSymbol, walletAddress) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let storage = this._storageComponents[chainSymbol];
+    return storage.adapter.db.query(
+      'select mem_accounts2multisignatures."dependentId" from mem_accounts2multisignatures where mem_accounts2multisignatures."accountId" = $1',
+      [walletAddress],
+    );
+  }
+
+  async _getMinMultisigRequiredSignatures(chainSymbol, walletAddress) {
+    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let storage = this._storageComponents[chainSymbol];
+    let multisigMemberMinSigRows = await storage.adapter.db.query(
+      'select multimin from mem_accounts where address = $1 limit 1',
+      [walletAddress],
+    );
+    if (multisigMemberMinSigRows.length <= 0) {
+      throw new Error(
+        `Could not find min signature requirement for multisig wallet address ${walletAddress} on chain ${chainSymbol}`
+      );
+    }
+    return Number(multisigMemberMinSigRows[0].multimin);
+  }
+
+  async _getInboundTransactions(chainSymbol, blockId, walletAddress) {
+    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let storage = this._storageComponents[chainSymbol];
     let txns = await storage.adapter.db.query(
       'select trs.id, trs.type, trs."senderId", trs."senderPublicKey", trs.timestamp, trs."recipientId", trs.amount, trs."transferData", trs.signatures from trs where trs."blockId" = $1 and trs."recipientId" = $2',
       [blockId, walletAddress]
@@ -1515,8 +1531,9 @@ module.exports = class LiskDEXModule extends BaseModule {
     })).sort((a, b) => this._transactionComparator(a, b));
   }
 
-  async _getOutboundTransactions(storage, blockId, walletAddress) {
+  async _getOutboundTransactions(chainSymbol, blockId, walletAddress) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let storage = this._storageComponents[chainSymbol];
     let txns = await storage.adapter.db.query(
       'select trs.id, trs.type, trs."senderId", trs."senderPublicKey", trs."timestamp", trs."recipientId", trs."amount", trs."transferData", trs.signatures from trs where trs."blockId" = $1 and trs."senderId" = $2',
       [blockId, walletAddress]
@@ -1528,16 +1545,18 @@ module.exports = class LiskDEXModule extends BaseModule {
     })).sort((a, b) => this._transactionComparator(a, b));
   }
 
-  async _getBlocks(storage, fromTimestamp, limit) {
+  async _getBlocksAfterTimestamp(chainSymbol, fromTimestamp, limit) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let storage = this._storageComponents[chainSymbol];
     return storage.adapter.db.query(
       'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where blocks.timestamp > $1 order by blocks.timestamp asc limit $2',
       [fromTimestamp, limit]
     );
   }
 
-  async _getBlockAtTimestamp(storage, timestamp) {
+  async _getBlockAtTimestamp(chainSymbol, timestamp) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let storage = this._storageComponents[chainSymbol];
     return (
       await storage.adapter.db.query(
         'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where blocks.timestamp <= $1 order by blocks.timestamp desc limit 1',
@@ -1546,16 +1565,30 @@ module.exports = class LiskDEXModule extends BaseModule {
     )[0];
   }
 
-  async _getLatestSafeBlocks(storage, fromHeight, safeHeightOffset, limit) {
+  async _getMaxBlockHeight(chainSymbol) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let storage = this._storageComponents[chainSymbol];
+    let maxHeightRows = await storage.adapter.db.query('select max(height) as height from blocks');
+    if (maxHeightRows.length <= 0) {
+      throw new Error(
+        `Could not find max block height for chain ${chainSymbol}`
+      );
+    }
+    return Number(maxHeightRows[0].height);
+  }
+
+  async _getBlocksBetweenHeights(chainSymbol, fromHeight, toHeight, limit) {
+    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let storage = this._storageComponents[chainSymbol];
     return storage.adapter.db.query(
-      'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where height > $1 and height <= (select max(height) from blocks) - $2 order by blocks.timestamp asc limit $3',
-      [fromHeight, safeHeightOffset, limit]
+      'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where height > $1 and height <= $2 order by blocks.timestamp asc limit $3',
+      [fromHeight, toHeight, limit]
     );
   }
 
-  async _getBlockAtHeight(storage, targetHeight) {
+  async _getBlockAtHeight(chainSymbol, targetHeight) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let storage = this._storageComponents[chainSymbol];
     return (
       await storage.adapter.db.query(
         'select blocks.id, blocks."numberOfTransactions", blocks.timestamp from blocks where height = $1 limit 1',
@@ -1565,8 +1598,7 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   async _getBaseChainBlockTimestamp(height) {
-    let baseChainStorage = this._storageComponents[this.baseChainSymbol];
-    let firstBaseChainBlock = await this._getBlockAtHeight(baseChainStorage, height);
+    let firstBaseChainBlock = await this._getBlockAtHeight(this.baseChainSymbol, height);
     return firstBaseChainBlock.timestamp;
   };
 
