@@ -426,25 +426,26 @@ module.exports = class LiskDEXModule extends BaseModule {
   async _postTransactionToChain(targetChain, transaction) {
     let chainOptions = this.options.chains[targetChain];
     if (chainOptions && chainOptions.moduleAlias) {
-      let postTxnResult;
+      let modulePrefix;
+      if (chainOptions.moduleAlias === 'chain') {
+        modulePrefix = '';
+      } else {
+        modulePrefix = `${chainOptions.moduleAlias}:`;
+      }
       try {
-        postTxnResult = await this.channel.invoke(
-          `${chainOptions.moduleAlias}:postTransaction`,
-          {transaction}
+        await this.channel.invoke(
+          `network:emit`,
+          {
+            event: `${modulePrefix}postTransactions`,
+            data: {
+              transactions: [transaction],
+              nonce: `DEXO2wTkjqplHw2l`
+            }
+          }
         );
       } catch (error) {
         this.logger.error(
-          `Error encountered while attempting to invoke ${chainOptions.moduleAlias}:postTransaction action - ${error.message}`
-        );
-        return;
-      }
-      if (!postTxnResult.success) {
-        let message = postTxnResult.message;
-        if (postTxnResult.errors && postTxnResult.errors.length) {
-          message += ` (${postTxnResult.errors.map(err => err.message).join(', ')})`;
-        }
-        this.logger.error(
-          `Failed to process ${chainOptions.moduleAlias}:postTransaction action - ${message}`
+          `Error encountered while attempting to post transaction ${transaction.id} to the ${targetChain} network - ${error.message}`
         );
       }
     }
