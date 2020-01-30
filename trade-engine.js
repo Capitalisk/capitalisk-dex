@@ -1,6 +1,8 @@
 const ProperOrderBook = require('proper-order-book');
 const crypto = require('crypto');
 
+const EMPTY_ORDER_BOOK_HASH = '00000000000000000000000000000000';
+
 class TradeEngine {
   constructor(options) {
     this.baseCurrency = options.baseCurrency;
@@ -14,7 +16,7 @@ class TradeEngine {
     this._bidMap = new Map();
     this._orderMap = new Map();
 
-    this.orderBookHash = '00000000000000000000000000000000';
+    this.orderBookHash = EMPTY_ORDER_BOOK_HASH;
 
     this._resetProcessedHeightsInfo();
   }
@@ -219,6 +221,7 @@ class TradeEngine {
     let bidLimitOrders = this.getBids().map(order => ({...order}));
 
     return {
+      orderBookHash: this.orderBookHash,
       askLimitOrders,
       bidLimitOrders
     };
@@ -231,6 +234,7 @@ class TradeEngine {
 
   setSnapshot(snapshot) {
     this.clear();
+    this.orderBookHash = snapshot.orderBookHash;
     snapshot.askLimitOrders.sort((a, b) => {
       if (a.height > b.height) {
         return 1;
@@ -264,6 +268,7 @@ class TradeEngine {
   }
 
   clear() {
+    this.orderBookHash = EMPTY_ORDER_BOOK_HASH;
     this._resetProcessedHeightsInfo();
     this._askMap.clear();
     this._bidMap.clear();
