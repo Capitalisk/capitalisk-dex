@@ -1307,23 +1307,24 @@ module.exports = class LiskDEXModule extends BaseModule {
         })
       );
 
-      let baseChainLastBlock = baseChainBlocks[baseChainBlocks.length - 1];
-      let quoteChainLastBlock = quoteChainBlocks[quoteChainBlocks.length - 1];
-
-      if (!baseChainLastBlock || !quoteChainLastBlock) {
+      if (baseChainBlocks.length <= 0 || quoteChainBlocks.length <= 0) {
         return 0;
       }
 
-      let orderedBlockList = [];
+      let lastBaseChainBlock = baseChainBlocks[baseChainBlocks.length - 1];
+      let lastQuoteChainBlock = quoteChainBlocks[quoteChainBlocks.length - 1];
 
-      let safeQuoteChainBlocks = quoteChainBlocks.filter((block) => block.timestamp <= baseChainLastBlock.timestamp);
-      let lastSafeBlock = safeQuoteChainBlocks[safeQuoteChainBlocks.length - 1];
-      if (!lastSafeBlock) {
+      let minTimestamp = Math.min(lastBaseChainBlock.timestamp, lastQuoteChainBlock.timestamp);
+      while (baseChainBlocks.length > 0 && baseChainBlocks[baseChainBlocks.length - 1].timestamp > minTimestamp) {
+        baseChainBlocks.pop();
+      }
+      while (quoteChainBlocks.length > 0 && quoteChainBlocks[quoteChainBlocks.length - 1].timestamp > minTimestamp) {
+        quoteChainBlocks.pop();
+      }
+      if (baseChainBlocks.length <= 0 || quoteChainBlocks.length <= 0) {
         return 0;
       }
-      lastSafeBlock.isLastBlock = true;
-      baseChainLastBlock.isLastBlock = true;
-      orderedBlockList = baseChainBlocks.concat(safeQuoteChainBlocks);
+      let orderedBlockList = baseChainBlocks.concat(quoteChainBlocks);
 
       orderedBlockList.sort((a, b) => {
         let timestampA = a.timestamp;
@@ -1363,8 +1364,6 @@ module.exports = class LiskDEXModule extends BaseModule {
           return orderedBlockList.length;
         }
       }
-      let lastBlock = orderedBlockList[orderedBlockList.length - 1];
-      lastProcessedTimestamp = lastBlock.timestamp;
 
       return orderedBlockList.length;
     };
