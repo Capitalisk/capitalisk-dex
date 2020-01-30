@@ -234,7 +234,6 @@ class TradeEngine {
 
   setSnapshot(snapshot) {
     this.clear();
-    this.orderBookHash = snapshot.orderBookHash || EMPTY_ORDER_BOOK_HASH;
     snapshot.askLimitOrders.sort((a, b) => {
       if (a.height > b.height) {
         return 1;
@@ -265,6 +264,9 @@ class TradeEngine {
       this._orderMap.set(newOrder.id, newOrder);
       this.addToOrderBook(newOrder);
     });
+    if (snapshot.orderBookHash) {
+      this.orderBookHash = snapshot.orderBookHash
+    }
   }
 
   clear() {
