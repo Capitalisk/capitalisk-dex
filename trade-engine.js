@@ -1,4 +1,5 @@
 const ProperOrderBook = require('proper-order-book');
+const crypto = require('crypto');
 
 class TradeEngine {
   constructor(options) {
@@ -13,7 +14,13 @@ class TradeEngine {
     this._bidMap = new Map();
     this._orderMap = new Map();
 
+    this.orderBookHash = '00000000000000000000000000000000';
+
     this._resetProcessedHeightsInfo();
+  }
+
+  _md5(string) {
+    return crypto.createHash('md5').update(string).digest('hex');
   }
 
   _resetProcessedHeightsInfo() {
@@ -122,7 +129,7 @@ class TradeEngine {
     newOrder.expiryHeight = order.height + orderHeightExpiry;
     newOrder.timestamp = order.timestamp;
 
-    let result = this.orderBook.add(newOrder);
+    let result = this.addToOrderBook(newOrder);
 
     result.makers.forEach((makerOrder) => {
       if (makerOrder.side === 'ask') {
@@ -217,6 +224,11 @@ class TradeEngine {
     };
   }
 
+  addToOrderBook(order) {
+    this.orderBookHash = this._md5(this.orderBookHash + order.id);
+    return this.orderBook.add(order);
+  }
+
   setSnapshot(snapshot) {
     this.clear();
     snapshot.askLimitOrders.sort((a, b) => {
@@ -241,13 +253,13 @@ class TradeEngine {
       let newOrder = {...order};
       this._askMap.set(newOrder.id, newOrder);
       this._orderMap.set(newOrder.id, newOrder);
-      this.orderBook.add(newOrder);
+      this.addToOrderBook(newOrder);
     });
     snapshot.bidLimitOrders.forEach((order) => {
       let newOrder = {...order};
       this._bidMap.set(newOrder.id, newOrder);
       this._orderMap.set(newOrder.id, newOrder);
-      this.orderBook.add(newOrder);
+      this.addToOrderBook(newOrder);
     });
   }
 

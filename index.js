@@ -17,6 +17,7 @@ const readFile = util.promisify(fs.readFile);
 const readdir = util.promisify(fs.readdir);
 const unlink = util.promisify(fs.unlink);
 const mkdir = util.promisify(fs.mkdir);
+const packageJSON = require('./package.json');
 
 const WritableConsumableStream = require('writable-consumable-stream');
 
@@ -67,6 +68,10 @@ module.exports = class LiskDEXModule extends BaseModule {
       baseOrderHeightExpiry: baseChainOptions.orderHeightExpiry,
       quoteOrderHeightExpiry: quoteChainOptions.orderHeightExpiry
     });
+    this.processedHeights = {
+      [this.baseChainSymbol]: 0,
+      [this.quoteChainSymbol]: 0
+    };
 
     this.chainSymbols.forEach((chainSymbol) => {
       let chainOptions = this.options.chains[chainSymbol];
@@ -162,7 +167,7 @@ module.exports = class LiskDEXModule extends BaseModule {
   static get info() {
     return {
       author: 'Jonathan Gros-Dubois',
-      version: '1.0.0',
+      version: packageJSON.version,
       name: MODULE_ALIAS,
     };
   }
@@ -298,6 +303,15 @@ module.exports = class LiskDEXModule extends BaseModule {
 
   get actions() {
     return {
+      getStatus: {
+        handler: () => {
+          return {
+            version: LiskDEXModule.info.version,
+            orderBookHash: this.tradeEngine.orderBookHash,
+            processedHeights: this.processedHeights
+          };
+        }
+      },
       getMarket: {
         handler: () => {
           return {
@@ -1178,6 +1192,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           }
         });
       });
+      this.processedHeights = {...latestChainHeights};
     }
 
     (async () => {
@@ -1470,7 +1485,7 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   _md5(string) {
-    return crypto.createHash('md5').update(string).digest("hex");
+    return crypto.createHash('md5').update(string).digest('hex');
   }
 
   _transactionComparator(a, b) {
