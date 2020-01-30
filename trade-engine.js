@@ -45,6 +45,7 @@ class TradeEngine {
         break;
       }
       expiredOrders.push(order);
+      this._removeFromOrderBook(orderId);
       this._bidMap.delete(orderId);
       this._orderMap.delete(orderId);
     }
@@ -58,6 +59,7 @@ class TradeEngine {
         break;
       }
       expiredOrders.push(order);
+      this._removeFromOrderBook(orderId);
       this._askMap.delete(orderId);
       this._orderMap.delete(orderId);
     }
@@ -131,7 +133,7 @@ class TradeEngine {
     newOrder.expiryHeight = order.height + orderHeightExpiry;
     newOrder.timestamp = order.timestamp;
 
-    let result = this.addToOrderBook(newOrder);
+    let result = this._addToOrderBook(newOrder);
 
     result.makers.forEach((makerOrder) => {
       if (makerOrder.side === 'ask') {
@@ -174,7 +176,7 @@ class TradeEngine {
       );
     }
 
-    let result = this.orderBook.remove(orderId);
+    let result = this._removeFromOrderBook(orderId);
     if (order.side === 'ask') {
       this._askMap.delete(orderId);
     } else {
@@ -227,9 +229,14 @@ class TradeEngine {
     };
   }
 
-  addToOrderBook(order) {
-    this.orderBookHash = this._md5(this.orderBookHash + order.id);
+  _addToOrderBook(order) {
+    this.orderBookHash = this._md5(`${this.orderBookHash}+${order.id}`);
     return this.orderBook.add(order);
+  }
+
+  _removeFromOrderBook(orderId) {
+    this.orderBookHash = this._md5(`${this.orderBookHash}-${orderId}`);
+    return this.orderBook.remove(orderId);
   }
 
   setSnapshot(snapshot) {
@@ -254,15 +261,15 @@ class TradeEngine {
     });
     snapshot.askLimitOrders.forEach((order) => {
       let newOrder = {...order};
+      this._addToOrderBook(newOrder);
       this._askMap.set(newOrder.id, newOrder);
       this._orderMap.set(newOrder.id, newOrder);
-      this.addToOrderBook(newOrder);
     });
     snapshot.bidLimitOrders.forEach((order) => {
       let newOrder = {...order};
+      this._addToOrderBook(newOrder);
       this._bidMap.set(newOrder.id, newOrder);
       this._orderMap.set(newOrder.id, newOrder);
-      this.addToOrderBook(newOrder);
     });
     if (snapshot.orderBookHash) {
       this.orderBookHash = snapshot.orderBookHash
