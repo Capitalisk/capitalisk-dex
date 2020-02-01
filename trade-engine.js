@@ -242,19 +242,19 @@ class TradeEngine {
   setSnapshot(snapshot) {
     this.clear();
     snapshot.askLimitOrders.sort((a, b) => {
-      if (a.height > b.height) {
+      if (a.expiryHeight > b.expiryHeight) {
         return 1;
       }
-      if (a.height < b.height) {
+      if (a.expiryHeight < b.expiryHeight) {
         return -1;
       }
       return 0;
     });
     snapshot.bidLimitOrders.sort((a, b) => {
-      if (a.height > b.height) {
+      if (a.expiryHeight > b.expiryHeight) {
         return 1;
       }
-      if (a.height < b.height) {
+      if (a.expiryHeight < b.expiryHeight) {
         return -1;
       }
       return 0;
