@@ -1,6 +1,6 @@
 module.exports = {
   passiveMode: false,
-  signatureBroadcastDelay: 15000,
+  signatureBroadcastDelay: 11000,
   transactionSubmitDelay: 5000,
   multisigExpiry: 86400000,
   multisigExpiryCheckInterval: 60000,
@@ -13,6 +13,9 @@ module.exports = {
   apiMaxPageLimit: 100,
   apiMaxFilterFields: 10,
   readBlocksInterval: 3000,
+  // Can be used to disable the DEX starting at a specific baseChain height.
+  dexDisabledFromHeight: null,
+  dexDisabledRefundHeightOffset: 303,
   logger: {
     fileLogLevel: 'debug',
     consoleLogLevel: 'debug'
@@ -37,8 +40,6 @@ module.exports = {
       dividendHeightInterval: 60480,
       dividendHeightOffset: 303,
       dividendRate: .9,
-      // Can be used to disable the DEX starting at a specific height.
-      dexDisabledFromHeight: null,
       // Can be used to specify the new address if the DEX has moved to a different wallet.
       dexMovedToAddress: null
     },
@@ -61,8 +62,6 @@ module.exports = {
       dividendHeightInterval: 60480,
       dividendHeightOffset: 303,
       dividendRate: .9,
-      // Can be used to disable the DEX starting at a specific height.
-      dexDisabledFromHeight: null,
       // Can be used to specify the new address if the DEX has moved to a different wallet.
       dexMovedToAddress: null
     }

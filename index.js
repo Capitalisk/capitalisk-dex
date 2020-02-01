@@ -570,8 +570,13 @@ module.exports = class LiskDEXModule extends BaseModule {
 
     let processBlock = async ({chainSymbol, chainHeight, latestChainHeights, isLastBlock, blockData}) => {
       let chainOptions = this.options.chains[chainSymbol];
-
       let minOrderAmount = chainOptions.minOrderAmount;
+
+      this.logger.trace(
+        `Chain ${chainSymbol}: Processing block at height ${chainHeight}`
+      );
+
+      let latestBlockTimestamp = blockData.timestamp;
 
       // If we are on the latest height (or latest height in a batch), rebroadcast our
       // node's signature for each pending multisig transaction in case other DEX nodes
@@ -604,24 +609,6 @@ module.exports = class LiskDEXModule extends BaseModule {
         if (chainHeight % this.options.orderBookSnapshotFinality === 0) {
           let currentOrderBook = this.tradeEngine.getSnapshot();
           if (this.lastSnapshot) {
-            let snapshotBaseChainHeight = this.lastSnapshot.chainHeights[this.baseChainSymbol];
-            // Only refund if dexDisabledFromHeight is within the snapshot height range.
-            if (
-              chainOptions.dexDisabledFromHeight != null &&
-              snapshotBaseChainHeight >= chainOptions.dexDisabledFromHeight &&
-              snapshotBaseChainHeight - this.options.orderBookSnapshotFinality < chainOptions.dexDisabledFromHeight
-            ) {
-              try {
-                await this.refundOrderBook(
-                  this.lastSnapshot,
-                  latestBlockTimestamp,
-                  chainHeight,
-                  chainOptions.dexMovedToAddress
-                );
-              } catch (error) {
-                this.logger.error(`Failed to refund the order book according to config because of error: ${error.message}`);
-              }
-            }
             try {
               await this.saveSnapshot(this.lastSnapshot);
             } catch (error) {
@@ -635,13 +622,32 @@ module.exports = class LiskDEXModule extends BaseModule {
             chainHeights: processedChainHeights
           };
         }
+        if (
+          !this.passiveMode &&
+          this.options.dexDisabledFromHeight != null &&
+          chainHeight % this.options.dexDisabledFromHeight === 0
+        ) {
+          let currentOrderBook = this.tradeEngine.getSnapshot();
+          this.tradeEngine.clear();
+          try {
+            await this.refundOrderBook(
+              {
+                orderBook: currentOrderBook,
+                chainHeights: {...latestChainHeights}
+              },
+              latestBlockTimestamp,
+              {
+                [this.baseChainSymbol]: this.options.chains[this.baseChainSymbol].dexMovedToAddress,
+                [this.quoteChainSymbol]: this.options.chains[this.quoteChainSymbol].dexMovedToAddress
+              }
+            );
+          } catch (error) {
+            this.logger.error(
+              `Failed to refund the order book according to config because of error: ${error.message}`
+            );
+          }
+        }
       }
-
-      this.logger.trace(
-        `Chain ${chainSymbol}: Processing block at height ${chainHeight}`
-      );
-
-      let latestBlockTimestamp = blockData.timestamp;
 
       if (!blockData.numberOfTransactions) {
         this.logger.trace(
@@ -693,8 +699,8 @@ module.exports = class LiskDEXModule extends BaseModule {
         orderTxn.sourceChainAmount = amount;
 
         if (
-          chainOptions.dexDisabledFromHeight != null &&
-          chainHeight >= chainOptions.dexDisabledFromHeight
+          this.options.dexDisabledFromHeight != null &&
+          chainHeight >= this.options.dexDisabledFromHeight
         ) {
           if (chainOptions.dexMovedToAddress) {
             orderTxn.type = 'moved';
@@ -1209,14 +1215,13 @@ module.exports = class LiskDEXModule extends BaseModule {
           }
 
           let contributionData = {};
-          let latestBlock = await this._getBlockAtHeight(chainSymbol, fromHeight);
+          let currentBlock = await this._getBlockAtHeight(chainSymbol, fromHeight);
 
           while (true) {
-            if (!latestBlock) {
+            if (!currentBlock) {
               break;
             }
-            let timestampedBlockList = await this._getBlocksAfterTimestamp(chainSymbol, latestBlock.timestamp, readMaxBlocks);
-            let blocksToProcess = timestampedBlockList.filter((block) => block.height <= toHeight);
+            let blocksToProcess = await this._getBlocksBetweenHeights(chainSymbol, currentBlock.height, toHeight, readMaxBlocks);
             for (let block of blocksToProcess) {
               let outboundTxns = await this._getOutboundTransactions(chainSymbol, block.id, chainOptions.walletAddress);
               outboundTxns.forEach((txn) => {
@@ -1229,30 +1234,32 @@ module.exports = class LiskDEXModule extends BaseModule {
                 });
               });
             }
-            latestBlock = blocksToProcess[blocksToProcess.length - 1];
+            currentBlock = blocksToProcess[blocksToProcess.length - 1];
           }
           let {memberCount} = this.multisigWalletInfo[chainSymbol];
           let dividendList = this.dividendFunction(chainSymbol, contributionData, this.options.chains[chainSymbol], memberCount);
-          for (let dividend of dividendList) {
-            let txnAmount = dividend.amount - chainOptions.exchangeFeeBase;
-            let dividendTxn = {
-              amount: txnAmount.toString(),
-              recipientId: dividend.walletAddress,
-              height: chainHeight,
-              timestamp: latestBlockTimestamp
-            };
-            try {
-              await this.execMultisigTransaction(
-                chainSymbol,
-                dividendTxn,
-                `d1,${fromHeight + 1},${toHeight}: Member dividend`
-              );
-            } catch (error) {
-              this.logger.error(
-                `Chain ${chainSymbol}: Failed to post multisig dividend transaction to member address ${dividend.walletAddress} because of error: ${error.message}`
-              );
-            }
-          }
+          await Promise.all(
+            dividendList.map(async (dividend) => {
+              let txnAmount = dividend.amount - chainOptions.exchangeFeeBase;
+              let dividendTxn = {
+                amount: txnAmount.toString(),
+                recipientId: dividend.walletAddress,
+                height: chainHeight,
+                timestamp: latestBlockTimestamp
+              };
+              try {
+                await this.execMultisigTransaction(
+                  chainSymbol,
+                  dividendTxn,
+                  `d1,${fromHeight + 1},${toHeight}: Member dividend`
+                );
+              } catch (error) {
+                this.logger.error(
+                  `Chain ${chainSymbol}: Failed to post multisig dividend transaction to member address ${dividend.walletAddress} because of error: ${error.message}`
+                );
+              }
+            })
+          );
         }
       }
     })();
@@ -1291,12 +1298,23 @@ module.exports = class LiskDEXModule extends BaseModule {
       let [baseChainBlocks, quoteChainBlocks] = await Promise.all(
         orderedChainSymbols.map(async (chainSymbol) => {
           let chainOptions = this.options.chains[chainSymbol];
+          let lastProcessedheight = latestProcessedChainHeights[chainSymbol];
           let maxBlockHeight = await this._getMaxBlockHeight(chainSymbol);
-          let maxSafeBlockHeight = maxBlockHeight - chainOptions.requiredConfirmations;
+          let maxSafeBlockHeight;
+
+          if (
+            chainSymbol === this.baseChainSymbol &&
+            maxBlockHeight >= this.options.dexDisabledFromHeight &&
+            maxBlockHeight < this.options.dexDisabledFromHeight + this.options.dexDisabledRefundHeightOffset
+          ) {
+            maxSafeBlockHeight = this.options.dexDisabledFromHeight - 1;
+          } else {
+            maxSafeBlockHeight = maxBlockHeight - chainOptions.requiredConfirmations;
+          }
 
           let timestampedBlockList = await this._getBlocksBetweenHeights(
             chainSymbol,
-            latestProcessedChainHeights[chainSymbol],
+            lastProcessedheight,
             maxSafeBlockHeight,
             chainOptions.readMaxBlocks
           );
@@ -1561,15 +1579,6 @@ module.exports = class LiskDEXModule extends BaseModule {
     })).sort((a, b) => this._transactionComparator(a, b));
   }
 
-  async _getBlocksAfterTimestamp(chainSymbol, fromTimestamp, limit) {
-    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
-    let storage = this._storageComponents[chainSymbol];
-    return storage.adapter.db.query(
-      'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where blocks.timestamp > $1 order by blocks.timestamp asc limit $2',
-      [fromTimestamp, limit]
-    );
-  }
-
   async _getBlockAtTimestamp(chainSymbol, timestamp) {
     // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
     let storage = this._storageComponents[chainSymbol];
@@ -1607,7 +1616,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     let storage = this._storageComponents[chainSymbol];
     return (
       await storage.adapter.db.query(
-        'select blocks.id, blocks."numberOfTransactions", blocks.timestamp from blocks where height = $1 limit 1',
+        'select blocks.id, blocks."numberOfTransactions", blocks.timestamp, blocks.height from blocks where height = $1 limit 1',
         [targetHeight]
       )
     )[0];
@@ -1618,32 +1627,30 @@ module.exports = class LiskDEXModule extends BaseModule {
     return firstBaseChainBlock.timestamp;
   };
 
-  async refundOrderBook(snapshot, timestamp, refundHeight, movedToAddress) {
-    let allOrders = snapshot.bidLimitOrders.concat(snapshot.askLimitOrders);
-    if (movedToAddress) {
-      await Promise.all(
-        allOrders.map(async (order) => {
+  async refundOrderBook(snapshot, timestamp, movedToAddresses) {
+    let allOrders = snapshot.orderBook.bidLimitOrders.concat(snapshot.orderBook.askLimitOrders);
+    await Promise.all(
+      allOrders.map(async (order) => {
+        let movedToAddress = movedToAddresses[order.sourceChain];
+        if (movedToAddress) {
           await this.refundOrder(
             order,
             timestamp,
-            refundHeight,
+            snapshot.chainHeights[order.sourceChain],
             `r5,${order.id},${movedToAddress}: DEX has moved`
           );
-        })
-      );
-    } else {
-      await Promise.all(
-        allOrders.map(async (order) => {
-          await this.refundOrder(
-            order,
-            timestamp,
-            refundHeight,
-            `r6,${order.id}: DEX has been disabled`
-          );
-        })
-      );
-    }
-    this.tradeEngine.clear();
+        } else {
+          allOrders.map(async (order) => {
+            await this.refundOrder(
+              order,
+              timestamp,
+              snapshot.chainHeights[order.sourceChain],
+              `r6,${order.id}: DEX has been disabled`
+            );
+          })
+        }
+      })
+    );
   }
 
   async refundOrder(order, timestamp, refundHeight, reason) {
@@ -1743,19 +1750,17 @@ module.exports = class LiskDEXModule extends BaseModule {
       timestamp: Date.now()
     });
 
-    (async () => {
-      // Add delay before broadcasting to give time for other nodes to independently add the transaction to their pendingTransfers lists.
-      let sigBroadcastDelay = this.options.signatureBroadcastDelay == null ?
-        DEFAULT_SIGNATURE_BROADCAST_DELAY : this.options.signatureBroadcastDelay;
-      await wait(sigBroadcastDelay);
-      try {
-        await this._broadcastSignatureToSubnet(preparedTxn.id, multisigTxnSignature, publicKey);
-      } catch (error) {
-        this.logger.error(
-          `Failed to broadcast signature to DEX peers for multisig transaction ${preparedTxn.id}`
-        );
-      }
-    })();
+    // Add delay before broadcasting to give time for other nodes to independently add the transaction to their pendingTransfers lists.
+    let sigBroadcastDelay = this.options.signatureBroadcastDelay == null ?
+      DEFAULT_SIGNATURE_BROADCAST_DELAY : this.options.signatureBroadcastDelay;
+    await wait(sigBroadcastDelay);
+    try {
+      await this._broadcastSignatureToSubnet(preparedTxn.id, multisigTxnSignature, publicKey);
+    } catch (error) {
+      this.logger.error(
+        `Failed to broadcast signature to DEX peers for multisig transaction ${preparedTxn.id}`
+      );
+    }
   }
 
   async loadSnapshot() {
