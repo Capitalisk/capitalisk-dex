@@ -40,6 +40,8 @@ module.exports = {
       dividendHeightInterval: 60480,
       dividendHeightOffset: 303,
       dividendRate: .9,
+      // Can be null if blockchain address system is not compatible with Lisk's.
+      walletAddressSystem: 'lisk/v1',
       // Can be used to specify the new address if the DEX has moved to a different wallet.
       dexMovedToAddress: null
     },
@@ -62,6 +64,8 @@ module.exports = {
       dividendHeightInterval: 60480,
       dividendHeightOffset: 303,
       dividendRate: .9,
+      // Can be null if blockchain address system is not compatible with Lisk's.
+      walletAddressSystem: 'lisk/v1',
       // Can be used to specify the new address if the DEX has moved to a different wallet.
       dexMovedToAddress: null
     }

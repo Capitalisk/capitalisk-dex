@@ -308,7 +308,12 @@ module.exports = class LiskDEXModule extends BaseModule {
           return {
             version: LiskDEXModule.info.version,
             orderBookHash: this.tradeEngine.orderBookHash,
-            processedHeights: this.processedHeights
+            processedHeights: this.processedHeights,
+            baseChain: this.options.baseChain,
+            chains: {
+              [this.baseChainSymbol]: this._getChainInfo(this.baseChainSymbol),
+              [this.quoteChainSymbol]: this._getChainInfo(this.quoteChainSymbol)
+            }
           };
         }
       },
@@ -357,13 +362,28 @@ module.exports = class LiskDEXModule extends BaseModule {
     };
   }
 
+  _getChainInfo(chainSymbol) {
+    let chainOptions = this.options.chains[chainSymbol];
+    let multisigWalletInfo = this.multisigWalletInfo[chainSymbol];
+    return {
+      walletAddressSystem: chainOptions.walletAddressSystem,
+      multisigMembers: Object.values(multisigWalletInfo.members),
+      multisigRequiredSignatureCount: multisigWalletInfo.requiredSignatureCount,
+      minOrderAmount: chainOptions.minOrderAmount,
+      exchangeFeeBase: chainOptions.exchangeFeeBase,
+      exchangeFeeRate: chainOptions.exchangeFeeRate,
+      requiredConfirmations: chainOptions.requiredConfirmations,
+      orderHeightExpiry: chainOptions.orderHeightExpiry
+    };
+  }
+
   _getSignatureQuota(targetChain, transaction) {
     return transaction.signatures.length - (this.multisigWalletInfo[targetChain] || {}).requiredSignatureCount;
   }
 
   _verifySignature(targetChain, publicKey, transaction, signatureToVerify) {
-    let isValidMemberSignature = this.multisigWalletInfo[targetChain].members[publicKey];
-    if (!isValidMemberSignature) {
+    let memberWalletAddress = this.multisigWalletInfo[targetChain].members[publicKey];
+    if (!memberWalletAddress) {
       return false;
     }
     let {signature, signSignature, ...transactionToHash} = transaction;
@@ -550,7 +570,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         let chainOptions = this.options.chains[chainSymbol];
         let multisigMembers = await this._getMultisigWalletMembers(chainSymbol, chainOptions.walletAddress);
         multisigMembers.forEach((member) => {
-          this.multisigWalletInfo[chainSymbol].members[member.dependentId] = true;
+          this.multisigWalletInfo[chainSymbol].members[member.dependentId] = getAddressFromPublicKey(member.dependentId);
         });
         this.multisigWalletInfo[chainSymbol].memberCount = multisigMembers.length;
         this.multisigWalletInfo[chainSymbol].requiredSignatureCount = await this._getMinMultisigRequiredSignatures(chainSymbol, chainOptions.walletAddress);
