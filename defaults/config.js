@@ -9,6 +9,7 @@ module.exports = {
   orderBookSnapshotBackupDirPath: './order-book-snapshots',
   orderBookSnapshotBackupMaxCount: 50,
   baseChain: 'lsk',
+  chainsWhitelistPath: null,
   apiDefaultPageLimit: 100,
   apiMaxPageLimit: 100,
   apiMaxFilterFields: 10,

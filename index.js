@@ -62,6 +62,14 @@ module.exports = class LiskDEXModule extends BaseModule {
     let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
     this.baseAddress = baseChainOptions.walletAddress;
     this.quoteAddress = quoteChainOptions.walletAddress;
+
+    if (this.options.chainsWhitelistPath) {
+      let chainsWhitelist = require(path.join(process.cwd(), this.options.chainsWhitelistPath));
+      this.chainsWhitelist = new Set([this.baseChainSymbol, this.quoteChainSymbol].concat(chainsWhitelist));
+    } else {
+      this.chainsWhitelist = new Set([this.baseChainSymbol, this.quoteChainSymbol]);
+    }
+
     this.tradeEngine = new TradeEngine({
       baseCurrency: this.baseChainSymbol,
       quoteCurrency: this.quoteChainSymbol,
@@ -310,6 +318,7 @@ module.exports = class LiskDEXModule extends BaseModule {
             orderBookHash: this.tradeEngine.orderBookHash,
             processedHeights: this.processedHeights,
             baseChain: this.options.baseChain,
+            chainsWhitelist: [...this.chainsWhitelist],
             chains: {
               [this.baseChainSymbol]: this._getChainInfo(this.baseChainSymbol),
               [this.quoteChainSymbol]: this._getChainInfo(this.quoteChainSymbol)
@@ -367,6 +376,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     let multisigWalletInfo = this.multisigWalletInfo[chainSymbol];
     return {
       walletAddressSystem: chainOptions.walletAddressSystem,
+      walletAddress: chainOptions.walletAddress,
       multisigMembers: Object.values(multisigWalletInfo.members),
       multisigRequiredSignatureCount: multisigWalletInfo.requiredSignatureCount,
       minOrderAmount: chainOptions.minOrderAmount,
@@ -746,9 +756,13 @@ module.exports = class LiskDEXModule extends BaseModule {
         if (!isSupportedChain) {
           orderTxn.type = 'invalid';
           orderTxn.reason = 'Invalid target chain';
-          this.logger.debug(
-            `Chain ${chainSymbol}: Incoming order ${orderTxn.id} has an invalid target chain ${targetChain}`
-          );
+          let isChainWhitelisted = this.chainsWhitelist.has(targetChain);
+          orderTxn.isNonRefundable = isChainWhitelisted;
+          if (!isChainWhitelisted) {
+            this.logger.debug(
+              `Chain ${chainSymbol}: Incoming order ${orderTxn.id} has an invalid target chain ${targetChain}`
+            );
+          }
           return orderTxn;
         }
 
@@ -947,6 +961,9 @@ module.exports = class LiskDEXModule extends BaseModule {
         });
 
         invalidOrders.forEach(async (orderTxn) => {
+          if (orderTxn.isNonRefundable) {
+            return;
+          }
           let reasonMessage = 'Invalid order';
           if (orderTxn.reason) {
             reasonMessage += ` - ${orderTxn.reason}`;
