@@ -1538,8 +1538,8 @@ module.exports = class LiskDEXModule extends BaseModule {
     return baseChainValue <= baseChainOptions.exchangeFeeBase;
   }
 
-  _md5(string) {
-    return crypto.createHash('md5').update(string).digest('hex');
+  _sha1(string) {
+    return crypto.createHash('sha1').update(string).digest('hex');
   }
 
   _transactionComparator(a, b) {
@@ -1598,7 +1598,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     return txns.map(txn => ({
       ...txn,
       senderPublicKey: txn.senderPublicKey.toString('hex'),
-      sortKey: this._md5(txn.id + blockId)
+      sortKey: this._sha1(txn.id + blockId)
     })).sort((a, b) => this._transactionComparator(a, b));
   }
 
@@ -1612,7 +1612,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     return txns.map(txn => ({
       ...txn,
       senderPublicKey: txn.senderPublicKey.toString('hex'),
-      sortKey: this._md5(txn.id + blockId)
+      sortKey: this._sha1(txn.id + blockId)
     })).sort((a, b) => this._transactionComparator(a, b));
   }
 

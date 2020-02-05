@@ -21,8 +21,8 @@ class TradeEngine {
     this._resetProcessedHeightsInfo();
   }
 
-  _md5(string) {
-    return crypto.createHash('md5').update(string).digest('hex');
+  _sha1(string) {
+    return crypto.createHash('sha1').update(string).digest('hex');
   }
 
   _resetProcessedHeightsInfo() {
@@ -230,12 +230,12 @@ class TradeEngine {
   }
 
   _addToOrderBook(order) {
-    this.orderBookHash = this._md5(`${this.orderBookHash}+${order.id}`);
+    this.orderBookHash = this._sha1(`${this.orderBookHash}+${order.id}`);
     return this.orderBook.add(order);
   }
 
   _removeFromOrderBook(orderId) {
-    this.orderBookHash = this._md5(`${this.orderBookHash}-${orderId}`);
+    this.orderBookHash = this._sha1(`${this.orderBookHash}-${orderId}`);
     return this.orderBook.remove(orderId);
   }
 
