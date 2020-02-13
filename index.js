@@ -37,13 +37,14 @@ const DEFAULT_TRANSACTION_SUBMIT_DELAY = 5000;
  * @type {module.LiskDEXModule}
  */
 module.exports = class LiskDEXModule extends BaseModule {
-  constructor(options) {
-    super({...defaultConfig, ...options});
+  constructor({config, logger}) {
+    super({});
+    this.options = {...defaultConfig, ...config};
     this.chainSymbols = Object.keys(this.options.chains);
     if (this.chainSymbols.length !== 2) {
       throw new Error('The DEX module must operate only on 2 chains');
     }
-    this.logger = this.options.logger;
+    this.logger = logger;
     this.multisigWalletInfo = {};
     this.isForked = false;
     this.lastSnapshot = null;
@@ -167,6 +168,11 @@ module.exports = class LiskDEXModule extends BaseModule {
         });
       };
     }
+  }
+
+  get dependencies() {
+    let chainConfigList = Object.values(this.options.chains);
+    return ['app', 'network'].concat(chainConfigList.map(chainConfig => chainConfig.moduleAlias));
   }
 
   static get alias() {
@@ -503,7 +509,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       this.expireMultisigTransactions();
     }, this.options.multisigExpiryCheckInterval);
 
-    await this.channel.invoke('interchain:updateModuleState', {
+    await this.channel.invoke('app:updateModuleState', {
       lisk_dex: {
         baseAddress: this.baseAddress,
         quoteAddress: this.quoteAddress
@@ -536,12 +542,12 @@ module.exports = class LiskDEXModule extends BaseModule {
       }
     });
 
+    let loggerConfig = await channel.invoke(
+      'app:getComponentConfig',
+      'logger',
+    );
     // For Lisk controller compatibility
     if (!this.logger) {
-      let loggerConfig = await channel.invoke(
-        'app:getComponentConfig',
-        'logger',
-      );
       let loggerOverwriteConfig = this.options.components ? this.options.components.logger : this.options.logger;
       this.logger = createLoggerComponent({...loggerConfig, ...loggerOverwriteConfig});
     }
@@ -574,7 +580,13 @@ module.exports = class LiskDEXModule extends BaseModule {
           ...storageConfigOptions,
           database: chainOptions.database,
         };
-        let storage = createStorageComponent(storageConfig, this.logger);
+        let dbLogger = createLoggerComponent(
+          Object.assign({
+            ...loggerConfig,
+            logFileName: storageConfig.logFileName
+          })
+        );
+        let storage = createStorageComponent(storageConfig, dbLogger);
         await storage.bootstrap();
         this._storageComponents[chainSymbol] = storage;
       })
