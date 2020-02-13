@@ -21,7 +21,7 @@ const packageJSON = require('./package.json');
 
 const WritableConsumableStream = require('writable-consumable-stream');
 
-const MODULE_ALIAS = 'lisk_dex';
+const DEFAULT_MODULE_ALIAS = 'lisk_dex';
 const { LISK_DEX_PASSWORD } = process.env;
 const CIPHER_ALGORITHM = 'aes-192-cbc';
 const CIPHER_KEY = LISK_DEX_PASSWORD ? crypto.scryptSync(LISK_DEX_PASSWORD, 'salt', 24) : undefined;
@@ -37,9 +37,10 @@ const DEFAULT_TRANSACTION_SUBMIT_DELAY = 5000;
  * @type {module.LiskDEXModule}
  */
 module.exports = class LiskDEXModule extends BaseModule {
-  constructor({config, logger}) {
+  constructor({alias, config, logger}) {
     super({});
     this.options = {...defaultConfig, ...config};
+    this.alias = alias;
     this.chainSymbols = Object.keys(this.options.chains);
     if (this.chainSymbols.length !== 2) {
       throw new Error('The DEX module must operate only on 2 chains');
@@ -89,8 +90,8 @@ module.exports = class LiskDEXModule extends BaseModule {
         if (!LISK_DEX_PASSWORD) {
           throw new Error(
             `Cannot decrypt the encryptedPassphrase from the ${
-              MODULE_ALIAS
-            } config for the ${
+              this.alias
+            } module config for the ${
               chainSymbol
             } chain without a valid LISK_DEX_PASSWORD environment variable`
           );
@@ -98,8 +99,8 @@ module.exports = class LiskDEXModule extends BaseModule {
         if (chainOptions.passphrase) {
           throw new Error(
             `The ${
-              MODULE_ALIAS
-            } config for the ${
+              this.alias
+            } module config for the ${
               chainSymbol
             } chain should have either a passphrase or encryptedPassphrase but not both`
           );
@@ -112,7 +113,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         } catch (error) {
           throw new Error(
             `Failed to decrypt encryptedPassphrase in ${
-              MODULE_ALIAS
+              this.alias
             } config for chain ${
               chainSymbol
             } - Check that the LISK_DEX_PASSWORD environment variable is correct`
@@ -123,7 +124,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         if (!LISK_DEX_PASSWORD) {
           throw new Error(
             `Cannot decrypt the encryptedSharedPassphrase from the ${
-              MODULE_ALIAS
+              this.alias
             } config for the ${
               chainSymbol
             } chain without a valid LISK_DEX_PASSWORD environment variable`
@@ -132,7 +133,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         if (chainOptions.sharedPassphrase) {
           throw new Error(
             `The ${
-              MODULE_ALIAS
+              this.alias
             } config for the ${
               chainSymbol
             } chain should have either a sharedPassphrase or encryptedSharedPassphrase but not both`
@@ -146,7 +147,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         } catch (error) {
           throw new Error(
             `Failed to decrypt encryptedSharedPassphrase in ${
-              MODULE_ALIAS
+              this.alias
             } config for chain ${
               chainSymbol
             } - Check that the LISK_DEX_PASSWORD environment variable is correct`
@@ -176,14 +177,14 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   static get alias() {
-    return MODULE_ALIAS;
+    return DEFAULT_MODULE_ALIAS;
   }
 
   static get info() {
     return {
       author: 'Jonathan Gros-Dubois',
       version: packageJSON.version,
-      name: MODULE_ALIAS,
+      name: DEFAULT_MODULE_ALIAS,
     };
   }
 
@@ -521,7 +522,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         payload = {};
       }
       let {event, data} = payload.data || {};
-      if (event === `${MODULE_ALIAS}:signature`) {
+      if (event === `${this.alias}:signature`) {
         let signatureData = data || {};
         let result = this._processSignature(signatureData);
 
@@ -1488,7 +1489,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         }
       });
     });
-    channel.publish(`${MODULE_ALIAS}:bootstrap`);
+    channel.publish(`${this.alias}:bootstrap`);
   }
 
   _calculateContributions(chainSymbol, transaction, exchangeFeeRate) {
@@ -1748,7 +1749,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
   // Broadcast the signature to all DEX nodes with a matching baseAddress and quoteAddress
   async _broadcastSignatureToSubnet(transactionId, signature, publicKey) {
-    let actionRouteString = `${MODULE_ALIAS}?baseAddress=${this.baseAddress}&quoteAddress=${this.quoteAddress}`;
+    let actionRouteString = `${this.alias}?baseAddress=${this.baseAddress}&quoteAddress=${this.quoteAddress}`;
     this.channel.invoke('network:emit', {
       event: `${actionRouteString}:signature`,
       data: {
