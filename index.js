@@ -43,6 +43,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     if (this.chainSymbols.length !== 2) {
       throw new Error('The DEX module must operate only on 2 chains');
     }
+    this.logger = this.options.logger;
     this.multisigWalletInfo = {};
     this.isForked = false;
     this.lastSnapshot = null;
@@ -535,11 +536,15 @@ module.exports = class LiskDEXModule extends BaseModule {
       }
     });
 
-    let loggerConfig = await channel.invoke(
-      'app:getComponentConfig',
-      'logger',
-    );
-    this.logger = createLoggerComponent({...loggerConfig, ...this.options.logger});
+    // For Lisk controller compatibility
+    if (!this.logger) {
+      let loggerConfig = await channel.invoke(
+        'app:getComponentConfig',
+        'logger',
+      );
+      let loggerOverwriteConfig = this.options.components ? this.options.components.logger : this.options.logger;
+      this.logger = createLoggerComponent({...loggerConfig, ...loggerOverwriteConfig});
+    }
 
     try {
       await mkdir(this.options.orderBookSnapshotBackupDirPath);
