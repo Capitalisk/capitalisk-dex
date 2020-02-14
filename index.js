@@ -40,7 +40,7 @@ module.exports = class LiskDEXModule extends BaseModule {
   constructor({alias, config, logger}) {
     super({});
     this.options = {...defaultConfig, ...config};
-    this.alias = alias;
+    this.alias = alias || DEFAULT_MODULE_ALIAS;
     this.chainSymbols = Object.keys(this.options.chains);
     if (this.chainSymbols.length !== 2) {
       throw new Error('The DEX module must operate only on 2 chains');
@@ -511,7 +511,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     }, this.options.multisigExpiryCheckInterval);
 
     await this.channel.invoke('app:updateModuleState', {
-      lisk_dex: {
+      [this.alias]: {
         baseAddress: this.baseAddress,
         quoteAddress: this.quoteAddress
       }
