@@ -1,7 +1,7 @@
 const ProperOrderBook = require('proper-order-book');
 const crypto = require('crypto');
 
-const EMPTY_ORDER_BOOK_HASH = '00000000000000000000000000000000';
+const EMPTY_ORDER_BOOK_HASH = '0000000000000000000000000000000000000000';
 
 class TradeEngine {
   constructor(options) {
