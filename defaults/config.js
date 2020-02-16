@@ -14,7 +14,9 @@ module.exports = {
   apiMaxPageLimit: 100,
   apiMaxFilterFields: 10,
   readBlocksInterval: 3000,
-  // Can be used to disable the DEX starting at a specific baseChain height.
+  // The base chain height at which to enable the DEX.
+  dexEnabledFromHeight: 0,
+  // Can be used to disable the DEX starting at a specific base chain height.
   dexDisabledFromHeight: null,
   dexDisabledRefundHeightOffset: 303,
   components: {

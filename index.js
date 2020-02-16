@@ -517,7 +517,12 @@ module.exports = class LiskDEXModule extends BaseModule {
       }
     });
 
+    let hasMultisigWalletsInfo = false;
+
     this.channel.subscribe('network:event', async (payload) => {
+      if (!hasMultisigWalletsInfo) {
+        return;
+      }
       if (!payload) {
         payload = {};
       }
@@ -593,17 +598,19 @@ module.exports = class LiskDEXModule extends BaseModule {
       })
     );
 
-    await Promise.all(
-      this.chainSymbols.map(async (chainSymbol) => {
-        let chainOptions = this.options.chains[chainSymbol];
-        let multisigMembers = await this._getMultisigWalletMembers(chainSymbol, chainOptions.walletAddress);
-        multisigMembers.forEach((member) => {
-          this.multisigWalletInfo[chainSymbol].members[member.dependentId] = getAddressFromPublicKey(member.dependentId);
-        });
-        this.multisigWalletInfo[chainSymbol].memberCount = multisigMembers.length;
-        this.multisigWalletInfo[chainSymbol].requiredSignatureCount = await this._getMinMultisigRequiredSignatures(chainSymbol, chainOptions.walletAddress);
-      })
-    );
+    let loadMultisigWalletInfo = async () => {
+      return Promise.all(
+        this.chainSymbols.map(async (chainSymbol) => {
+          let chainOptions = this.options.chains[chainSymbol];
+          let multisigMembers = await this._getMultisigWalletMembers(chainSymbol, chainOptions.walletAddress);
+          multisigMembers.forEach((member) => {
+            this.multisigWalletInfo[chainSymbol].members[member.dependentId] = getAddressFromPublicKey(member.dependentId);
+          });
+          this.multisigWalletInfo[chainSymbol].memberCount = multisigMembers.length;
+          this.multisigWalletInfo[chainSymbol].requiredSignatureCount = await this._getMinMultisigRequiredSignatures(chainSymbol, chainOptions.walletAddress);
+        })
+      );
+    };
 
     let lastProcessedTimestamp = null;
     try {
@@ -617,12 +624,27 @@ module.exports = class LiskDEXModule extends BaseModule {
     let dividendProcessingStream = new WritableConsumableStream();
 
     let processBlock = async ({chainSymbol, chainHeight, latestChainHeights, isLastBlock, blockData}) => {
-      let chainOptions = this.options.chains[chainSymbol];
-      let minOrderAmount = chainOptions.minOrderAmount;
-
-      this.logger.trace(
+      this.logger.info(
         `Chain ${chainSymbol}: Processing block at height ${chainHeight}`
       );
+
+      let baseChainHeight = latestChainHeights[this.baseChainSymbol];
+      if (baseChainHeight < this.options.dexEnabledFromHeight) {
+        this.logger.info(
+          `Base chain height ${baseChainHeight} is below the DEX enabled height of ${this.options.dexEnabledFromHeight}`
+        );
+        return;
+      }
+      if (!hasMultisigWalletsInfo) {
+        await loadMultisigWalletInfo();
+        hasMultisigWalletsInfo = true;
+        this.logger.info(
+          `Loaded DEX wallets info`
+        );
+      }
+
+      let chainOptions = this.options.chains[chainSymbol];
+      let minOrderAmount = chainOptions.minOrderAmount;
 
       let latestBlockTimestamp = blockData.timestamp;
 
@@ -698,7 +720,7 @@ module.exports = class LiskDEXModule extends BaseModule {
       }
 
       if (!blockData.numberOfTransactions) {
-        this.logger.trace(
+        this.logger.info(
           `Chain ${chainSymbol}: No transactions in block ${blockData.id} at height ${chainHeight}`
         );
       }
@@ -1047,7 +1069,7 @@ module.exports = class LiskDEXModule extends BaseModule {
         expiredOrders = this.tradeEngine.expireAskOrders(chainHeight);
       }
       expiredOrders.forEach(async (expiredOrder) => {
-        this.logger.trace(
+        this.logger.info(
           `Chain ${chainSymbol}: Order ${expiredOrder.id} at height ${expiredOrder.height} expired`
         );
         if (this.passiveMode) {
