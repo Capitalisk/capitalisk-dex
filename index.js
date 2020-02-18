@@ -479,7 +479,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     let chainOptions = this.options.chains[targetChain];
     if (chainOptions && chainOptions.moduleAlias) {
       let modulePrefix;
-      if (chainOptions.moduleAlias === 'chain') {
+      if (chainOptions.moduleAlias === 'chain' || chainOptions.moduleAlias === 'ldem_lisk_chain') {
         modulePrefix = '';
       } else {
         modulePrefix = `${chainOptions.moduleAlias}:`;
