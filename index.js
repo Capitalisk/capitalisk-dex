@@ -1387,6 +1387,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
           if (
             chainSymbol === this.baseChainSymbol &&
+            this.options.dexDisabledFromHeight != null &&
             maxBlockHeight >= this.options.dexDisabledFromHeight &&
             maxBlockHeight < this.options.dexDisabledFromHeight + this.options.dexDisabledRefundHeightOffset
           ) {
