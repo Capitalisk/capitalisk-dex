@@ -1242,7 +1242,6 @@ module.exports = class LiskDEXModule extends BaseModule {
 
         result.makers.forEach(async (makerOrder) => {
           let makerChainOptions = this.options.chains[makerOrder.targetChain];
-          let makerTargetChainModuleAlias = makerChainOptions.moduleAlias;
           let makerAddress = makerOrder.targetWalletAddress;
           let makerAmount = makerOrder.targetChain === this.baseChainSymbol ? makerOrder.lastValueTaken : makerOrder.lastSizeTaken;
           makerAmount -= makerChainOptions.exchangeFeeBase;
@@ -1784,7 +1783,6 @@ module.exports = class LiskDEXModule extends BaseModule {
 
   async execMultisigTransaction(targetChain, transactionData, message) {
     let chainOptions = this.options.chains[targetChain];
-    let chainModuleAlias = chainOptions.moduleAlias;
     let txn = {
       type: 0,
       amount: transactionData.amount.toString(),
