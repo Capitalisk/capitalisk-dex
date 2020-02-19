@@ -520,32 +520,25 @@ module.exports = class LiskDEXModule extends BaseModule {
 
     let hasMultisigWalletsInfo = false;
 
-    this.channel.subscribe('network:event', async (payload) => {
+    this.channel.subscribe(`network:event:${this.alias}:signature`, async ({data}) => {
       if (!hasMultisigWalletsInfo) {
         return;
       }
-      if (!payload) {
-        payload = {};
-      }
-      let {event, data} = payload.data || {};
-      if (event === `${this.alias}:signature`) {
-        let signatureData = data || {};
-        let result = this._processSignature(signatureData);
+      let signatureData = data || {};
+      let result = this._processSignature(signatureData);
 
-        if (result.isAccepted) {
-          // Propagate valid signature to peers who are members of the DEX subnet.
-          await this._broadcastSignatureToSubnet(result.transaction.id, result.signature, result.publicKey);
+      if (result.isAccepted) {
+        // Propagate valid signature to peers who are members of the DEX subnet.
+        await this._broadcastSignatureToSubnet(result.transaction.id, result.signature, result.publicKey);
 
-          if (result.signatureQuota === 0) {
-            let txnSubmitDelay = this.options.transactionSubmitDelay == null ?
-              DEFAULT_TRANSACTION_SUBMIT_DELAY : this.options.transactionSubmitDelay;
-            // Wait some additional time to collect signatures from remaining DEX members.
-            // The signatures will keep accumulating in the transaction object's signatures array.
-            await wait(txnSubmitDelay);
-            await this._postTransactionToChain(result.targetChain, result.transaction);
-          }
+        if (result.signatureQuota === 0) {
+          let txnSubmitDelay = this.options.transactionSubmitDelay == null ?
+            DEFAULT_TRANSACTION_SUBMIT_DELAY : this.options.transactionSubmitDelay;
+          // Wait some additional time to collect signatures from remaining DEX members.
+          // The signatures will keep accumulating in the transaction object's signatures array.
+          await wait(txnSubmitDelay);
+          await this._postTransactionToChain(result.targetChain, result.transaction);
         }
-        return;
       }
     });
 
