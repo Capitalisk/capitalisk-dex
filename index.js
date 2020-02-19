@@ -37,9 +37,10 @@ const DEFAULT_TRANSACTION_SUBMIT_DELAY = 5000;
  * @type {module.LiskDEXModule}
  */
 module.exports = class LiskDEXModule extends BaseModule {
-  constructor({alias, config, logger}) {
+  constructor({alias, config, appConfig, logger}) {
     super({});
     this.options = {...defaultConfig, ...config};
+    this.appConfig = appConfig;
     this.alias = alias || DEFAULT_MODULE_ALIAS;
     this.chainSymbols = Object.keys(this.options.chains);
     if (this.chainSymbols.length !== 2) {
@@ -574,7 +575,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
     let storageConfigOptions = await channel.invoke(
       'app:getComponentConfig',
-      'storage',
+      'storage'
     );
 
     this._storageComponents = {};
@@ -582,9 +583,15 @@ module.exports = class LiskDEXModule extends BaseModule {
     await Promise.all(
       this.chainSymbols.map(async (chainSymbol) => {
         let chainOptions = this.options.chains[chainSymbol];
+        let database;
+        if (this.appConfig) {
+          database = this.appConfig.modules[chainOptions.moduleAlias].database;
+        } else {
+          database = chainOptions.database;
+        }
         let storageConfig = {
           ...storageConfigOptions,
-          database: chainOptions.database,
+          database
         };
         let dbLogger = createLoggerComponent(
           Object.assign({
