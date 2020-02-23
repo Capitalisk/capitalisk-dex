@@ -1615,7 +1615,11 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   async _getMultisigWalletMembers(chainSymbol, walletAddress) {
-    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let chainOptions = this.options.chains[chainSymbol];
+    if (chainOptions.channelInterfaceEnabled) {
+      return this.channel.invoke(`${chainOptions.moduleAlias}:getMultisigWalletMembers`, {walletAddress});
+    }
+
     let storage = this._storageComponents[chainSymbol];
     return storage.adapter.db.query(
       'select mem_accounts2multisignatures."dependentId" from mem_accounts2multisignatures where mem_accounts2multisignatures."accountId" = $1',
@@ -1624,7 +1628,11 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   async _getMinMultisigRequiredSignatures(chainSymbol, walletAddress) {
-    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let chainOptions = this.options.chains[chainSymbol];
+    if (chainOptions.channelInterfaceEnabled) {
+      return this.channel.invoke(`${chainOptions.moduleAlias}:getMinMultisigRequiredSignatures`, {walletAddress});
+    }
+
     let storage = this._storageComponents[chainSymbol];
     let multisigMemberMinSigRows = await storage.adapter.db.query(
       'select multimin from mem_accounts where address = $1 limit 1',
@@ -1639,12 +1647,18 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   async _getInboundTransactions(chainSymbol, blockId, walletAddress) {
-    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
-    let storage = this._storageComponents[chainSymbol];
-    let txns = await storage.adapter.db.query(
-      'select trs.id, trs.type, trs."senderId", trs."senderPublicKey", trs.timestamp, trs."recipientId", trs.amount, trs."transferData", trs.signatures from trs where trs."blockId" = $1 and trs."recipientId" = $2',
-      [blockId, walletAddress]
-    );
+    let chainOptions = this.options.chains[chainSymbol];
+    let txns;
+    if (chainOptions.channelInterfaceEnabled) {
+      txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getInboundTransactions`, {walletAddress, blockId});
+    } else {
+      let storage = this._storageComponents[chainSymbol];
+      txns = await storage.adapter.db.query(
+        'select trs.id, trs.type, trs."senderId", trs."senderPublicKey", trs.timestamp, trs."recipientId", trs.amount, trs."transferData", trs.signatures from trs where trs."blockId" = $1 and trs."recipientId" = $2',
+        [blockId, walletAddress]
+      );
+    }
+
     return txns.map(txn => ({
       ...txn,
       senderPublicKey: txn.senderPublicKey.toString('hex'),
@@ -1653,12 +1667,18 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   async _getOutboundTransactions(chainSymbol, blockId, walletAddress) {
-    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
-    let storage = this._storageComponents[chainSymbol];
-    let txns = await storage.adapter.db.query(
-      'select trs.id, trs.type, trs."senderId", trs."senderPublicKey", trs."timestamp", trs."recipientId", trs."amount", trs."transferData", trs.signatures from trs where trs."blockId" = $1 and trs."senderId" = $2',
-      [blockId, walletAddress]
-    );
+    let chainOptions = this.options.chains[chainSymbol];
+    let txns;
+    if (chainOptions.channelInterfaceEnabled) {
+      txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactions`, {walletAddress, blockId});
+    } else {
+      let storage = this._storageComponents[chainSymbol];
+      txns = await storage.adapter.db.query(
+        'select trs.id, trs.type, trs."senderId", trs."senderPublicKey", trs."timestamp", trs."recipientId", trs."amount", trs."transferData", trs.signatures from trs where trs."blockId" = $1 and trs."senderId" = $2',
+        [blockId, walletAddress]
+      );
+    }
+
     return txns.map(txn => ({
       ...txn,
       senderPublicKey: txn.senderPublicKey.toString('hex'),
@@ -1667,7 +1687,11 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   async _getBlockAtTimestamp(chainSymbol, timestamp) {
-    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let chainOptions = this.options.chains[chainSymbol];
+    if (chainOptions.channelInterfaceEnabled) {
+      return this.channel.invoke(`${chainOptions.moduleAlias}:getBlockAtTimestamp`, {timestamp});
+    }
+
     let storage = this._storageComponents[chainSymbol];
     return (
       await storage.adapter.db.query(
@@ -1678,7 +1702,11 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   async _getMaxBlockHeight(chainSymbol) {
-    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let chainOptions = this.options.chains[chainSymbol];
+    if (chainOptions.channelInterfaceEnabled) {
+      return this.channel.invoke(`${chainOptions.moduleAlias}:getMaxBlockHeight`, {});
+    }
+
     let storage = this._storageComponents[chainSymbol];
     let maxHeightRows = await storage.adapter.db.query('select max(height) as height from blocks');
     if (maxHeightRows.length <= 0) {
@@ -1690,7 +1718,11 @@ module.exports = class LiskDEXModule extends BaseModule {
   }
 
   async _getBlocksBetweenHeights(chainSymbol, fromHeight, toHeight, limit) {
-    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+    let chainOptions = this.options.chains[chainSymbol];
+    if (chainOptions.channelInterfaceEnabled) {
+      return this.channel.invoke(`${chainOptions.moduleAlias}:getBlocksBetweenHeights`, {fromHeight, toHeight, limit});
+    }
+
     let storage = this._storageComponents[chainSymbol];
     return storage.adapter.db.query(
       'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where height > $1 and height <= $2 order by blocks.timestamp asc limit $3',
@@ -1698,13 +1730,17 @@ module.exports = class LiskDEXModule extends BaseModule {
     );
   }
 
-  async _getBlockAtHeight(chainSymbol, targetHeight) {
-    // TODO: When it becomes possible, use internal module API (using channel.invoke) to get this data instead of direct DB access.
+  async _getBlockAtHeight(chainSymbol, height) {
+    let chainOptions = this.options.chains[chainSymbol];
+    if (chainOptions.channelInterfaceEnabled) {
+      return this.channel.invoke(`${chainOptions.moduleAlias}:getBlockAtHeight`, {height});
+    }
+
     let storage = this._storageComponents[chainSymbol];
     return (
       await storage.adapter.db.query(
         'select blocks.id, blocks."numberOfTransactions", blocks.timestamp, blocks.height from blocks where height = $1 limit 1',
-        [targetHeight]
+        [height]
       )
     )[0];
   }
