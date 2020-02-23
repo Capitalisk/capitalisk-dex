@@ -6,9 +6,7 @@ const BaseModule = require('lisk-framework/src/modules/base_module');
 const { createStorageComponent } = require('lisk-framework/src/components/storage');
 const { createLoggerComponent } = require('lisk-framework/src/components/logger');
 const TradeEngine = require('./trade-engine');
-const liskCryptography = require('@liskhq/lisk-cryptography');
-const { getAddressFromPublicKey } = liskCryptography;
-const liskTransactions = require('@liskhq/lisk-transactions');
+const ChainCrypto = require('./chain-crypto');
 const fs = require('fs');
 const util = require('util');
 const path = require('path');
@@ -85,8 +83,22 @@ module.exports = class LiskDEXModule extends BaseModule {
       [this.quoteChainSymbol]: 0
     };
 
+    this.chainCrypto = {};
+
     this.chainSymbols.forEach((chainSymbol) => {
       let chainOptions = this.options.chains[chainSymbol];
+
+      let ChainCryptoClass;
+      if (chainOptions.chainCryptoLibPath) {
+        ChainCryptoClass = require(chainOptions.chainCryptoLibPath);
+      } else {
+        ChainCryptoClass = ChainCrypto;
+      }
+
+      this.chainCrypto[chainSymbol] = new ChainCryptoClass({
+        chainSymbol
+      });
+
       if (chainOptions.encryptedPassphrase) {
         if (!LISK_DEX_PASSWORD) {
           throw new Error(
@@ -405,9 +417,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     if (!memberWalletAddress) {
       return false;
     }
-    let {signature, signSignature, ...transactionToHash} = transaction;
-    let txnHash = liskCryptography.hash(liskTransactions.utils.getTransactionBytes(transactionToHash));
-    return liskCryptography.verifyData(txnHash, signatureToVerify, publicKey);
+    return this.chainCrypto[targetChain].verifyTransactionSignature(transaction, signatureToVerify, publicKey);
   }
 
   _processSignature(signatureData) {
@@ -448,7 +458,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     processedSignatureSet.add(signature);
     transaction.signatures.push(signature);
 
-    let memberAddress = getAddressFromPublicKey(publicKey);
+    let memberAddress = this.chainCrypto[targetChain].getAddressFromPublicKey(publicKey);
     contributors.add(memberAddress);
 
     let signatureQuota = this._getSignatureQuota(targetChain, transaction);
@@ -604,7 +614,7 @@ module.exports = class LiskDEXModule extends BaseModule {
           let chainOptions = this.options.chains[chainSymbol];
           let multisigMembers = await this._getMultisigWalletMembers(chainSymbol, chainOptions.walletAddress);
           multisigMembers.forEach((member) => {
-            this.multisigWalletInfo[chainSymbol].members[member.dependentId] = getAddressFromPublicKey(member.dependentId);
+            this.multisigWalletInfo[chainSymbol].members[member.dependentId] = this.chainCrypto[chainSymbol].getAddressFromPublicKey(member.dependentId);
           });
           this.multisigWalletInfo[chainSymbol].memberCount = multisigMembers.length;
           this.multisigWalletInfo[chainSymbol].requiredSignatureCount = await this._getMinMultisigRequiredSignatures(chainSymbol, chainOptions.walletAddress);
@@ -1551,7 +1561,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     if (!memberPublicKey) {
       return null;
     }
-    return getAddressFromPublicKey(memberPublicKey);
+    return this.chainCrypto[chainSymbol].getAddressFromPublicKey(memberPublicKey);
   }
 
   _isLimitOrderTooSmallToConvert(chainSymbol, amount, price) {
@@ -1609,7 +1619,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     let storage = this._storageComponents[chainSymbol];
     return storage.adapter.db.query(
       'select mem_accounts2multisignatures."dependentId" from mem_accounts2multisignatures where mem_accounts2multisignatures."accountId" = $1',
-      [walletAddress],
+      [walletAddress]
     );
   }
 
@@ -1618,7 +1628,7 @@ module.exports = class LiskDEXModule extends BaseModule {
     let storage = this._storageComponents[chainSymbol];
     let multisigMemberMinSigRows = await storage.adapter.db.query(
       'select multimin from mem_accounts where address = $1 limit 1',
-      [walletAddress],
+      [walletAddress]
     );
     if (multisigMemberMinSigRows.length <= 0) {
       throw new Error(
@@ -1784,26 +1794,18 @@ module.exports = class LiskDEXModule extends BaseModule {
 
   async execMultisigTransaction(targetChain, transactionData, message) {
     let chainOptions = this.options.chains[targetChain];
-    let txn = {
-      type: 0,
-      amount: transactionData.amount.toString(),
-      recipientId: transactionData.recipientId,
-      fee: liskTransactions.constants.TRANSFER_FEE.toString(),
-      asset: {},
-      timestamp: transactionData.timestamp,
-      senderPublicKey: liskCryptography.getAddressAndPublicKeyFromPassphrase(chainOptions.sharedPassphrase).publicKey
-    };
-    if (message != null) {
-      txn.asset.data = message;
-    }
-    let preparedTxn = liskTransactions.utils.prepareTransaction(txn, chainOptions.sharedPassphrase);
-    let {signature, signSignature, ...transactionToHash} = preparedTxn;
-    let txnHash = liskCryptography.hash(liskTransactions.utils.getTransactionBytes(transactionToHash));
-    let multisigTxnSignature = liskCryptography.signData(txnHash, chainOptions.passphrase);
-    let publicKey = liskCryptography.getAddressAndPublicKeyFromPassphrase(chainOptions.passphrase).publicKey;
-    let walletAddress = getAddressFromPublicKey(publicKey);
+    let chainCrypto = this.chainCrypto[targetChain];
+    let preparedTxn = chainCrypto.prepareTransaction(
+      {
+        ...transactionData,
+        message
+      },
+      chainOptions
+    );
 
-    preparedTxn.signatures = [multisigTxnSignature];
+    let publicKey = chainCrypto.getPublicKeyFromPassphrase(chainOptions.passphrase);
+    let walletAddress = chainCrypto.getAddressFromPublicKey(publicKey);
+
     let processedSignatureSet = new Set();
     processedSignatureSet.add(multisigTxnSignature);
 
