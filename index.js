@@ -1371,7 +1371,7 @@ module.exports = class LiskDEXModule extends BaseModule {
 
       let [baseChainLastProcessedHeight, quoteChainLastProcessedHeight] = await Promise.all(
         orderedChainSymbols.map(async (chainSymbol) => {
-          let lastProcessedBlock = await this._getBlockAtTimestamp(chainSymbol, lastProcessedTimestamp);
+          let lastProcessedBlock = await this._getLastBlockAtTimestamp(chainSymbol, lastProcessedTimestamp);
           return lastProcessedBlock.height;
         })
       );
@@ -1686,10 +1686,10 @@ module.exports = class LiskDEXModule extends BaseModule {
     })).sort((a, b) => this._transactionComparator(a, b));
   }
 
-  async _getBlockAtTimestamp(chainSymbol, timestamp) {
+  async _getLastBlockAtTimestamp(chainSymbol, timestamp) {
     let chainOptions = this.options.chains[chainSymbol];
     if (chainOptions.channelInterfaceEnabled) {
-      return this.channel.invoke(`${chainOptions.moduleAlias}:getBlockAtTimestamp`, {timestamp});
+      return this.channel.invoke(`${chainOptions.moduleAlias}:getLastBlockAtTimestamp`, {timestamp});
     }
 
     let storage = this._storageComponents[chainSymbol];
