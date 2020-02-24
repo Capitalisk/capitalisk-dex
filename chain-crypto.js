@@ -38,7 +38,7 @@ class ChainCrypto {
 
     preparedTxn.signatures = [multisigTxnSignature];
 
-    return preparedTxn;
+    return {transaction: preparedTxn, signature: multisigTxnSignature};
   }
 }
 

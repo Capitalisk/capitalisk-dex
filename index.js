@@ -3,8 +3,6 @@
 const crypto = require('crypto');
 const defaultConfig = require('./defaults/config');
 const BaseModule = require('lisk-framework/src/modules/base_module');
-const { createStorageComponent } = require('lisk-framework/src/components/storage');
-const { createLoggerComponent } = require('lisk-framework/src/components/logger');
 const TradeEngine = require('./trade-engine');
 const ChainCrypto = require('./chain-crypto');
 const fs = require('fs');
@@ -552,16 +550,6 @@ module.exports = class LiskDEXModule extends BaseModule {
       }
     });
 
-    let loggerConfig = await channel.invoke(
-      'app:getComponentConfig',
-      'logger',
-    );
-    // For Lisk controller compatibility
-    if (!this.logger) {
-      let loggerOverwriteConfig = this.options.components ? this.options.components.logger : this.options.logger;
-      this.logger = createLoggerComponent({...loggerConfig, ...loggerOverwriteConfig});
-    }
-
     try {
       await mkdir(this.options.orderBookSnapshotBackupDirPath);
     } catch (error) {
@@ -575,38 +563,6 @@ module.exports = class LiskDEXModule extends BaseModule {
         );
       }
     }
-
-    let storageConfigOptions = await channel.invoke(
-      'app:getComponentConfig',
-      'storage'
-    );
-
-    this._storageComponents = {};
-
-    await Promise.all(
-      this.chainSymbols.map(async (chainSymbol) => {
-        let chainOptions = this.options.chains[chainSymbol];
-        let database;
-        if (this.appConfig) {
-          database = this.appConfig.modules[chainOptions.moduleAlias].database;
-        } else {
-          database = chainOptions.database;
-        }
-        let storageConfig = {
-          ...storageConfigOptions,
-          database
-        };
-        let dbLogger = createLoggerComponent(
-          Object.assign({
-            ...loggerConfig,
-            logFileName: storageConfig.logFileName
-          })
-        );
-        let storage = createStorageComponent(storageConfig, dbLogger);
-        await storage.bootstrap();
-        this._storageComponents[chainSymbol] = storage;
-      })
-    );
 
     let loadMultisigWalletInfo = async () => {
       return Promise.all(
@@ -797,8 +753,8 @@ module.exports = class LiskDEXModule extends BaseModule {
           return orderTxn;
         }
 
-        let transferDataString = txn.transferData == null ? '' : txn.transferData.toString('utf8');
-        let dataParts = transferDataString.split(',');
+        let transferMessageString = txn.message == null ? '' : txn.message;
+        let dataParts = transferMessageString.split(',');
 
         let targetChain = dataParts[0];
         orderTxn.targetChain = targetChain;
@@ -1529,10 +1485,10 @@ module.exports = class LiskDEXModule extends BaseModule {
     if (!transaction.asset) {
       transaction.asset = {};
     }
-    if (!transaction.transferData) {
+    if (!transaction.message) {
       return [];
     }
-    let txnData = transaction.transferData.toString('utf8');
+    let txnData = transaction.message;
     // Only trade transactions (e.g. t1 and t2) are counted.
     if (txnData.charAt(0) !== 't') {
       return [];
@@ -1616,133 +1572,54 @@ module.exports = class LiskDEXModule extends BaseModule {
 
   async _getMultisigWalletMembers(chainSymbol, walletAddress) {
     let chainOptions = this.options.chains[chainSymbol];
-    if (chainOptions.channelInterfaceEnabled) {
-      return this.channel.invoke(`${chainOptions.moduleAlias}:getMultisigWalletMembers`, {walletAddress});
-    }
-
-    let storage = this._storageComponents[chainSymbol];
-    return storage.adapter.db.query(
-      'select mem_accounts2multisignatures."dependentId" from mem_accounts2multisignatures where mem_accounts2multisignatures."accountId" = $1',
-      [walletAddress]
-    );
+    return this.channel.invoke(`${chainOptions.moduleAlias}:getMultisigWalletMembers`, {walletAddress});
   }
 
   async _getMinMultisigRequiredSignatures(chainSymbol, walletAddress) {
     let chainOptions = this.options.chains[chainSymbol];
-    if (chainOptions.channelInterfaceEnabled) {
-      return this.channel.invoke(`${chainOptions.moduleAlias}:getMinMultisigRequiredSignatures`, {walletAddress});
-    }
-
-    let storage = this._storageComponents[chainSymbol];
-    let multisigMemberMinSigRows = await storage.adapter.db.query(
-      'select multimin from mem_accounts where address = $1 limit 1',
-      [walletAddress]
-    );
-    if (multisigMemberMinSigRows.length <= 0) {
-      throw new Error(
-        `Could not find min signature requirement for multisig wallet address ${walletAddress} on chain ${chainSymbol}`
-      );
-    }
-    return Number(multisigMemberMinSigRows[0].multimin);
+    return this.channel.invoke(`${chainOptions.moduleAlias}:getMinMultisigRequiredSignatures`, {walletAddress});
   }
 
   async _getInboundTransactions(chainSymbol, blockId, walletAddress) {
     let chainOptions = this.options.chains[chainSymbol];
-    let txns;
-    if (chainOptions.channelInterfaceEnabled) {
-      txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getInboundTransactions`, {walletAddress, blockId});
-    } else {
-      let storage = this._storageComponents[chainSymbol];
-      txns = await storage.adapter.db.query(
-        'select trs.id, trs.type, trs."senderId", trs."senderPublicKey", trs.timestamp, trs."recipientId", trs.amount, trs."transferData", trs.signatures from trs where trs."blockId" = $1 and trs."recipientId" = $2',
-        [blockId, walletAddress]
-      );
-    }
+    let txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getInboundTransactions`, {walletAddress, blockId});
 
     return txns.map(txn => ({
       ...txn,
-      senderPublicKey: txn.senderPublicKey.toString('hex'),
+      senderPublicKey: txn.senderPublicKey,
       sortKey: this._sha1(txn.id + blockId)
     })).sort((a, b) => this._transactionComparator(a, b));
   }
 
   async _getOutboundTransactions(chainSymbol, blockId, walletAddress) {
     let chainOptions = this.options.chains[chainSymbol];
-    let txns;
-    if (chainOptions.channelInterfaceEnabled) {
-      txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactions`, {walletAddress, blockId});
-    } else {
-      let storage = this._storageComponents[chainSymbol];
-      txns = await storage.adapter.db.query(
-        'select trs.id, trs.type, trs."senderId", trs."senderPublicKey", trs."timestamp", trs."recipientId", trs."amount", trs."transferData", trs.signatures from trs where trs."blockId" = $1 and trs."senderId" = $2',
-        [blockId, walletAddress]
-      );
-    }
+    let txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactions`, {walletAddress, blockId});
 
     return txns.map(txn => ({
       ...txn,
-      senderPublicKey: txn.senderPublicKey.toString('hex'),
+      senderPublicKey: txn.senderPublicKey,
       sortKey: this._sha1(txn.id + blockId)
     })).sort((a, b) => this._transactionComparator(a, b));
   }
 
   async _getLastBlockAtTimestamp(chainSymbol, timestamp) {
     let chainOptions = this.options.chains[chainSymbol];
-    if (chainOptions.channelInterfaceEnabled) {
-      return this.channel.invoke(`${chainOptions.moduleAlias}:getLastBlockAtTimestamp`, {timestamp});
-    }
-
-    let storage = this._storageComponents[chainSymbol];
-    return (
-      await storage.adapter.db.query(
-        'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where blocks.timestamp <= $1 order by blocks.timestamp desc limit 1',
-        [timestamp]
-      )
-    )[0];
+    return this.channel.invoke(`${chainOptions.moduleAlias}:getLastBlockAtTimestamp`, {timestamp});
   }
 
   async _getMaxBlockHeight(chainSymbol) {
     let chainOptions = this.options.chains[chainSymbol];
-    if (chainOptions.channelInterfaceEnabled) {
-      return this.channel.invoke(`${chainOptions.moduleAlias}:getMaxBlockHeight`, {});
-    }
-
-    let storage = this._storageComponents[chainSymbol];
-    let maxHeightRows = await storage.adapter.db.query('select max(height) as height from blocks');
-    if (maxHeightRows.length <= 0) {
-      throw new Error(
-        `Could not find max block height for chain ${chainSymbol}`
-      );
-    }
-    return Number(maxHeightRows[0].height);
+    return this.channel.invoke(`${chainOptions.moduleAlias}:getMaxBlockHeight`, {});
   }
 
   async _getBlocksBetweenHeights(chainSymbol, fromHeight, toHeight, limit) {
     let chainOptions = this.options.chains[chainSymbol];
-    if (chainOptions.channelInterfaceEnabled) {
-      return this.channel.invoke(`${chainOptions.moduleAlias}:getBlocksBetweenHeights`, {fromHeight, toHeight, limit});
-    }
-
-    let storage = this._storageComponents[chainSymbol];
-    return storage.adapter.db.query(
-      'select blocks.id, blocks.height, blocks."numberOfTransactions", blocks.timestamp from blocks where height > $1 and height <= $2 order by blocks.timestamp asc limit $3',
-      [fromHeight, toHeight, limit]
-    );
+    return this.channel.invoke(`${chainOptions.moduleAlias}:getBlocksBetweenHeights`, {fromHeight, toHeight, limit});
   }
 
   async _getBlockAtHeight(chainSymbol, height) {
     let chainOptions = this.options.chains[chainSymbol];
-    if (chainOptions.channelInterfaceEnabled) {
-      return this.channel.invoke(`${chainOptions.moduleAlias}:getBlockAtHeight`, {height});
-    }
-
-    let storage = this._storageComponents[chainSymbol];
-    return (
-      await storage.adapter.db.query(
-        'select blocks.id, blocks."numberOfTransactions", blocks.timestamp, blocks.height from blocks where height = $1 limit 1',
-        [height]
-      )
-    )[0];
+    return this.channel.invoke(`${chainOptions.moduleAlias}:getBlockAtHeight`, {height});
   }
 
   async _getBaseChainBlockTimestamp(height) {
@@ -1831,7 +1708,7 @@ module.exports = class LiskDEXModule extends BaseModule {
   async execMultisigTransaction(targetChain, transactionData, message) {
     let chainOptions = this.options.chains[targetChain];
     let chainCrypto = this.chainCrypto[targetChain];
-    let preparedTxn = chainCrypto.prepareTransaction(
+    let {transaction: preparedTxn, signature: multisigTxnSignature} = chainCrypto.prepareTransaction(
       {
         ...transactionData,
         message
