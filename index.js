@@ -2,7 +2,6 @@
 
 const crypto = require('crypto');
 const defaultConfig = require('./defaults/config');
-const BaseModule = require('lisk-framework/src/modules/base_module');
 const TradeEngine = require('./trade-engine');
 const ChainCrypto = require('./chain-crypto');
 const fs = require('fs');
@@ -32,9 +31,8 @@ const DEFAULT_TRANSACTION_SUBMIT_DELAY = 5000;
  * @namespace Framework.Modules
  * @type {module.LiskDEXModule}
  */
-module.exports = class LiskDEXModule extends BaseModule {
+module.exports = class LiskDEXModule {
   constructor({alias, config, appConfig, logger}) {
-    super({});
     this.options = {...defaultConfig, ...config};
     this.appConfig = appConfig;
     this.alias = alias || DEFAULT_MODULE_ALIAS;
