@@ -1383,6 +1383,9 @@ module.exports = class LiskDEXModule {
       if (baseChainBlocks.length <= 0 || quoteChainBlocks.length <= 0) {
         return 0;
       }
+      baseChainBlocks[baseChainBlocks.length - 1].isLastBlock = true;
+      quoteChainBlocks[quoteChainBlocks.length - 1].isLastBlock = true;
+
       let orderedBlockList = baseChainBlocks.concat(quoteChainBlocks);
 
       orderedBlockList.sort((a, b) => {
