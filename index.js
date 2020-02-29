@@ -429,9 +429,9 @@ module.exports = class LiskDEXModule {
         publicKey
       };
     }
-    let {transaction, processedSignatureSet, propagatedSignatureSet, contributors, targetChain} = transfer;
+    let {transaction, processedSignatureSet, recentlyProcessedSignatureSet, contributors, targetChain} = transfer;
     if (processedSignatureSet.has(signature)) {
-      if (propagatedSignatureSet.has(signature)) {
+      if (recentlyProcessedSignatureSet.has(signature)) {
         // Necessary to prevent spamming the network with valid signatures which have already been recently propagated.
         return {
           isAccepted: false,
@@ -441,7 +441,7 @@ module.exports = class LiskDEXModule {
           publicKey
         };
       }
-      propagatedSignatureSet.add(signature);
+      recentlyProcessedSignatureSet.add(signature);
     } else {
       let isValidSignature = this._verifySignature(targetChain, publicKey, transaction, signature);
       if (!isValidSignature) {
@@ -455,6 +455,7 @@ module.exports = class LiskDEXModule {
       }
 
       processedSignatureSet.add(signature);
+      recentlyProcessedSignatureSet.add(signature);
       transaction.signatures.push(signature);
     }
 
@@ -630,9 +631,9 @@ module.exports = class LiskDEXModule {
             heightDiff < chainOptions.rebroadcastUntilHeight &&
             transfer.transaction.signatures.length
           ) {
-            // Reset the propagatedSignatureSet so that the subnet can try propagating the
-            // signatues again. First signature is our own.
-            transfer.propagatedSignatureSet = new Set([transfer.transaction.signatures[0]]);
+            // Reset the recentlyProcessedSignatureSet so that the subnet can try reprocessing the
+            // signatures. First signature is our own.
+            transfer.recentlyProcessedSignatureSet = new Set([transfer.transaction.signatures[0]]);
             if (transfer.isReady) {
               this._postTransactionToChain(transfer.targetChain, transfer.transaction);
             } else {
@@ -1728,7 +1729,7 @@ module.exports = class LiskDEXModule {
     let walletAddress = chainCrypto.getAddressFromPublicKey(publicKey);
 
     let processedSignatureSet = new Set([multisigTxnSignature]);
-    let propagatedSignatureSet = new Set(processedSignatureSet);
+    let recentlyProcessedSignatureSet = new Set(processedSignatureSet);
 
     let contributors = new Set();
     contributors.add(walletAddress);
@@ -1744,7 +1745,7 @@ module.exports = class LiskDEXModule {
       transaction: preparedTxn,
       targetChain,
       processedSignatureSet,
-      propagatedSignatureSet,
+      recentlyProcessedSignatureSet,
       contributors,
       publicKey,
       height: transactionData.height,
