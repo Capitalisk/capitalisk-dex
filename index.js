@@ -417,10 +417,10 @@ module.exports = class LiskDEXModule {
   }
 
   _processSignature(signatureData) {
-    let transactionData = this.pendingTransfers.get(signatureData.transactionId);
+    let transfer = this.pendingTransfers.get(signatureData.transactionId);
     let signature = signatureData.signature;
     let publicKey = signatureData.publicKey;
-    if (!transactionData) {
+    if (!transfer) {
       return {
         isAccepted: false,
         targetChain: null,
@@ -429,7 +429,7 @@ module.exports = class LiskDEXModule {
         publicKey
       };
     }
-    let {transaction, processedSignatureSet, contributors, targetChain} = transactionData;
+    let {transaction, processedSignatureSet, contributors, targetChain} = transfer;
     if (processedSignatureSet.has(signature)) {
       return {
         isAccepted: false,
@@ -459,7 +459,7 @@ module.exports = class LiskDEXModule {
 
     let signatureQuota = this._getSignatureQuota(targetChain, transaction);
     if (signatureQuota >= 0) {
-      transactionData.isReady = true;
+      transfer.isReady = true;
     }
 
     return {
