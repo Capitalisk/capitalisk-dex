@@ -539,7 +539,7 @@ module.exports = class LiskDEXModule {
       let results = signatureDataList.map(signatureData => this._processSignature(signatureData || {}));
       let acceptedResults = results.filter(result => result.isAccepted);
 
-      let signatureDataList = acceptedResults.map((result) => {
+      let acceptedSignatureDataList = acceptedResults.map((result) => {
         return {
           signature: result.signature,
           transactionId: result.transaction.id,
@@ -547,8 +547,8 @@ module.exports = class LiskDEXModule {
         };
       });
 
-      if (signatureDataList.length) {
-        await this._broadcastSignaturesToSubnet(signatureDataList);
+      if (acceptedSignatureDataList.length) {
+        await this._broadcastSignaturesToSubnet(acceptedSignatureDataList);
       }
 
       let readyResults = acceptedResults.filter(result => result.signatureQuota === 0);
