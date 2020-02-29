@@ -487,7 +487,7 @@ module.exports = class LiskDEXModule {
     }
   }
 
-  async _postTransactionToChain(targetChain, transaction) {
+  async _broadcastTransactionsToChain(targetChain, transactions) {
     let chainOptions = this.options.chains[targetChain];
     if (chainOptions && chainOptions.moduleAlias) {
       let modulePrefix;
@@ -502,14 +502,14 @@ module.exports = class LiskDEXModule {
           {
             event: `${modulePrefix}postTransactions`,
             data: {
-              transactions: [transaction],
+              transactions,
               nonce: `DEXO2wTkjqplHw2l`
             }
           }
         );
       } catch (error) {
         this.logger.error(
-          `Error encountered while attempting to post transaction ${transaction.id} to the ${targetChain} network - ${error.message}`
+          `Error encountered while attempting to post transactions to the ${targetChain} network - ${error.message}`
         );
       }
     }
@@ -531,26 +531,54 @@ module.exports = class LiskDEXModule {
 
     let hasMultisigWalletsInfo = false;
 
-    this.channel.subscribe(`network:event:${this.alias}:signature`, async ({data}) => {
+    this.channel.subscribe(`network:event:${this.alias}:signatures`, async ({data}) => {
       if (!hasMultisigWalletsInfo) {
         return;
       }
-      let signatureData = data || {};
-      let result = this._processSignature(signatureData);
+      let signatureDataList = Array.isArray(data) ? data : [];
+      let results = signatureDataList.map(signatureData => this._processSignature(signatureData || {}));
+      let acceptedResults = results.filter(result => result.isAccepted);
 
-      if (result.isAccepted) {
-        // Propagate valid signature to peers who are members of the DEX subnet.
-        await this._broadcastSignatureToSubnet(result.transaction.id, result.signature, result.publicKey);
+      let signatureDataList = acceptedResults.map((result) => {
+        return {
+          signature: result.signature,
+          transactionId: result.transaction.id,
+          publicKey: result.publicKey
+        };
+      });
 
-        if (result.signatureQuota === 0) {
-          let txnSubmitDelay = this.options.transactionSubmitDelay == null ?
-            DEFAULT_TRANSACTION_SUBMIT_DELAY : this.options.transactionSubmitDelay;
-          // Wait some additional time to collect signatures from remaining DEX members.
-          // The signatures will keep accumulating in the transaction object's signatures array.
-          await wait(txnSubmitDelay);
-          await this._postTransactionToChain(result.targetChain, result.transaction);
-        }
+      if (signatureDataList.length) {
+        await this._broadcastSignaturesToSubnet(signatureDataList);
       }
+
+      let readyResults = acceptedResults.filter(result => result.signatureQuota === 0);
+
+      let readyTransactionsPerChain = {};
+      readyResults.forEach((result) => {
+         if (!readyTransactionsPerChain[result.targetChain]) {
+           readyTransactionsPerChain[result.targetChain] = [];
+         }
+         readyTransactionsPerChain[result.targetChain].push(result.transaction);
+      });
+
+      let readyTargetChainList = Object.keys(readyTransactionsPerChain);
+
+      if (!readyTargetChainList.length) {
+        return;
+      }
+
+      let txnSubmitDelay = this.options.transactionSubmitDelay == null ?
+        DEFAULT_TRANSACTION_SUBMIT_DELAY : this.options.transactionSubmitDelay;
+      // Wait some additional time to collect signatures from remaining DEX members.
+      // The signatures will keep accumulating in the transaction object's signatures array.
+      await wait(txnSubmitDelay);
+
+      await Promise.all(
+        readyTargetChainList.map(async (targetChain) => {
+          let transactions = readyTransactionsPerChain[targetChain];
+          await this._broadcastTransactionsToChain(targetChain, transactions);
+        })
+      );
     });
 
     try {
@@ -621,6 +649,9 @@ module.exports = class LiskDEXModule {
       // node's signature for each pending multisig transaction in case other DEX nodes
       // did not receive it.
       if (isLastBlock) {
+        let transactionsToBroadcast = [];
+        let signaturesToBroadcast = [];
+
         for (let transfer of this.pendingTransfers.values()) {
           if (transfer.targetChain !== chainSymbol) {
             continue;
@@ -635,15 +666,22 @@ module.exports = class LiskDEXModule {
             // signatures. First signature is our own.
             transfer.recentlyProcessedSignatureSet = new Set([transfer.transaction.signatures[0]]);
             if (transfer.isReady) {
-              this._postTransactionToChain(transfer.targetChain, transfer.transaction);
+              transactionsToBroadcast.push(transfer.transaction);
             } else {
-              this._broadcastSignatureToSubnet(
-                transfer.transaction.id,
-                transfer.transaction.signatures[0],
-                transfer.publicKey
-              );
+              signaturesToBroadcast.push({
+                signature: transfer.transaction.signatures[0],
+                transactionId: transfer.transaction.id,
+                publicKey: transfer.publicKey
+              });
             }
           }
+        }
+
+        if (transactionsToBroadcast.length) {
+          this._broadcastTransactionsToChain(chainSymbol, transactionsToBroadcast);
+        }
+        if (signaturesToBroadcast.length) {
+          this._broadcastSignaturesToSubnet(signaturesToBroadcast);
         }
       }
 
@@ -1702,15 +1740,11 @@ module.exports = class LiskDEXModule {
   }
 
   // Broadcast the signature to all DEX nodes with a matching baseAddress and quoteAddress
-  async _broadcastSignatureToSubnet(transactionId, signature, publicKey) {
+  async _broadcastSignaturesToSubnet(signatureDataList) {
     let actionRouteString = `${this.alias}?baseAddress=${this.baseAddress}&quoteAddress=${this.quoteAddress}`;
     this.channel.invoke('network:emit', {
-      event: `${actionRouteString}:signature`,
-      data: {
-        signature,
-        transactionId,
-        publicKey
-      }
+      event: `${actionRouteString}:signatures`,
+      data: signatureDataList
     });
   }
 
@@ -1757,7 +1791,13 @@ module.exports = class LiskDEXModule {
       DEFAULT_SIGNATURE_BROADCAST_DELAY : this.options.signatureBroadcastDelay;
     await wait(sigBroadcastDelay);
     try {
-      await this._broadcastSignatureToSubnet(preparedTxn.id, multisigTxnSignature, publicKey);
+      await this._broadcastSignaturesToSubnet([
+        {
+          signature: multisigTxnSignature,
+          transactionId: preparedTxn.id,
+          publicKey
+        }
+      ]);
     } catch (error) {
       this.logger.error(
         `Failed to broadcast signature to DEX peers for multisig transaction ${preparedTxn.id}`
