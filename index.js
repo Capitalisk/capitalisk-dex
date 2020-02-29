@@ -374,9 +374,10 @@ module.exports = class LiskDEXModule {
           let transferList = this._execQueryAgainstIterator(
             action.params,
             this.pendingTransfers.values(),
-            (item) => item.transaction.id
+            (item) => item.id
           );
           return transferList.map((transfer) => ({
+            id: transfer.id,
             transaction: transfer.transaction,
             targetChain: transfer.targetChain,
             collectedSignatures: [...transfer.processedSignatureSet.values()],
