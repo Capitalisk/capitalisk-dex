@@ -1730,6 +1730,7 @@ module.exports = class LiskDEXModule {
       this.pendingTransfers.delete(preparedTxn.id);
     }
     this.pendingTransfers.set(preparedTxn.id, {
+      id: preparedTxn.id,
       transaction: preparedTxn,
       targetChain,
       processedSignatureSet,
