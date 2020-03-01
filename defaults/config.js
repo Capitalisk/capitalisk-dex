@@ -1,6 +1,5 @@
 module.exports = {
   passiveMode: false,
-  signatureBroadcastDelay: 8000,
   transactionSubmitDelay: 3000,
   multisigExpiry: 86400000,
   multisigExpiryCheckInterval: 60000,
