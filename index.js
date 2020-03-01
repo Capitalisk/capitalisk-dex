@@ -22,12 +22,6 @@ const CIPHER_ALGORITHM = 'aes-192-cbc';
 const CIPHER_KEY = LISK_DEX_PASSWORD ? crypto.scryptSync(LISK_DEX_PASSWORD, 'salt', 24) : undefined;
 const CIPHER_IV = Buffer.alloc(16, 0);
 
-const DEFAULT_SIGNATURE_FLUSH_INTERVAL = 5000;
-const DEFAULT_MULTISIG_FLUSH_INTERVAL = 8000;
-
-const DEFAULT_MAX_TRANSACTION_BATCH_SIZE = 25;
-const DEFAULT_MAX_SIGNATURE_BATCH_SIZE = 100;
-
 /**
  * Lisk DEX module specification
  *
@@ -473,7 +467,7 @@ module.exports = class LiskDEXModule {
 
     let chainSymbolList = Object.keys(transactionsToBroadcastPerChain);
     for (let chainSymbol of chainSymbolList) {
-      let maxBatchSize = this.options.maxTransactionBatchSize || DEFAULT_MAX_TRANSACTION_BATCH_SIZE;
+      let maxBatchSize = this.options.multisigMaxBatchSize;
       let transactionsToBroadcast = transactionsToBroadcastPerChain[chainSymbol].slice(0, maxBatchSize);
       this._broadcastTransactionsToChain(chainSymbol, transactionsToBroadcast);
     }
@@ -493,7 +487,7 @@ module.exports = class LiskDEXModule {
     }
 
     if (signaturesToBroadcast.length) {
-      let maxBatchSize = this.options.maxSignatureBatchSize || DEFAULT_MAX_SIGNATURE_BATCH_SIZE;
+      let maxBatchSize = this.options.signatureMaxBatchSize;
       this._broadcastSignaturesToSubnet(
         signaturesToBroadcast.slice(0, maxBatchSize)
       );
@@ -537,11 +531,11 @@ module.exports = class LiskDEXModule {
 
     this._multisigFlushInterval = setInterval(() => {
       this.flushPendingMultisigTransactions();
-    }, this.options.multisigFlushInterval || DEFAULT_MULTISIG_FLUSH_INTERVAL);
+    }, this.options.multisigFlushInterval);
 
     this._signatureFlushInterval = setInterval(() => {
       this.flushPendingSignatures();
-    }, this.options.signatureFlushInterval || DEFAULT_SIGNATURE_FLUSH_INTERVAL);
+    }, this.options.signatureFlushInterval);
 
     await this.channel.invoke('app:updateModuleState', {
       [this.alias]: {
@@ -556,7 +550,7 @@ module.exports = class LiskDEXModule {
       if (!hasMultisigWalletsInfo) {
         return;
       }
-      let signatureDataList = Array.isArray(data) ? data : [];
+      let signatureDataList = Array.isArray(data) ? data.slice(0, this.options.signatureMaxBatchSize) : [];
       signatureDataList.forEach(signatureData => this._processSignature(signatureData || {}));
     });
 
