@@ -162,8 +162,8 @@ module.exports = class LiskDEXModule {
       }
     });
 
-    if (this.options.dividendFunction) {
-      this.dividendFunction = this.options.dividendFunction;
+    if (this.options.dividendLibPath) {
+      this.dividendFunction = require(this.options.dividendLibPath);
     } else {
       this.dividendFunction = (chainSymbol, contributionData, chainOptions, memberCount) => {
         return Object.keys(contributionData).map((walletAddress) => {
