@@ -163,9 +163,9 @@ module.exports = class LiskDEXModule {
     });
 
     if (this.options.dividendLibPath) {
-      this.dividendFunction = require(this.options.dividendLibPath);
+      this.computeDividends = require(this.options.dividendLibPath);
     } else {
-      this.dividendFunction = (chainSymbol, contributionData, chainOptions, memberCount) => {
+      this.computeDividends = async ({chainSymbol, contributionData, chainOptions, memberCount}) => {
         return Object.keys(contributionData).map((walletAddress) => {
           let payableContribution = contributionData[walletAddress] * chainOptions.dividendRate;
           return {
@@ -1244,7 +1244,7 @@ module.exports = class LiskDEXModule {
             for (let block of blocksToProcess) {
               let outboundTxns = await this._getOutboundTransactions(chainSymbol, block.id, chainOptions.walletAddress);
               outboundTxns.forEach((txn) => {
-                let contributionList = this._calculateContributions(chainSymbol, txn, chainOptions.exchangeFeeRate, chainOptions.exchangeFeeBase);
+                let contributionList = this._computeContributions(chainSymbol, txn, chainOptions.exchangeFeeRate, chainOptions.exchangeFeeBase);
                 contributionList.forEach((contribution) => {
                   if (!contributionData[contribution.walletAddress]) {
                     contributionData[contribution.walletAddress] = 0;
@@ -1256,7 +1256,14 @@ module.exports = class LiskDEXModule {
             currentBlock = blocksToProcess[blocksToProcess.length - 1];
           }
           let {memberCount} = this.multisigWalletInfo[chainSymbol];
-          let dividendList = this.dividendFunction(chainSymbol, contributionData, this.options.chains[chainSymbol], memberCount);
+          let dividendList = await this.computeDividends({
+            chainSymbol,
+            contributionData,
+            chainOptions: this.options.chains[chainSymbol],
+            memberCount,
+            fromHeight,
+            toHeight
+          });
           await Promise.all(
             dividendList.map(async (dividend) => {
               let txnAmount = dividend.amount - chainOptions.exchangeFeeBase;
@@ -1460,7 +1467,7 @@ module.exports = class LiskDEXModule {
     channel.publish(`${this.alias}:bootstrap`);
   }
 
-  _calculateContributions(chainSymbol, transaction, exchangeFeeRate) {
+  _computeContributions(chainSymbol, transaction, exchangeFeeRate) {
     transaction = {...transaction};
     if (!transaction.asset) {
       transaction.asset = {};
