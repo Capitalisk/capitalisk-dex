@@ -14,8 +14,6 @@ const unlink = util.promisify(fs.unlink);
 const mkdir = util.promisify(fs.mkdir);
 const packageJSON = require('./package.json');
 
-const WritableConsumableStream = require('writable-consumable-stream');
-
 const DEFAULT_MODULE_ALIAS = 'lisk_dex';
 const { LISK_DEX_PASSWORD } = process.env;
 const CIPHER_ALGORITHM = 'aes-192-cbc';
@@ -591,8 +589,6 @@ module.exports = class LiskDEXModule {
       );
     }
 
-    let dividendProcessingStream = new WritableConsumableStream();
-
     let processBlock = async ({chainSymbol, chainHeight, latestChainHeights, isLastBlock, blockData}) => {
       this.logger.info(
         `Chain ${chainSymbol}: Processing block at height ${chainHeight}`
@@ -675,12 +671,18 @@ module.exports = class LiskDEXModule {
         dividendTargetHeight > chainOptions.dividendStartHeight &&
         dividendTargetHeight % chainOptions.dividendHeightInterval === 0
       ) {
-        dividendProcessingStream.write({
-          chainSymbol,
-          chainHeight,
-          toHeight: dividendTargetHeight,
-          latestBlockTimestamp
-        });
+        try {
+          await processDividends({
+            chainSymbol,
+            chainHeight,
+            toHeight: dividendTargetHeight,
+            latestBlockTimestamp
+          });
+        } catch (error) {
+          this.logger.error(
+            `Failed to process dividends at target height ${dividendTargetHeight} because of error: ${error.message}`
+          );
+        }
       }
 
       let blockTransactions = await Promise.all([
@@ -1220,75 +1222,65 @@ module.exports = class LiskDEXModule {
       this.processedHeights = {...latestChainHeights};
     }
 
-    (async () => {
-      // If the dividendProcessingStream is killed, the inner for-await-of loop will break;
-      // in that case, it will continue with the iteration from the end of the stream.
-      while (true) {
-        for await (let event of dividendProcessingStream) {
-          let {chainSymbol, chainHeight, toHeight, latestBlockTimestamp} = event;
-          let chainOptions = this.options.chains[chainSymbol];
-          let fromHeight = toHeight - chainOptions.dividendHeightInterval;
-          let {readMaxBlocks} = chainOptions;
-          if (fromHeight < 1) {
-            fromHeight = 1;
-          }
-
-          let contributionData = {};
-          let currentBlock = await this._getBlockAtHeight(chainSymbol, fromHeight);
-
-          while (true) {
-            if (!currentBlock) {
-              break;
-            }
-            let blocksToProcess = await this._getBlocksBetweenHeights(chainSymbol, currentBlock.height, toHeight, readMaxBlocks);
-            for (let block of blocksToProcess) {
-              let outboundTxns = await this._getOutboundTransactions(chainSymbol, block.id, chainOptions.walletAddress);
-              outboundTxns.forEach((txn) => {
-                let contributionList = this._computeContributions(chainSymbol, txn, chainOptions.exchangeFeeRate, chainOptions.exchangeFeeBase);
-                contributionList.forEach((contribution) => {
-                  if (!contributionData[contribution.walletAddress]) {
-                    contributionData[contribution.walletAddress] = 0;
-                  }
-                  contributionData[contribution.walletAddress] += contribution.amount;
-                });
-              });
-            }
-            currentBlock = blocksToProcess[blocksToProcess.length - 1];
-          }
-          let {memberCount} = this.multisigWalletInfo[chainSymbol];
-          let dividendList = await this.computeDividends({
-            chainSymbol,
-            contributionData,
-            chainOptions: this.options.chains[chainSymbol],
-            memberCount,
-            fromHeight,
-            toHeight
-          });
-          await Promise.all(
-            dividendList.map(async (dividend) => {
-              let txnAmount = dividend.amount - chainOptions.exchangeFeeBase;
-              let dividendTxn = {
-                amount: txnAmount.toString(),
-                recipientId: dividend.walletAddress,
-                height: chainHeight,
-                timestamp: latestBlockTimestamp
-              };
-              try {
-                await this.execMultisigTransaction(
-                  chainSymbol,
-                  dividendTxn,
-                  `d1,${fromHeight + 1},${toHeight}: Member dividend`
-                );
-              } catch (error) {
-                this.logger.error(
-                  `Chain ${chainSymbol}: Failed to post multisig dividend transaction to member address ${dividend.walletAddress} because of error: ${error.message}`
-                );
-              }
-            })
-          );
-        }
+    let processDividends = async ({chainSymbol, chainHeight, toHeight, latestBlockTimestamp}) => {
+      let chainOptions = this.options.chains[chainSymbol];
+      let fromHeight = toHeight - chainOptions.dividendHeightInterval;
+      let {readMaxBlocks} = chainOptions;
+      if (fromHeight < 1) {
+        fromHeight = 1;
       }
-    })();
+
+      let contributionData = {};
+      let currentBlock = await this._getBlockAtHeight(chainSymbol, fromHeight);
+
+      while (currentBlock) {
+        let blocksToProcess = await this._getBlocksBetweenHeights(chainSymbol, currentBlock.height, toHeight, readMaxBlocks);
+        for (let block of blocksToProcess) {
+          let outboundTxns = await this._getOutboundTransactions(chainSymbol, block.id, chainOptions.walletAddress);
+          outboundTxns.forEach((txn) => {
+            let contributionList = this._computeContributions(chainSymbol, txn, chainOptions.exchangeFeeRate, chainOptions.exchangeFeeBase);
+            contributionList.forEach((contribution) => {
+              if (!contributionData[contribution.walletAddress]) {
+                contributionData[contribution.walletAddress] = 0;
+              }
+              contributionData[contribution.walletAddress] += contribution.amount;
+            });
+          });
+        }
+        currentBlock = blocksToProcess[blocksToProcess.length - 1];
+      }
+      let {memberCount} = this.multisigWalletInfo[chainSymbol];
+      let dividendList = await this.computeDividends({
+        chainSymbol,
+        contributionData,
+        chainOptions: this.options.chains[chainSymbol],
+        memberCount,
+        fromHeight,
+        toHeight
+      });
+      await Promise.all(
+        dividendList.map(async (dividend) => {
+          let txnAmount = dividend.amount - chainOptions.exchangeFeeBase;
+          let dividendTxn = {
+            amount: txnAmount.toString(),
+            recipientId: dividend.walletAddress,
+            height: chainHeight,
+            timestamp: latestBlockTimestamp
+          };
+          try {
+            await this.execMultisigTransaction(
+              chainSymbol,
+              dividendTxn,
+              `d1,${fromHeight + 1},${toHeight}: Member dividend`
+            );
+          } catch (error) {
+            this.logger.error(
+              `Chain ${chainSymbol}: Failed to post multisig dividend transaction to member address ${dividend.walletAddress} because of error: ${error.message}`
+            );
+          }
+        })
+      );
+    };
 
     let isInForkRecovery = false;
 
