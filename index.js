@@ -165,10 +165,11 @@ module.exports = class LiskDEXModule {
     } else {
       this.computeDividends = async ({chainSymbol, contributionData, chainOptions, memberCount}) => {
         return Object.keys(contributionData).map((walletAddress) => {
-          let payableContribution = contributionData[walletAddress] * chainOptions.dividendRate;
+          let payableContribution = contributionData[walletAddress] * BigInt(Math.floor(chainOptions.dividendRate * 10000)) / 10000n;
+          let totalPayableAmount = payableContribution * BigInt(Math.floor(chainOptions.exchangeFeeRate * 10000)) / 10000n;
           return {
             walletAddress,
-            amount: Math.floor(payableContribution * chainOptions.exchangeFeeRate / memberCount)
+            amount: totalPayableAmount / BigInt(memberCount)
           };
         });
       };
@@ -1241,9 +1242,9 @@ module.exports = class LiskDEXModule {
             let contributionList = this._computeContributions(chainSymbol, txn, chainOptions.exchangeFeeRate, chainOptions.exchangeFeeBase);
             contributionList.forEach((contribution) => {
               if (!contributionData[contribution.walletAddress]) {
-                contributionData[contribution.walletAddress] = 0;
+                contributionData[contribution.walletAddress] = 0n;
               }
-              contributionData[contribution.walletAddress] += contribution.amount;
+              contributionData[contribution.walletAddress] += BigInt(contribution.amount);
             });
           });
         }
@@ -1260,7 +1261,7 @@ module.exports = class LiskDEXModule {
       });
       await Promise.all(
         dividendList.map(async (dividend) => {
-          let txnAmount = dividend.amount - chainOptions.exchangeFeeBase;
+          let txnAmount = dividend.amount - BigInt(chainOptions.exchangeFeeBase);
           let dividendTxn = {
             amount: txnAmount.toString(),
             recipientId: dividend.walletAddress,
