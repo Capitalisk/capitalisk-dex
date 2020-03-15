@@ -27,8 +27,31 @@ const CIPHER_IV = Buffer.alloc(16, 0);
  * @type {module.LiskDEXModule}
  */
 module.exports = class LiskDEXModule {
-  constructor({alias, config, appConfig, logger}) {
+  constructor({alias, config, configUpdates, appConfig, logger, updater}) {
     this.options = {...defaultConfig, ...config};
+    if (!configUpdates) {
+      configUpdates = [];
+    }
+    for (let update of configUpdates) {
+      if (!update.criteria) {
+        update.criteria = {};
+      }
+      if (!update.criteria.baseChainHeight) {
+        update.criteria.baseChainHeight = 0;
+      }
+    }
+    configUpdates.sort((a, b) => {
+      let critA = a.criteria;
+      let critB = b.criteria;
+      if (critA.baseChainHeight < critB.baseChainHeight) {
+        return -1;
+      }
+      if (critA.baseChainHeight > critB.baseChainHeight) {
+        return 1;
+      }
+      return 0;
+    });
+    this.configUpdates = configUpdates;
     this.appConfig = appConfig;
     this.alias = alias || DEFAULT_MODULE_ALIAS;
     this.chainSymbols = Object.keys(this.options.chains);
@@ -36,6 +59,7 @@ module.exports = class LiskDEXModule {
       throw new Error('The DEX module must operate only on 2 chains');
     }
     this.logger = logger;
+    this.updater = updater;
     this.multisigWalletInfo = {};
     this.isForked = false;
     this.lastSnapshot = null;
@@ -616,6 +640,46 @@ module.exports = class LiskDEXModule {
       let latestBlockTimestamp = blockData.timestamp;
 
       if (chainSymbol === this.baseChainSymbol) {
+        // Process pending updates.
+        let expiredUpdates = [];
+        let readyUpdates = [];
+
+        let updateCount = this.configUpdates.length;
+        for (let i = 0; i < updateCount; i++) {
+          let update = this.configUpdates[i];
+          let targetHeight = update.criteria.baseChainHeight;
+          if (targetHeight > baseChainHeight) {
+            break;
+          }
+          if (targetHeight < baseChainHeight) {
+            expiredUpdates.push(update);
+          } else if (targetHeight === baseChainHeight) {
+            readyUpdates.push(update);
+          }
+        }
+
+        if (expiredUpdates.length) {
+          this.updater.notifyUpdatesFailure(expiredUpdates, 'Updates have expired');
+        }
+
+        if (readyUpdates.length) {
+          let currentOrderBook = this.tradeEngine.getSnapshot();
+          let processedChainHeights = {...latestChainHeights};
+          processedChainHeights[this.baseChainSymbol]--;
+          let snapshot = {
+            orderBook: currentOrderBook,
+            chainHeights: processedChainHeights
+          };
+          try {
+            await this.saveSnapshot(snapshot);
+          } catch (error) {
+            this.logger.error(`Failed to save snapshot before update because of error: ${error.message}`);
+          }
+          this.updater.applyUpdates(readyUpdates);
+          process.exit();
+        }
+
+        // Make a new snapshot every orderBookSnapshotFinality blocks.
         if (chainHeight % this.options.orderBookSnapshotFinality === 0) {
           let currentOrderBook = this.tradeEngine.getSnapshot();
           if (this.lastSnapshot) {
