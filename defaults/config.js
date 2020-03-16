@@ -7,6 +7,7 @@ module.exports = {
   signatureFlushInterval: 5000,
   signatureMaxBatchSize: 400,
   orderBookSnapshotFinality: 303,
+  orderBookUpdateSnapshotDirPath: './dex-update-snapshots',
   orderBookSnapshotFilePath: './dex-snapshot.json',
   orderBookSnapshotBackupDirPath: './dex-snapshot-backups',
   orderBookSnapshotBackupMaxCount: 50,

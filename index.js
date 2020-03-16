@@ -27,12 +27,12 @@ const CIPHER_IV = Buffer.alloc(16, 0);
  * @type {module.LiskDEXModule}
  */
 module.exports = class LiskDEXModule {
-  constructor({alias, config, configUpdates, appConfig, logger, updater}) {
+  constructor({alias, config, updates, appConfig, logger, updater}) {
     this.options = {...defaultConfig, ...config};
-    if (!configUpdates) {
-      configUpdates = [];
+    if (!updates) {
+      updates = [];
     }
-    for (let update of configUpdates) {
+    for (let update of updates) {
       if (!update.criteria) {
         update.criteria = {};
       }
@@ -40,7 +40,7 @@ module.exports = class LiskDEXModule {
         update.criteria.baseChainHeight = 0;
       }
     }
-    configUpdates.sort((a, b) => {
+    updates.sort((a, b) => {
       let critA = a.criteria;
       let critB = b.criteria;
       if (critA.baseChainHeight < critB.baseChainHeight) {
@@ -51,7 +51,7 @@ module.exports = class LiskDEXModule {
       }
       return 0;
     });
-    this.configUpdates = configUpdates;
+    this.updates = updates;
     this.appConfig = appConfig;
     this.alias = alias || DEFAULT_MODULE_ALIAS;
     this.chainSymbols = Object.keys(this.options.chains);
@@ -578,17 +578,15 @@ module.exports = class LiskDEXModule {
     });
 
     try {
-      await mkdir(this.options.orderBookSnapshotBackupDirPath);
+      await mkdir(this.options.orderBookSnapshotBackupDirPath, {recursive: true});
     } catch (error) {
-      if (error.code !== 'EEXIST') {
-        this.logger.error(
-          `Failed to create snapshot directory ${
-            this.options.orderBookSnapshotBackupDirPath
-          } because of error: ${
-            error.message
-          }`
-        );
-      }
+      this.logger.error(
+        `Failed to create snapshot directory ${
+          this.options.orderBookSnapshotBackupDirPath
+        } because of error: ${
+          error.message
+        }`
+      );
     }
 
     let loadMultisigWalletInfo = async () => {
@@ -639,45 +637,77 @@ module.exports = class LiskDEXModule {
 
       let latestBlockTimestamp = blockData.timestamp;
 
-      // TODO 222 updates need to be processed with a delay
       if (chainSymbol === this.baseChainSymbol) {
         // Process pending updates.
-        let expiredUpdates = [];
-        let readyUpdates = [];
+        let updatesToActivate = [];
 
-        let updateCount = this.configUpdates.length;
-        for (let i = 0; i < updateCount; i++) {
-          let update = this.configUpdates[i];
+        let updateList;
+        if (this.updater.activeUpdate) {
+          updateList = this.updates.filter(update => update.id !== this.updater.activeUpdate.id);
+        } else {
+          updateList = this.updates;
+        }
+        for (let update of updateList) {
           let targetHeight = update.criteria.baseChainHeight;
           if (targetHeight > baseChainHeight) {
             break;
           }
-          if (targetHeight < baseChainHeight) {
-            expiredUpdates.push(update);
-          } else if (targetHeight === baseChainHeight) {
-            readyUpdates.push(update);
+          if (targetHeight === baseChainHeight) {
+            updatesToActivate.push(update);
           }
         }
 
-        if (expiredUpdates.length) {
-          this.updater.notifyUpdatesFailure(expiredUpdates, 'Updates have expired');
-        }
-
-        if (readyUpdates.length) {
-          let currentOrderBook = this.tradeEngine.getSnapshot();
-          let processedChainHeights = {...latestChainHeights};
-          processedChainHeights[this.baseChainSymbol]--;
-          let snapshot = {
-            orderBook: currentOrderBook,
-            chainHeights: processedChainHeights
-          };
+        if (
+          this.updater.activeUpdate &&
+          this.updater.activeUpdate.criteria.baseChainHeight < baseChainHeight - this.options.orderBookSnapshotFinality
+        ) {
+          let updateSnapshotFilePath = this._getUpdateSnapshotFilePath(this.updater.activeUpdate.id);
+          this.updater.mergeActiveUpdate();
           try {
-            await this.saveSnapshot(snapshot);
+            await unlink(updateSnapshotFilePath);
           } catch (error) {
-            this.logger.error(`Failed to save snapshot before update because of error: ${error.message}`);
+            this.logger.error(
+              `Failed to delete update snapshot file at path ${
+                updateSnapshotFilePath
+              } because of error: ${error.message}`
+            );
           }
-          this.updater.applyUpdates(readyUpdates);
-          process.exit();
+        }
+
+        if (updatesToActivate.length) {
+          let update = updatesToActivate[0];
+          if (updatesToActivate.length > 1) {
+            this.logger.error('Cannot activate multiple updates on the same base chain height');
+          } else if (this.updater.activeUpdate) {
+            this.logger.error(
+              `Cannot activate update with id ${
+                update.id
+              } because an existing update with id ${
+                this.updater.activeUpdate.id
+              } is already active and has not been merged`
+            );
+          } else {
+            let currentOrderBook = this.tradeEngine.getSnapshot();
+            let processedChainHeights = {...latestChainHeights};
+            processedChainHeights[this.baseChainSymbol]--;
+            let snapshot = {
+              orderBook: currentOrderBook,
+              chainHeights: processedChainHeights
+            };
+            let updateSnapshotFilePath = this._getUpdateSnapshotFilePath(update.id);
+            let error;
+            try {
+              await mkdir(this.options.orderBookUpdateSnapshotDirPath, {recursive: true});
+              await this.saveSnapshot(snapshot, updateSnapshotFilePath);
+            } catch (err) {
+              error = err;
+              this.logger.fatal(`Failed to save snapshot before update because of error: ${error.message}`);
+            }
+            if (!error) {
+              this.updater.activateUpdate(update);
+            }
+            process.exit();
+          }
         }
 
         // Make a new snapshot every orderBookSnapshotFinality blocks.
@@ -731,7 +761,7 @@ module.exports = class LiskDEXModule {
       }
 
       // The height pointer for dividends needs to be delayed so that DEX member dividends are only distributed
-      // when there is no risk of fork in the underlying blockchain.
+      // over a range where there is no risk of fork in the underlying blockchain.
       let dividendTargetHeight = chainHeight - chainOptions.dividendHeightOffset;
       if (
         dividendTargetHeight > chainOptions.dividendStartHeight &&
@@ -1344,6 +1374,18 @@ module.exports = class LiskDEXModule {
         if (this.isForked) {
           return 0;
         }
+        if (this.updater.activeUpdate) {
+          // If there was a fork in one of the blockchains during a DEX update,
+          // revert the update. This will cause the module process to restart,
+          // resync from the last safe snapshot and then try to apply the update again.
+          this.logger.error(
+            `DEX module recovered from a blockchain fork while update ${
+              this.updater.activeUpdate.id
+            } was in progress - The incomplete update will be reverted and the DEX module will relaunch and try again`
+          );
+          this.updater.revertActiveUpdate();
+          process.exit();
+        }
         isInForkRecovery = false;
         this.pendingTransfers.clear();
         lastProcessedTimestamp = await this.revertToLastSnapshot();
@@ -1769,9 +1811,29 @@ module.exports = class LiskDEXModule {
     });
   }
 
+  _getUpdateSnapshotFilePath(updateId) {
+    return path.join(this.options.orderBookUpdateSnapshotDirPath, `snapshot-${updateId}.json`);
+  }
+
   async loadSnapshot() {
-    let serializedSnapshot = await readFile(this.options.orderBookSnapshotFilePath, {encoding: 'utf8'});
-    let snapshot = JSON.parse(serializedSnapshot);
+    let serializedSafeSnapshot = await readFile(
+      this.options.orderBookSnapshotFilePath,
+      {encoding: 'utf8'}
+    );
+    let safeSnapshot = JSON.parse(serializedSafeSnapshot);
+    let snapshot;
+
+    if (this.updater.activeUpdate) {
+      let updateSnapshotFilePath = this._getUpdateSnapshotFilePath(this.updater.activeUpdate.id);
+      let serializedUpdateSnapshot = await readFile(
+        updateSnapshotFilePath,
+        {encoding: 'utf8'}
+      );
+      snapshot = JSON.parse(serializedUpdateSnapshot);
+    } else {
+      snapshot = safeSnapshot;
+    }
+
     snapshot.orderBook.askLimitOrders.forEach((order) => {
       if (order.orderId != null) {
         order.id = order.orderId;
@@ -1790,7 +1852,7 @@ module.exports = class LiskDEXModule {
         delete order.sizeRemaining;
       }
     });
-    this.lastSnapshot = snapshot;
+    this.lastSnapshot = safeSnapshot;
     this.tradeEngine.setSnapshot(snapshot.orderBook);
     let baseChainHeight = snapshot.chainHeights[this.baseChainSymbol];
     return this._getBaseChainBlockTimestamp(baseChainHeight);
@@ -1806,10 +1868,13 @@ module.exports = class LiskDEXModule {
     return this._getBaseChainBlockTimestamp(baseChainHeight);
   }
 
-  async saveSnapshot(snapshot) {
+  async saveSnapshot(snapshot, filePath) {
+    if (filePath == null) {
+      filePath = this.options.orderBookSnapshotFilePath;
+    }
     let baseChainHeight = snapshot.chainHeights[this.baseChainSymbol];
     let serializedSnapshot = JSON.stringify(snapshot);
-    await writeFile(this.options.orderBookSnapshotFilePath, serializedSnapshot);
+    await writeFile(filePath, serializedSnapshot);
 
     try {
       await writeFile(
