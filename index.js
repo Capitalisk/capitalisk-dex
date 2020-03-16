@@ -291,7 +291,7 @@ module.exports = class LiskDEXModule {
       for (let item of iterator) {
         if (isCapturing) {
           let itemMatchesFilter = filterFields.every(
-            (field) => String(item[field]) === String(filterMap[field])
+            field => String(item[field]) === String(filterMap[field])
           );
           if (itemMatchesFilter) {
             result.push(item);
@@ -318,7 +318,7 @@ module.exports = class LiskDEXModule {
           break;
         }
         let itemMatchesFilter = filterFields.every(
-          (field) => String(item[field]) === String(filterMap[field])
+          field => String(item[field]) === String(filterMap[field])
         );
         if (itemMatchesFilter) {
           previousItems.push(item);
@@ -328,7 +328,7 @@ module.exports = class LiskDEXModule {
     }
     for (let item of iterator) {
       let itemMatchesFilter = filterFields.every(
-        (field) => String(item[field]) === String(filterMap[field])
+        field => String(item[field]) === String(filterMap[field])
       );
       if (itemMatchesFilter) {
         result.push(item);
@@ -374,19 +374,19 @@ module.exports = class LiskDEXModule {
       getBids: {
         handler: (action) => {
           let bidIterator = this.tradeEngine.getBidIterator();
-          return this._execQueryAgainstIterator(action.params, bidIterator, (item) => item.id);
+          return this._execQueryAgainstIterator(action.params, bidIterator, item => item.id);
         }
       },
       getAsks: {
         handler: (action) => {
           let askIterator = this.tradeEngine.getAskIterator();
-          return this._execQueryAgainstIterator(action.params, askIterator, (item) => item.id);
+          return this._execQueryAgainstIterator(action.params, askIterator, item => item.id);
         }
       },
       getOrders: {
         handler: (action) => {
           let orderIterator = this.tradeEngine.getOrderIterator();
-          return this._execQueryAgainstIterator(action.params, orderIterator, (item) => item.id);
+          return this._execQueryAgainstIterator(action.params, orderIterator, item => item.id);
         }
       },
       getPendingTransfers: {
@@ -394,9 +394,9 @@ module.exports = class LiskDEXModule {
           let transferList = this._execQueryAgainstIterator(
             action.params,
             this.pendingTransfers.values(),
-            (item) => item.id
+            item => item.id
           );
-          return transferList.map((transfer) => ({
+          return transferList.map(transfer => ({
             id: transfer.id,
             transaction: transfer.transaction,
             targetChain: transfer.targetChain,
@@ -639,6 +639,7 @@ module.exports = class LiskDEXModule {
 
       let latestBlockTimestamp = blockData.timestamp;
 
+      // TODO 222 updates need to be processed with a delay
       if (chainSymbol === this.baseChainSymbol) {
         // Process pending updates.
         let expiredUpdates = [];
@@ -945,33 +946,19 @@ module.exports = class LiskDEXModule {
         return orderTxn;
       });
 
-      let closeOrders = orders.filter((orderTxn) => {
-        return orderTxn.type === 'close';
-      });
+      let closeOrders = orders.filter(orderTxn => orderTxn.type === 'close');
 
-      let limitAndMarketOrders = orders.filter((orderTxn) => {
-        return orderTxn.type === 'limit' || orderTxn.type === 'market';
-      });
+      let limitAndMarketOrders = orders.filter(orderTxn => orderTxn.type === 'limit' || orderTxn.type === 'market');
 
-      let invalidOrders = orders.filter((orderTxn) => {
-        return orderTxn.type === 'invalid';
-      });
+      let invalidOrders = orders.filter(orderTxn => orderTxn.type === 'invalid');
 
-      let oversizedOrders = orders.filter((orderTxn) => {
-        return orderTxn.type === 'oversized';
-      });
+      let oversizedOrders = orders.filter(orderTxn => orderTxn.type === 'oversized');
 
-      let undersizedOrders = orders.filter((orderTxn) => {
-        return orderTxn.type === 'undersized';
-      });
+      let undersizedOrders = orders.filter(orderTxn => orderTxn.type === 'undersized');
 
-      let movedOrders = orders.filter((orderTxn) => {
-        return orderTxn.type === 'moved';
-      });
+      let movedOrders = orders.filter(orderTxn => orderTxn.type === 'moved');
 
-      let disabledOrders = orders.filter((orderTxn) => {
-        return orderTxn.type === 'disabled';
-      });
+      let disabledOrders = orders.filter(orderTxn => orderTxn.type === 'disabled');
 
       if (!this.passiveMode) {
         movedOrders.forEach(async (orderTxn) => {
@@ -1402,7 +1389,7 @@ module.exports = class LiskDEXModule {
             maxSafeBlockHeight,
             chainOptions.readMaxBlocks
           );
-          return timestampedBlockList.map((block) => ({
+          return timestampedBlockList.map(block => ({
             ...block,
             chainSymbol
           }));
@@ -1551,7 +1538,7 @@ module.exports = class LiskDEXModule {
         walletAddress,
         amount: amountBeforeFee
       };
-    }).filter((dividend) => !!dividend);
+    }).filter(dividend => !!dividend);
   }
 
   _getMemberWalletAddress(chainSymbol, transaction, signature) {
