@@ -1532,6 +1532,7 @@ module.exports = class LiskDEXModule {
       let lastSeenChainHeight = 0;
 
       // This is to detect forks in the underlying blockchains.
+      // TODO: Split this into two separate channels: addBlock and deleteBlock.
       channel.subscribe(`${chainModuleAlias}:blocks:change`, async (event) => {
         let chainHeight = parseInt(event.data.height);
 
