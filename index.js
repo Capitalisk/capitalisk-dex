@@ -1529,27 +1529,54 @@ module.exports = class LiskDEXModule {
       let chainOptions = this.options.chains[chainSymbol];
       let chainModuleAlias = chainOptions.moduleAlias;
 
-      let lastSeenChainHeight = 0;
-
       // This is to detect forks in the underlying blockchains.
-      // TODO: Split this into two separate channels: addBlock and deleteBlock.
-      channel.subscribe(`${chainModuleAlias}:blocks:change`, async (event) => {
-        let chainHeight = parseInt(event.data.height);
 
-        progressingChains[chainSymbol] = chainHeight > lastSeenChainHeight;
-        lastSeenChainHeight = chainHeight;
+      if (chainOptions.useChainChangesChannel) {
+        // This approach is recommended.
 
-        // If starting without a snapshot, use the timestamp of the first new block.
-        if (lastProcessedTimestamp == null) {
-          lastProcessedTimestamp = parseInt(event.data.timestamp);
-        }
-        if (areAllChainsProgressing()) {
-          this.isForked = false;
-        } else {
-          this.isForked = true;
-          isInForkRecovery = true;
-        }
-      });
+        channel.subscribe(`${chainModuleAlias}:chainChanges`, async (event) => {
+          let type = event.data.type;
+          if (type !== 'addBlock' && type !== 'removeBlock') {
+            return;
+          }
+
+          progressingChains[chainSymbol] = type === 'addBlock';
+
+          // If starting without a snapshot, use the timestamp of the first new block.
+          if (lastProcessedTimestamp == null) {
+            lastProcessedTimestamp = parseInt(event.data.block.timestamp);
+          }
+
+          if (areAllChainsProgressing()) {
+            this.isForked = false;
+          } else {
+            this.isForked = true;
+            isInForkRecovery = true;
+          }
+        });
+      } else {
+        // This approach supports compatibility with the current Lisk chain module interface.
+
+        let lastSeenChainHeight = 0;
+
+        channel.subscribe(`${chainModuleAlias}:blocks:change`, async (event) => {
+          let chainHeight = parseInt(event.data.height);
+
+          progressingChains[chainSymbol] = chainHeight > lastSeenChainHeight;
+          lastSeenChainHeight = chainHeight;
+
+          // If starting without a snapshot, use the timestamp of the first new block.
+          if (lastProcessedTimestamp == null) {
+            lastProcessedTimestamp = parseInt(event.data.timestamp);
+          }
+          if (areAllChainsProgressing()) {
+            this.isForked = false;
+          } else {
+            this.isForked = true;
+            isInForkRecovery = true;
+          }
+        });
+      }
     });
     channel.publish(`${this.alias}:bootstrap`);
   }
