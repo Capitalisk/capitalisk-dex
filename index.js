@@ -399,6 +399,8 @@ module.exports = class LiskDEXModule {
           return transferList.map(transfer => ({
             id: transfer.id,
             transaction: transfer.transaction,
+            recipientId: transfer.recipientId,
+            senderPublicKey: transfer.senderPublicKey,
             targetChain: transfer.targetChain,
             collectedSignatures: [...transfer.processedSignatureSet.values()],
             contributors: [...transfer.contributors],
@@ -1830,6 +1832,8 @@ module.exports = class LiskDEXModule {
     this.pendingTransfers.set(preparedTxn.id, {
       id: preparedTxn.id,
       transaction: preparedTxn,
+      recipientId: preparedTxn.recipientId,
+      senderPublicKey: preparedTxn.senderPublicKey,
       targetChain,
       processedSignatureSet,
       contributors,
