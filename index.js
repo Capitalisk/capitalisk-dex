@@ -356,6 +356,12 @@ module.exports = class LiskDEXModule {
     return {
       getStatus: {
         handler: () => {
+          let pendingUpdates;
+          if (this.updater.activeUpdate) {
+            pendingUpdates = this.updates.filter(update => update.id !== this.updater.activeUpdate.id);
+          } else {
+            pendingUpdates = this.updates;
+          }
           return {
             version: LiskDEXModule.info.version,
             orderBookHash: this.tradeEngine.orderBookHash,
@@ -366,7 +372,8 @@ module.exports = class LiskDEXModule {
             chains: {
               [this.baseChainSymbol]: this._getChainInfo(this.baseChainSymbol),
               [this.quoteChainSymbol]: this._getChainInfo(this.quoteChainSymbol)
-            }
+            },
+            pendingUpdates
           };
         }
       },
