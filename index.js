@@ -29,6 +29,9 @@ const CIPHER_IV = Buffer.alloc(16, 0);
 module.exports = class LiskDEXModule {
   constructor({alias, config, updates, appConfig, logger, updater}) {
     this.options = {...defaultConfig, ...config};
+    this.appConfig = appConfig;
+    this.alias = alias || DEFAULT_MODULE_ALIAS;
+    this.updater = updater;
     if (!updates) {
       updates = [];
     }
@@ -51,15 +54,33 @@ module.exports = class LiskDEXModule {
       }
       return 0;
     });
+    let updateCount = updates.length;
+    for (let i = 1; i < updateCount; i++) {
+      let currentUpdate = updates[i];
+      let previousUpdate = updates[i - 1];
+      if (currentUpdate.criteria.baseChainHeight - previousUpdate.criteria.baseChainHeight <= this.options.orderBookSnapshotFinality) {
+        throw new Error(
+          `DEX updates ${
+            previousUpdate.id
+          } and ${
+            currentUpdate.id
+          } were scheduled too close to each other. There must be at least ${
+            this.options.orderBookSnapshotFinality
+          } height difference between them`
+        );
+      }
+    }
     this.updates = updates;
-    this.appConfig = appConfig;
-    this.alias = alias || DEFAULT_MODULE_ALIAS;
+    if (this.updater.activeUpdate) {
+      this.pendingUpdates = this.updates.filter(update => update.id !== this.updater.activeUpdate.id);
+    } else {
+      this.pendingUpdates = [...this.updates];
+    }
     this.chainSymbols = Object.keys(this.options.chains);
     if (this.chainSymbols.length !== 2) {
-      throw new Error('The DEX module must operate only on 2 chains');
+      throw new Error('DEX module can only handle on 2 chains');
     }
     this.logger = logger;
-    this.updater = updater;
     this.multisigWalletInfo = {};
     this.isForked = false;
     this.lastSnapshot = null;
@@ -356,12 +377,6 @@ module.exports = class LiskDEXModule {
     return {
       getStatus: {
         handler: () => {
-          let pendingUpdates;
-          if (this.updater.activeUpdate) {
-            pendingUpdates = this.updates.filter(update => update.id !== this.updater.activeUpdate.id);
-          } else {
-            pendingUpdates = this.updates;
-          }
           return {
             version: LiskDEXModule.info.version,
             orderBookHash: this.tradeEngine.orderBookHash,
@@ -373,7 +388,7 @@ module.exports = class LiskDEXModule {
               [this.baseChainSymbol]: this._getChainInfo(this.baseChainSymbol),
               [this.quoteChainSymbol]: this._getChainInfo(this.quoteChainSymbol)
             },
-            pendingUpdates
+            pendingUpdates: this.pendingUpdates
           };
         }
       },
@@ -657,13 +672,7 @@ module.exports = class LiskDEXModule {
         // Process pending updates.
         let updatesToActivate = [];
 
-        let updateList;
-        if (this.updater.activeUpdate) {
-          updateList = this.updates.filter(update => update.id !== this.updater.activeUpdate.id);
-        } else {
-          updateList = this.updates;
-        }
-        for (let update of updateList) {
+        for (let update of this.pendingUpdates) {
           let targetHeight = update.criteria.baseChainHeight;
           if (targetHeight > baseChainHeight) {
             break;
@@ -675,7 +684,7 @@ module.exports = class LiskDEXModule {
 
         if (
           this.updater.activeUpdate &&
-          this.updater.activeUpdate.criteria.baseChainHeight < baseChainHeight - this.options.orderBookSnapshotFinality
+          this.updater.activeUpdate.criteria.baseChainHeight <= baseChainHeight - this.options.orderBookSnapshotFinality
         ) {
           let updateSnapshotFilePath = this._getUpdateSnapshotFilePath(this.updater.activeUpdate.id);
           this.updater.mergeActiveUpdate();
