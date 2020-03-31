@@ -1455,18 +1455,27 @@ module.exports = class LiskDEXModule {
       let lastBaseChainBlock = baseChainBlocks[baseChainBlocks.length - 1];
       let lastQuoteChainBlock = quoteChainBlocks[quoteChainBlocks.length - 1];
 
-      let minTimestamp = Math.min(lastBaseChainBlock.timestamp, lastQuoteChainBlock.timestamp);
-      while (baseChainBlocks.length > 0 && baseChainBlocks[baseChainBlocks.length - 1].timestamp > minTimestamp) {
+      let highestTimestampOfShortestChain = Math.min(lastBaseChainBlock.timestamp, lastQuoteChainBlock.timestamp);
+      while (baseChainBlocks.length > 0 && baseChainBlocks[baseChainBlocks.length - 1].timestamp > highestTimestampOfShortestChain) {
         baseChainBlocks.pop();
       }
-      while (quoteChainBlocks.length > 0 && quoteChainBlocks[quoteChainBlocks.length - 1].timestamp > minTimestamp) {
+      while (quoteChainBlocks.length > 0 && quoteChainBlocks[quoteChainBlocks.length - 1].timestamp > highestTimestampOfShortestChain) {
         quoteChainBlocks.pop();
       }
-      if (baseChainBlocks.length <= 0 || quoteChainBlocks.length <= 0) {
-        return 0;
+
+      if (baseChainBlocks.length > 0) {
+        let lastBaseChainBlockToProcess = baseChainBlocks[baseChainBlocks.length - 1];
+        lastBaseChainBlockToProcess.isLastBlock = true;
       }
-      baseChainBlocks[baseChainBlocks.length - 1].isLastBlock = true;
-      quoteChainBlocks[quoteChainBlocks.length - 1].isLastBlock = true;
+      let isQuoteChainSegmentIncomplete = true;
+      if (quoteChainBlocks.length > 0) {
+        let lastQuoteChainBlockToProcess = quoteChainBlocks[quoteChainBlocks.length - 1];
+        lastQuoteChainBlockToProcess.isLastBlock = true;
+        isQuoteChainSegmentIncomplete = (
+          lastQuoteChainBlockToProcess.timestamp !== highestTimestampOfShortestChain &&
+          lastQuoteChainBlock.timestamp > highestTimestampOfShortestChain
+        );
+      }
 
       let orderedBlockList = baseChainBlocks.concat(quoteChainBlocks);
 
@@ -1507,6 +1516,9 @@ module.exports = class LiskDEXModule {
           );
           return orderedBlockList.length;
         }
+      }
+      if (isQuoteChainSegmentIncomplete) {
+        lastProcessedTimestamp = highestTimestampOfShortestChain;
       }
 
       return orderedBlockList.length;
