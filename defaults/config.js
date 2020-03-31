@@ -1,5 +1,6 @@
 module.exports = {
   passiveMode: false,
+  priceDecimalPrecision: null,
   multisigExpiry: 86400000,
   multisigExpiryCheckInterval: 60000,
   multisigFlushInterval: 15000,

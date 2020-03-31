@@ -80,6 +80,12 @@ module.exports = class LiskDEXModule {
     this.baseAddress = baseChainOptions.walletAddress;
     this.quoteAddress = quoteChainOptions.walletAddress;
 
+    if (this.options.priceDecimalPrecision == null) {
+      this.validPriceRegex = new RegExp('^([0-9]+\.?|[0-9]*\.[0-9]+)$');
+    } else {
+      this.validPriceRegex = new RegExp(`^([0-9]+\.?|[0-9]*\.[0-9]{1,${this.options.priceDecimalPrecision}})$`);
+    }
+
     if (this.options.chainsWhitelistPath) {
       let chainsWhitelist = require(path.join(process.cwd(), this.options.chainsWhitelistPath));
       this.chainsWhitelist = new Set([this.baseChainSymbol, this.quoteChainSymbol].concat(chainsWhitelist));
@@ -355,6 +361,7 @@ module.exports = class LiskDEXModule {
             orderBookHash: this.tradeEngine.orderBookHash,
             processedHeights: this.processedHeights,
             baseChain: this.options.baseChain,
+            priceDecimalPrecision: this.options.priceDecimalPrecision,
             chainsWhitelist: [...this.chainsWhitelist],
             chains: {
               [this.baseChainSymbol]: this._getChainInfo(this.baseChainSymbol),
@@ -862,9 +869,10 @@ module.exports = class LiskDEXModule {
 
         if (dataParts[1] === 'limit') {
           // E.g. clsk,limit,.5,9205805648791671841L
-          let price = Number(dataParts[2]);
+          let priceString = dataParts[2];
+          let price = Number(priceString);
           let targetWalletAddress = dataParts[3];
-          if (isNaN(price)) {
+          if (!this.validPriceRegex.test(priceString) || isNaN(price)) {
             orderTxn.type = 'invalid';
             orderTxn.reason = 'Invalid price';
             this.logger.debug(
