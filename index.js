@@ -1512,7 +1512,7 @@ module.exports = class LiskDEXModule {
 
       for (let block of orderedBlockList) {
         if (isInForkRecovery) {
-          break;
+          return orderedBlockList.length;
         }
         latestProcessedChainHeights[block.chainSymbol] = block.height;
         try {
