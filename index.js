@@ -1544,7 +1544,15 @@ module.exports = class LiskDEXModule {
 
     let startProcessingBlockchains = async () => {
       while (this._processBlockchains) {
-        let blockCount = await processBlockchains();
+        let blockCount;
+        try {
+          blockCount = await processBlockchains();
+        } catch (error) {
+          this.logger.error(
+            `Failed to process blockchains because of error: ${error.message}`
+          );
+          blockCount = 0;
+        }
         if (blockCount <= 0) {
           await wait(this.options.readBlocksInterval);
         }
