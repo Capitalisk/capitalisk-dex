@@ -494,7 +494,7 @@ module.exports = class LiskDEXModule {
     contributors.add(memberAddress);
 
     let signatureQuota = this._getSignatureQuota(targetChain, transaction);
-    if (signatureQuota >= 0) {
+    if (signatureQuota >= 0 && transfer.readyTimestamp == null) {
       transfer.readyTimestamp = Date.now();
     }
   }
