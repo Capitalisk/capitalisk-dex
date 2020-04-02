@@ -19,6 +19,7 @@ const { LISK_DEX_PASSWORD } = process.env;
 const CIPHER_ALGORITHM = 'aes-192-cbc';
 const CIPHER_KEY = LISK_DEX_PASSWORD ? crypto.scryptSync(LISK_DEX_PASSWORD, 'salt', 24) : undefined;
 const CIPHER_IV = Buffer.alloc(16, 0);
+const DEFAULT_MULTISIG_READY_DELAY = 5000;
 
 /**
  * Lisk DEX module specification
@@ -100,6 +101,7 @@ module.exports = class LiskDEXModule {
     let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
     this.baseAddress = baseChainOptions.walletAddress;
     this.quoteAddress = quoteChainOptions.walletAddress;
+    this.multisigReadyDelay = this.options.multisigReadyDelay || DEFAULT_MULTISIG_READY_DELAY;
 
     if (this.options.priceDecimalPrecision == null) {
       this.validPriceRegex = new RegExp('^([0-9]+\.?|[0-9]*\.[0-9]+)$');
@@ -493,7 +495,7 @@ module.exports = class LiskDEXModule {
 
     let signatureQuota = this._getSignatureQuota(targetChain, transaction);
     if (signatureQuota >= 0) {
-      transfer.isReady = true;
+      transfer.readyTimestamp = Date.now();
     }
   }
 
@@ -509,9 +511,10 @@ module.exports = class LiskDEXModule {
 
   flushPendingMultisigTransactions() {
     let transactionsToBroadcastPerChain = {};
+    let now = Date.now();
 
     for (let transfer of this.pendingTransfers.values()) {
-      if (transfer.isReady) {
+      if (transfer.readyTimestamp != null && transfer.readyTimestamp + this.multisigReadyDelay <= now) {
         if (!transactionsToBroadcastPerChain[transfer.targetChain]) {
           transactionsToBroadcastPerChain[transfer.targetChain] = [];
         }
