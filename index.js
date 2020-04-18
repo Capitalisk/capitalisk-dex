@@ -826,6 +826,14 @@ module.exports = class LiskDEXModule {
         orderTxn.sourceWalletAddress = orderTxn.senderId;
         let amount = parseInt(orderTxn.amount);
 
+        let transferMessageString = orderTxn.message == null ? '' : orderTxn.message;
+
+        if (transferMessageString === 'credit') {
+          // The credit operation does nothing - The DEX wallet will simply accept the tokens.
+          orderTxn.type = 'credit';
+          return orderTxn;
+        }
+
         if (amount > Number.MAX_SAFE_INTEGER) {
           orderTxn.type = 'oversized';
           orderTxn.sourceChainAmount = BigInt(orderTxn.amount);
@@ -856,7 +864,6 @@ module.exports = class LiskDEXModule {
           return orderTxn;
         }
 
-        let transferMessageString = txn.message == null ? '' : txn.message;
         let dataParts = transferMessageString.split(',');
 
         let targetChain = dataParts[0];

@@ -10,9 +10,11 @@ To send an order to the DEX, a user needs to send a regular transfer transaction
 - **Limit order**: `${targetChain},limit,${bidOrAskPrice},${targetWalletAddress}`
 - **Market order**: `${targetChain},market,${targetWalletAddress}`
 - **Close order**: `${targetChain},close,${orderId}`
+- **Credit**: `credit`
 
 When making a limit or a market order, the DEX will use the amount of the underlying transaction to calculate the quantity of counterparty tokens to acquire.
 When performing a close order, the amount is not relevant; in this case, any amount can be specified as part of the close transaction (less is better); in any case, whatever amount is specified (minus blockchain transaction fees) will be refunded to the user's wallet via an `r3` refund transaction.
+The credit action allows users to send tokens to the DEX wallet without triggering any operation.
 
 ### Responses
 
