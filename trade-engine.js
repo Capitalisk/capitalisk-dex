@@ -195,11 +195,11 @@ class TradeEngine {
   }
 
   getBidIterator() {
-    return this._bidMap.values();
+    return this.orderBook.getBidIteratorFromMax();
   }
 
   getAskIterator() {
-    return this._askMap.values();
+    return this.orderBook.getAskIteratorFromMin();
   }
 
   getOrderIterator() {

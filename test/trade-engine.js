@@ -185,6 +185,94 @@ describe('TradeEngine unit tests', async () => {
       assert.equal(error.name, 'DuplicateOrderError');
     });
 
+    it('Can get bid and ask iterators', async () => {
+      let result;
+
+      result = tradeEngine.addOrder({
+        id: 'order0',
+        type: 'limit',
+        price: .5,
+        sourceChain: 'clsk',
+        targetChain: 'lsk',
+        height: 1,
+        targetWalletAddress: '22245678912345678222L',
+        senderId: '11111111111222222222L',
+        side: 'ask',
+        size: 100
+      });
+
+      result = tradeEngine.addOrder({
+        id: 'order1',
+        type: 'limit',
+        price: .7,
+        sourceChain: 'clsk',
+        targetChain: 'lsk',
+        height: 1,
+        targetWalletAddress: '22245678912345678222L',
+        senderId: '11111111111222222222L',
+        side: 'ask',
+        size: 100
+      });
+
+      result = tradeEngine.addOrder({
+        id: 'order2',
+        type: 'limit',
+        price: .6,
+        sourceChain: 'clsk',
+        targetChain: 'lsk',
+        height: 1,
+        targetWalletAddress: '22245678912345678222L',
+        senderId: '11111111111222222222L',
+        side: 'ask',
+        size: 100
+      });
+
+      result = tradeEngine.addOrder({
+        id: 'order3',
+        type: 'limit',
+        price: .4,
+        sourceChain: 'clsk',
+        targetChain: 'lsk',
+        height: 1,
+        targetWalletAddress: '22245678912345678222L',
+        senderId: '11111111111222222222L',
+        side: 'bid',
+        value: 100
+      });
+
+      result = tradeEngine.addOrder({
+        id: 'order4',
+        type: 'limit',
+        price: .2,
+        sourceChain: 'clsk',
+        targetChain: 'lsk',
+        height: 1,
+        targetWalletAddress: '22245678912345678222L',
+        senderId: '11111111111222222222L',
+        side: 'bid',
+        value: 100
+      });
+
+      result = tradeEngine.addOrder({
+        id: 'order5',
+        type: 'limit',
+        price: .3,
+        sourceChain: 'clsk',
+        targetChain: 'lsk',
+        height: 1,
+        targetWalletAddress: '22245678912345678222L',
+        senderId: '11111111111222222222L',
+        side: 'bid',
+        value: 100
+      });
+
+      let bidOrders = [...tradeEngine.getBidIterator()];
+      let askOrders = [...tradeEngine.getAskIterator()];
+
+      assert.equal(JSON.stringify(bidOrders.map(bid => bid.price)), JSON.stringify([.4, .3, .2]));
+      assert.equal(JSON.stringify(askOrders.map(ask => ask.price)), JSON.stringify([.5, .6, .7]));
+    });
+
     it('Can get and set snapshot of the order book', async () => {
       let result;
 

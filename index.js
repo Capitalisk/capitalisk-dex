@@ -404,14 +404,24 @@ module.exports = class LiskDEXModule {
       },
       getBids: {
         handler: (action) => {
+          let query = {...action.params};
+          // Optimization.
+          if (query.sort === 'price:desc') {
+            delete query.sort;
+          }
           let bidIterator = this.tradeEngine.getBidIterator();
-          return this._execQueryAgainstIterator(action.params, bidIterator, item => item.id);
+          return this._execQueryAgainstIterator(query, bidIterator, item => item.id);
         }
       },
       getAsks: {
         handler: (action) => {
+          let query = {...action.params};
+          // Optimization.
+          if (query.sort === 'price:asc') {
+            delete query.sort;
+          }
           let askIterator = this.tradeEngine.getAskIterator();
-          return this._execQueryAgainstIterator(action.params, askIterator, item => item.id);
+          return this._execQueryAgainstIterator(query, askIterator, item => item.id);
         }
       },
       getOrders: {
