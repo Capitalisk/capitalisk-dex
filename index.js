@@ -494,7 +494,7 @@ module.exports = class LiskDEXModule {
           }
 
           let orderBook = [...askBook.values(), ...bidBook.values()];
-          return this._execQueryAgainstIterator(query, orderBook, item => item.id);
+          return this._execQueryAgainstIterator(query, orderBook, item => item.price);
         }
       },
       getPendingTransfers: {
