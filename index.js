@@ -435,6 +435,68 @@ module.exports = class LiskDEXModule {
           return this._execQueryAgainstIterator(action.params, orderIterator, item => item.id);
         }
       },
+      getOrderBook: {
+        handler: (action) => {
+          let query = {...action.params};
+          let {limit} = query;
+          if (limit == null) {
+            limit = this.options.apiDefaultPageLimit;
+          } else {
+            delete query.limit;
+          }
+          if (typeof limit != 'number') {
+            let error = new Error(
+              'If specified, the limit parameter of the query must be a number'
+            );
+            error.name = 'InvalidQueryError';
+            throw error;
+          }
+          let askIterator = this.tradeEngine.getAskIterator();
+          let bidIterator = this.tradeEngine.getBidIterator();
+          let halfLimit = Math.floor(limit / 2);
+          let askBook = new Map();
+          let bidBook = new Map();
+
+          for (let ask of askIterator) {
+            let existingEntry = askBook.get(ask.price);
+            if (existingEntry) {
+              existingEntry.size += ask.size;
+              existingEntry.sizeRemaining += ask.sizeRemaining;
+            } else {
+              askBook.set(ask.price, {
+                side: 'ask',
+                price: ask.price,
+                targetChain: ask.targetChain,
+                sourceChain: ask.sourceChain,
+                size: ask.size,
+                sizeRemaining: ask.sizeRemaining
+              });
+              if (askBook.size >= halfLimit) break;
+            }
+          }
+
+          for (let bid of bidIterator) {
+            let existingEntry = bidBook.get(bid.price);
+            if (existingEntry) {
+              existingEntry.value += bid.value;
+              existingEntry.valueRemaining += bid.valueRemaining;
+            } else {
+              bidBook.set(bid.price, {
+                side: 'bid',
+                price: bid.price,
+                targetChain: bid.targetChain,
+                sourceChain: bid.sourceChain,
+                value: bid.value,
+                valueRemaining: bid.valueRemaining
+              });
+              if (bidBook.size >= halfLimit) break;
+            }
+          }
+
+          let orderBook = [...askBook.values(), ...bidBook.values()];
+          return this._execQueryAgainstIterator(query, orderBook, item => item.id);
+        }
+      },
       getPendingTransfers: {
         handler: (action) => {
           let transferList = this._execQueryAgainstIterator(
