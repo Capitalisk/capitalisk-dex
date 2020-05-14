@@ -257,10 +257,15 @@ module.exports = class LiskDEXModule {
   _execQueryAgainstIterator(query, sourceIterator, idExtractorFn) {
     query = query || {};
     let {after, before, limit, sort, ...filterMap} = query;
+    if (sort && !this.options.apiEnableSorting) {
+      let error = new Error('Sorting is disabled');
+      error.name = 'InvalidQueryError';
+      throw error;
+    }
     let filterFields = Object.keys(filterMap);
     if (filterFields.length > this.options.apiMaxFilterFields) {
       let error = new Error(
-        `Too many custom filter fields were specified in the query. The maximum allowed is ${
+        `Too many custom filter fields were specified in the query - The maximum allowed is ${
           this.options.apiMaxFilterFields
         }`
       );
