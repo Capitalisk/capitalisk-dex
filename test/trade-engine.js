@@ -266,8 +266,8 @@ describe('TradeEngine unit tests', async () => {
         value: 100
       });
 
-      let bidOrders = [...tradeEngine.getBidIterator()];
-      let askOrders = [...tradeEngine.getAskIterator()];
+      let bidOrders = [...tradeEngine.getBidIteratorFromMax()];
+      let askOrders = [...tradeEngine.getAskIteratorFromMin()];
 
       assert.equal(JSON.stringify(bidOrders.map(bid => bid.price)), JSON.stringify([.4, .3, .2]));
       assert.equal(JSON.stringify(askOrders.map(ask => ask.price)), JSON.stringify([.5, .6, .7]));

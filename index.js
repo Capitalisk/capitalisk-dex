@@ -414,7 +414,7 @@ module.exports = class LiskDEXModule {
           if (query.sort === 'price:desc') {
             delete query.sort;
           }
-          let bidIterator = this.tradeEngine.getBidIterator();
+          let bidIterator = this.tradeEngine.getBidIteratorFromMax();
           return this._execQueryAgainstIterator(query, bidIterator, item => item.id);
         }
       },
@@ -425,7 +425,7 @@ module.exports = class LiskDEXModule {
           if (query.sort === 'price:asc') {
             delete query.sort;
           }
-          let askIterator = this.tradeEngine.getAskIterator();
+          let askIterator = this.tradeEngine.getAskIteratorFromMin();
           return this._execQueryAgainstIterator(query, askIterator, item => item.id);
         }
       },
@@ -451,49 +451,51 @@ module.exports = class LiskDEXModule {
             error.name = 'InvalidQueryError';
             throw error;
           }
-          let askIterator = this.tradeEngine.getAskIterator();
-          let bidIterator = this.tradeEngine.getBidIterator();
+          let askIterator = this.tradeEngine.getAskIteratorFromMax();
+          let bidIterator = this.tradeEngine.getBidIteratorFromMax();
           let halfLimit = Math.floor(limit / 2);
-          let askBook = new Map();
-          let bidBook = new Map();
+
+          let orderBook = [];
+          let lastEntry = {};
 
           for (let ask of askIterator) {
-            let existingEntry = askBook.get(ask.price);
-            if (existingEntry) {
-              existingEntry.size += ask.size;
-              existingEntry.sizeRemaining += ask.sizeRemaining;
+            if (ask.price === lastEntry.price) {
+              lastEntry.size += ask.size;
+              lastEntry.sizeRemaining += ask.sizeRemaining;
             } else {
-              askBook.set(ask.price, {
+              lastEntry = {
                 side: 'ask',
                 price: ask.price,
                 targetChain: ask.targetChain,
                 sourceChain: ask.sourceChain,
                 size: ask.size,
                 sizeRemaining: ask.sizeRemaining
-              });
-              if (askBook.size >= halfLimit) break;
+              }
+              orderBook.push(lastEntry);
+
+              if (orderBook.length >= halfLimit) break;
             }
           }
 
           for (let bid of bidIterator) {
-            let existingEntry = bidBook.get(bid.price);
-            if (existingEntry) {
-              existingEntry.value += bid.value;
-              existingEntry.valueRemaining += bid.valueRemaining;
+            if (bid.price === lastEntry.price) {
+              lastEntry.value += bid.value;
+              lastEntry.valueRemaining += bid.valueRemaining;
             } else {
-              bidBook.set(bid.price, {
+              lastEntry = {
                 side: 'bid',
                 price: bid.price,
                 targetChain: bid.targetChain,
                 sourceChain: bid.sourceChain,
                 value: bid.value,
                 valueRemaining: bid.valueRemaining
-              });
-              if (bidBook.size >= halfLimit) break;
+              }
+              orderBook.push(lastEntry);
+
+              if (orderBook.length >= limit) break;
             }
           }
 
-          let orderBook = [...askBook.values(), ...bidBook.values()];
           return this._execQueryAgainstIterator(query, orderBook, item => item.price);
         }
       },

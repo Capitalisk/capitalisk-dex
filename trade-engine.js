@@ -194,12 +194,20 @@ class TradeEngine {
     return this.orderBook.getMinAsk();
   }
 
-  getBidIterator() {
+  getBidIteratorFromMin() {
+    return this.orderBook.getBidIteratorFromMin();
+  }
+
+  getBidIteratorFromMax() {
     return this.orderBook.getBidIteratorFromMax();
   }
 
-  getAskIterator() {
+  getAskIteratorFromMin() {
     return this.orderBook.getAskIteratorFromMin();
+  }
+
+  getAskIteratorFromMax() {
+    return this.orderBook.getAskIteratorFromMax();
   }
 
   getOrderIterator() {
@@ -207,11 +215,11 @@ class TradeEngine {
   }
 
   getBids() {
-    return [...this.getBidIterator()];
+    return [...this.getBidIteratorFromMax()];
   }
 
   getAsks() {
-    return [...this.getAskIterator()];
+    return [...this.getAskIteratorFromMin()];
   }
 
   getOrders() {
