@@ -451,7 +451,7 @@ module.exports = class LiskDEXModule {
             error.name = 'InvalidQueryError';
             throw error;
           }
-          let askIterator = this.tradeEngine.getAskIteratorFromMax();
+          let askIterator = this.tradeEngine.getAskIteratorFromMin();
           let bidIterator = this.tradeEngine.getBidIteratorFromMax();
           let halfLimit = Math.floor(limit / 2);
 
@@ -476,6 +476,8 @@ module.exports = class LiskDEXModule {
               if (orderBook.length >= halfLimit) break;
             }
           }
+
+          orderBook.reverse();
 
           for (let bid of bidIterator) {
             if (bid.price === lastEntry.price) {
