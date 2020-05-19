@@ -19,6 +19,8 @@ module.exports = {
   apiMaxPageLimit: 100,
   apiMaxFilterFields: 10,
   apiEnableSorting: true,
+  tradeHistorySize: 10000,
+  tradeHistoryUpdateInterval: 10000,
   readBlocksInterval: 3000,
   // The base chain height at which to enable the DEX.
   dexEnabledFromHeight: 0,

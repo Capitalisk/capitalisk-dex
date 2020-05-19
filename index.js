@@ -1,9 +1,6 @@
 'use strict';
 
 const crypto = require('crypto');
-const defaultConfig = require('./defaults/config');
-const TradeEngine = require('./trade-engine');
-const ChainCrypto = require('./chain-crypto');
 const fs = require('fs');
 const util = require('util');
 const path = require('path');
@@ -12,6 +9,10 @@ const readFile = util.promisify(fs.readFile);
 const readdir = util.promisify(fs.readdir);
 const unlink = util.promisify(fs.unlink);
 const mkdir = util.promisify(fs.mkdir);
+const ProperSkipList = require('proper-skip-list');
+const defaultConfig = require('./defaults/config');
+const TradeEngine = require('./trade-engine');
+const ChainCrypto = require('./chain-crypto');
 const packageJSON = require('./package.json');
 
 const DEFAULT_MODULE_ALIAS = 'lisk_dex';
@@ -128,6 +129,7 @@ module.exports = class LiskDEXModule {
     };
 
     this.chainCrypto = {};
+    this.recentPricesSkipList = new ProperSkipList();
 
     this.chainSymbols.forEach((chainSymbol) => {
       let chainOptions = this.options.chains[chainSymbol];
@@ -321,8 +323,14 @@ module.exports = class LiskDEXModule {
 
     let result = [];
     if (after) {
+      let beforeString = before == null ? null : String(before);
+      let afterString = String(after);
       let isCapturing = false;
       for (let item of iterator) {
+        let itemIdString = String(idExtractorFn(item));
+        if (before && itemIdString === beforeString) {
+          break;
+        }
         if (isCapturing) {
           let itemMatchesFilter = filterFields.every(
             field => String(item[field]) === String(filterMap[field])
@@ -330,7 +338,7 @@ module.exports = class LiskDEXModule {
           if (itemMatchesFilter) {
             result.push(item);
           }
-        } else if (idExtractorFn(item) === after) {
+        } else if (itemIdString === afterString) {
           isCapturing = true;
         }
         if (result.length >= limit) {
@@ -341,8 +349,9 @@ module.exports = class LiskDEXModule {
     }
     if (before) {
       let previousItems = [];
+      let beforeString = String(before);
       for (let item of iterator) {
-        if (idExtractorFn(item) === before) {
+        if (String(idExtractorFn(item)) === beforeString) {
           let length = previousItems.length;
           let firstIndex = length - limit;
           if (firstIndex < 0) {
@@ -438,22 +447,22 @@ module.exports = class LiskDEXModule {
       getOrderBook: {
         handler: (action) => {
           let query = {...action.params};
-          let {limit} = query;
-          if (limit == null) {
-            limit = this.options.apiDefaultPageLimit;
+          let {depth} = query;
+          if (depth == null) {
+            depth = Math.floor(this.options.apiDefaultPageLimit / 2);
           } else {
-            delete query.limit;
+            delete query.depth;
           }
-          if (typeof limit != 'number') {
+          if (typeof depth != 'number') {
             let error = new Error(
-              'If specified, the limit parameter of the query must be a number'
+              'If specified, the depth parameter of the query must be a number'
             );
             error.name = 'InvalidQueryError';
             throw error;
           }
           let askIterator = this.tradeEngine.getAskIteratorFromMin();
           let bidIterator = this.tradeEngine.getBidIteratorFromMax();
-          let halfLimit = Math.floor(limit / 2);
+          let doubleDepth = depth * 2;
 
           let orderBook = [];
           let lastEntry = {};
@@ -463,6 +472,7 @@ module.exports = class LiskDEXModule {
               lastEntry.size += ask.size;
               lastEntry.sizeRemaining += ask.sizeRemaining;
             } else {
+              if (orderBook.length >= depth) break;
               lastEntry = {
                 side: 'ask',
                 price: ask.price,
@@ -472,8 +482,6 @@ module.exports = class LiskDEXModule {
                 sizeRemaining: ask.sizeRemaining
               }
               orderBook.push(lastEntry);
-
-              if (orderBook.length >= halfLimit) break;
             }
           }
 
@@ -484,6 +492,7 @@ module.exports = class LiskDEXModule {
               lastEntry.value += bid.value;
               lastEntry.valueRemaining += bid.valueRemaining;
             } else {
+              if (orderBook.length >= doubleDepth) break;
               lastEntry = {
                 side: 'bid',
                 price: bid.price,
@@ -493,12 +502,17 @@ module.exports = class LiskDEXModule {
                 valueRemaining: bid.valueRemaining
               }
               orderBook.push(lastEntry);
-
-              if (orderBook.length >= limit) break;
             }
           }
 
           return this._execQueryAgainstIterator(query, orderBook, item => item.price);
+        }
+      },
+      getRecentPrices: {
+        handler: (action) => {
+          let priceEntryIterator = this.recentPricesSkipList.findEntriesFromMax();
+          let priceGenerator = this._getValuesGenerator(priceEntryIterator);
+          return this._execQueryAgainstIterator(action.params, priceGenerator, item => item.baseTimestamp);
         }
       },
       getPendingTransfers: {
@@ -521,6 +535,12 @@ module.exports = class LiskDEXModule {
         }
       }
     };
+  }
+
+  *_getValuesGenerator(entriesIterator) {
+    for (let [key, value] of entriesIterator) {
+      yield value;
+    }
   }
 
   _getChainInfo(chainSymbol) {
@@ -660,6 +680,164 @@ module.exports = class LiskDEXModule {
     }
   }
 
+  _getExpectedCounterpartyTransactionCount(transaction) {
+    let transactionData = transaction.message || '';
+    let header = transactionData.split(':')[0];
+    let parts = header.split(',');
+    let txnType = parts[0];
+    if (txnType === 't1') {
+      return parts[3] || 1;
+    }
+    if (txnType === 't2') {
+      return 1;
+    }
+    return 0;
+  }
+
+  _getTakerOrderIdFromTransaction(transaction) {
+    let transactionData = transaction.message || '';
+    let header = transactionData.split(':')[0];
+    let parts = header.split(',');
+    let txnType = parts[0];
+    if (txnType === 't1') {
+      return parts[2];
+    }
+    if (txnType === 't2') {
+      return parts[3];
+    }
+    return null;
+  }
+
+  _isTakerTransaction(transaction) {
+    let transactionData = transaction.message || '';
+    let header = transactionData.split(':')[0];
+    return header.split(',')[0] === 't1';
+  }
+
+  _isMakerTransaction(transaction) {
+    let transactionData = transaction.message || '';
+    let header = transactionData.split(':')[0];
+    return header.split(',')[0] === 't2';
+  }
+
+  async _getRecentPrices(fromBaseTimestamp, fromQuoteTimestamp) {
+    let tradeHistorySize = this.options.tradeHistorySize;
+    if (!tradeHistorySize) {
+      return [];
+    }
+    let [baseChainTxns, quoteChainTxns] = await Promise.all([
+      this._getOutboundTransactions(this.baseChainSymbol, this.baseAddress, fromBaseTimestamp, tradeHistorySize),
+      this._getOutboundTransactions(this.quoteChainSymbol, this.quoteAddress, fromQuoteTimestamp, tradeHistorySize)
+    ]);
+
+    let quoteChainMakers = {};
+    let quoteChainTakers = {};
+
+    for (let txn of quoteChainTxns) {
+      let isMaker = this._isMakerTransaction(txn);
+      let isTaker = this._isTakerTransaction(txn);
+      let takerOrderId = this._getTakerOrderIdFromTransaction(txn);
+      if (isMaker) {
+        if (!quoteChainMakers[takerOrderId]) {
+          quoteChainMakers[takerOrderId] = [];
+        }
+        quoteChainMakers[takerOrderId].push(txn);
+      } else if (isTaker) {
+        quoteChainTakers[takerOrderId] = [txn];
+      }
+    }
+
+    let txnPairsMap = {};
+
+    for (let txn of baseChainTxns) {
+      let isMaker = this._isMakerTransaction(txn);
+      let isTaker = this._isTakerTransaction(txn);
+
+      if (!isMaker && !isTaker) {
+        continue;
+      }
+
+      let counterpartyTakerId = this._getTakerOrderIdFromTransaction(txn);
+      let counterpartyTxns = quoteChainMakers[counterpartyTakerId] || quoteChainTakers[counterpartyTakerId] || [];
+
+      if (!counterpartyTxns.length) {
+        continue;
+      }
+
+      // Group base chain orders which were matched with the same counterparty order together.
+      if (!txnPairsMap[counterpartyTakerId]) {
+        txnPairsMap[counterpartyTakerId] = {
+          base: [],
+          quote: counterpartyTxns
+        };
+      }
+      let txnPair = txnPairsMap[counterpartyTakerId];
+      txnPair.base.push(txn);
+    }
+
+    let priceHistory = [];
+
+    // Filter out all entries which are incompete.
+    let txnPairsList = Object.values(txnPairsMap).filter((txnPair) => {
+      let firstBaseTxn = txnPair.base[0];
+      let firstQuoteTxn = txnPair.quote[0];
+      if (!firstBaseTxn || !firstQuoteTxn) {
+        return false;
+      }
+      let expectedBaseCount = this._getExpectedCounterpartyTransactionCount(firstQuoteTxn);
+      let expectedQuoteCount = this._getExpectedCounterpartyTransactionCount(firstBaseTxn);
+
+      return txnPair.base.length >= expectedBaseCount && txnPair.quote.length >= expectedQuoteCount;
+    });
+
+    for (let txnPair of txnPairsList) {
+      let baseChainOptions = this.options.chains[this.baseChainSymbol];
+      let baseChainFeeBase = baseChainOptions.exchangeFeeBase;
+      let baseChainFeeRate = baseChainOptions.exchangeFeeRate;
+      let baseTotalFee = baseChainFeeBase * txnPair.base.length;
+      let fullBaseAmount = txnPair.base.reduce((accumulator, txn) => accumulator + Number(txn.amount) / (1 - baseChainFeeRate), 0) + baseTotalFee;
+
+      let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
+      let quoteChainFeeBase = quoteChainOptions.exchangeFeeBase;
+      let quoteChainFeeRate = quoteChainOptions.exchangeFeeRate;
+      let quoteTotalFee = quoteChainFeeBase * txnPair.quote.length;
+      let fullQuoteAmount = txnPair.quote.reduce((accumulator, txn) => accumulator + Number(txn.amount) / (1 - quoteChainFeeRate), 0) + quoteTotalFee;
+
+      let price;
+      if (this.options.priceDecimalPrecision == null) {
+        price = fullBaseAmount / fullQuoteAmount;
+      } else {
+        price = Number((fullBaseAmount / fullQuoteAmount).toFixed(this.options.priceDecimalPrecision));
+      }
+      priceHistory.push({
+        baseTimestamp: txnPair.base[txnPair.base.length - 1].timestamp,
+        quoteTimestamp: txnPair.quote[txnPair.quote.length - 1].timestamp,
+        price,
+        volume: Math.round(fullBaseAmount / 1000000) / 100,
+      });
+    }
+
+    return priceHistory;
+  }
+
+  async updateTradeHistory() {
+    let latestPriceItem = this.recentPricesSkipList.maxValue() || {};
+    let recentPriceList;
+    try {
+      recentPriceList = await this._getRecentPrices(latestPriceItem.baseTimestamp, latestPriceItem.quoteTimestamp);
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch recent trade history because of error: ${
+          error.message
+        }`
+      );
+      return;
+    }
+    for (let priceItem of recentPriceList) {
+      this.recentPricesSkipList.upsert(priceItem.baseTimestamp, priceItem);
+    }
+  }
+
   async load(channel) {
     this.channel = channel;
 
@@ -674,6 +852,12 @@ module.exports = class LiskDEXModule {
     this._signatureFlushInterval = setInterval(() => {
       this.flushPendingSignatures();
     }, this.options.signatureFlushInterval);
+
+    await this.updateTradeHistory();
+
+    this._tradeHistoryUpdateInterval = setInterval(() => {
+      this.updateTradeHistory();
+    }, this.options.tradeHistoryUpdateInterval);
 
     await this.channel.invoke('app:updateModuleState', {
       [this.alias]: {
@@ -891,8 +1075,8 @@ module.exports = class LiskDEXModule {
       }
 
       let blockTransactions = await Promise.all([
-        this._getInboundTransactions(chainSymbol, blockData.id, chainOptions.walletAddress),
-        this._getOutboundTransactions(chainSymbol, blockData.id, chainOptions.walletAddress)
+        this._getInboundTransactionsFromBlock(chainSymbol, chainOptions.walletAddress, blockData.id),
+        this._getOutboundTransactionsFromBlock(chainSymbol, chainOptions.walletAddress, blockData.id)
       ]);
 
       let [inboundTxns, outboundTxns] = blockTransactions;
@@ -1435,7 +1619,7 @@ module.exports = class LiskDEXModule {
       while (currentBlock) {
         let blocksToProcess = await this._getBlocksBetweenHeights(chainSymbol, currentBlock.height, toHeight, readMaxBlocks);
         for (let block of blocksToProcess) {
-          let outboundTxns = await this._getOutboundTransactions(chainSymbol, block.id, chainOptions.walletAddress);
+          let outboundTxns = await this._getOutboundTransactionsFromBlock(chainSymbol, chainOptions.walletAddress, block.id);
           outboundTxns.forEach((txn) => {
             let contributionList = this._computeContributions(chainSymbol, txn, chainOptions.exchangeFeeRate, chainOptions.exchangeFeeBase);
             contributionList.forEach((contribution) => {
@@ -1818,24 +2002,29 @@ module.exports = class LiskDEXModule {
     return this.channel.invoke(`${chainOptions.moduleAlias}:getMinMultisigRequiredSignatures`, {walletAddress});
   }
 
-  async _getInboundTransactions(chainSymbol, blockId, walletAddress) {
+  async _getOutboundTransactions(chainSymbol, walletAddress, fromTimestamp, limit) {
     let chainOptions = this.options.chains[chainSymbol];
-    let txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getInboundTransactions`, {walletAddress, blockId});
+    let txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactions`, {walletAddress, fromTimestamp, limit});
+
+    return txns;
+  }
+
+  async _getInboundTransactionsFromBlock(chainSymbol, walletAddress, blockId) {
+    let chainOptions = this.options.chains[chainSymbol];
+    let txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getInboundTransactionsFromBlock`, {walletAddress, blockId});
 
     return txns.map(txn => ({
       ...txn,
-      senderPublicKey: txn.senderPublicKey,
       sortKey: this._sha1(txn.id + blockId)
     })).sort((a, b) => this._transactionComparator(a, b));
   }
 
-  async _getOutboundTransactions(chainSymbol, blockId, walletAddress) {
+  async _getOutboundTransactionsFromBlock(chainSymbol, walletAddress, blockId) {
     let chainOptions = this.options.chains[chainSymbol];
-    let txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactions`, {walletAddress, blockId});
+    let txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactionsFromBlock`, {walletAddress, blockId});
 
     return txns.map(txn => ({
       ...txn,
-      senderPublicKey: txn.senderPublicKey,
       sortKey: this._sha1(txn.id + blockId)
     })).sort((a, b) => this._transactionComparator(a, b));
   }
@@ -2088,6 +2277,7 @@ module.exports = class LiskDEXModule {
     clearInterval(this._multisigExpiryInterval);
     clearInterval(this._multisigFlushInterval);
     clearInterval(this._signatureFlushInterval);
+    clearInterval(this._tradeHistoryUpdateInterval);
   }
 };
 
