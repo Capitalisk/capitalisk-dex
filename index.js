@@ -1530,18 +1530,11 @@ module.exports = class LiskDEXModule {
             height: latestChainHeights[takerTargetChain],
             timestamp: orderTxn.timestamp + 1
           };
-          // TODO: In the next patch release, remove this condition and the showMakerCountInTransfers config option; always show the maker count.
-          let makerCountString;
-          if (this.options.showMakerCountInTransfers) {
-            makerCountString = `,${result.makers.length}`;
-          } else {
-            makerCountString = '';
-          }
           try {
             await this.execMultisigTransaction(
               takerTargetChain,
               takerTxn,
-              `t1,${result.taker.sourceChain},${result.taker.id}${makerCountString}: Orders taken`
+              `t1,${result.taker.sourceChain},${result.taker.id},${result.makers.length}: Orders taken`
             );
           } catch (error) {
             this.logger.error(
