@@ -31,7 +31,7 @@ These status codes and messages appear in transactions created by the DEX (as pa
 
 **Trades**
 
-- `t1,${takerChain},${takerOrderId}: Orders taken`
+- `t1,${takerChain},${takerOrderId},${makerOrderCount}: Orders taken`
 - `t2,${makerChain},${makerOrderId},${takerOrderId}: Order made`
 
 **Dividends**
