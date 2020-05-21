@@ -210,6 +210,22 @@ class TradeEngine {
     return this.orderBook.getAskIteratorFromMax();
   }
 
+  getBidLevelIteratorFromMin() {
+    return this.orderBook.getBidLevelIteratorFromMin();
+  }
+
+  getBidLevelIteratorFromMax() {
+    return this.orderBook.getBidLevelIteratorFromMax();
+  }
+
+  getAskLevelIteratorFromMin() {
+    return this.orderBook.getAskLevelIteratorFromMin();
+  }
+
+  getAskLevelIteratorFromMax() {
+    return this.orderBook.getAskLevelIteratorFromMax();
+  }
+
   getOrderIterator() {
     return this._orderMap.values();
   }

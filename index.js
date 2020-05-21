@@ -460,47 +460,39 @@ module.exports = class LiskDEXModule {
             error.name = 'InvalidQueryError';
             throw error;
           }
-          let askIterator = this.tradeEngine.getAskIteratorFromMin();
-          let bidIterator = this.tradeEngine.getBidIteratorFromMax();
           let doubleDepth = depth * 2;
+          let askLevelIterator = this.tradeEngine.getAskLevelIteratorFromMin();
+          let bidLevelIterator = this.tradeEngine.getBidLevelIteratorFromMax();
 
           let orderBook = [];
           let lastEntry = {};
 
-          for (let ask of askIterator) {
-            if (ask.price === lastEntry.price) {
-              lastEntry.size += ask.size;
-              lastEntry.sizeRemaining += ask.sizeRemaining;
+          for (let askLevel of askLevelIterator) {
+            if (askLevel.price === lastEntry.price) {
+              lastEntry.sizeRemaining += askLevel.sizeRemaining;
             } else {
               if (orderBook.length >= depth) break;
               lastEntry = {
                 side: 'ask',
-                price: ask.price,
-                targetChain: ask.targetChain,
-                sourceChain: ask.sourceChain,
-                size: ask.size,
-                sizeRemaining: ask.sizeRemaining
-              }
+                price: askLevel.price,
+                sizeRemaining: askLevel.sizeRemaining
+              };
               orderBook.push(lastEntry);
             }
           }
 
           orderBook.reverse();
 
-          for (let bid of bidIterator) {
-            if (bid.price === lastEntry.price) {
-              lastEntry.value += bid.value;
-              lastEntry.valueRemaining += bid.valueRemaining;
+          for (let bidLevel of bidLevelIterator) {
+            if (bidLevel.price === lastEntry.price) {
+              lastEntry.valueRemaining += bidLevel.valueRemaining;
             } else {
               if (orderBook.length >= doubleDepth) break;
               lastEntry = {
                 side: 'bid',
-                price: bid.price,
-                targetChain: bid.targetChain,
-                sourceChain: bid.sourceChain,
-                value: bid.value,
-                valueRemaining: bid.valueRemaining
-              }
+                price: bidLevel.price,
+                valueRemaining: bidLevel.valueRemaining
+              };
               orderBook.push(lastEntry);
             }
           }
