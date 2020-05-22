@@ -2,6 +2,7 @@ const ProperOrderBook = require('proper-order-book');
 const crypto = require('crypto');
 
 const EMPTY_ORDER_BOOK_HASH = '0000000000000000000000000000000000000000';
+const emptyGenerator = function * () {};
 
 class TradeEngine {
   constructor(options) {
@@ -15,6 +16,7 @@ class TradeEngine {
     this._askMap = new Map();
     this._bidMap = new Map();
     this._orderMap = new Map();
+    this._sourceWalletOrderMap = new Map();
 
     this.orderBookHash = EMPTY_ORDER_BOOK_HASH;
 
@@ -48,6 +50,7 @@ class TradeEngine {
       this._removeFromOrderBook(orderId);
       this._bidMap.delete(orderId);
       this._orderMap.delete(orderId);
+      this._removeFromWalletOrderMap(order.sourceWalletAddress, orderId);
     }
     return expiredOrders;
   }
@@ -62,6 +65,7 @@ class TradeEngine {
       this._removeFromOrderBook(orderId);
       this._askMap.delete(orderId);
       this._orderMap.delete(orderId);
+      this._removeFromWalletOrderMap(order.sourceWalletAddress, orderId);
     }
     return expiredOrders;
   }
@@ -140,11 +144,13 @@ class TradeEngine {
         if (makerOrder.sizeRemaining <= 0) {
           this._askMap.delete(makerOrder.id);
           this._orderMap.delete(makerOrder.id);
+          this._removeFromWalletOrderMap(makerOrder.sourceWalletAddress, makerOrder.id);
         }
       } else {
         if (makerOrder.valueRemaining <= 0) {
           this._bidMap.delete(makerOrder.id);
           this._orderMap.delete(makerOrder.id);
+          this._removeFromWalletOrderMap(makerOrder.sourceWalletAddress, makerOrder.id);
         }
       }
     });
@@ -154,14 +160,59 @@ class TradeEngine {
         if (result.taker.sizeRemaining > 0) {
           this._askMap.set(newOrder.id, newOrder);
           this._orderMap.set(newOrder.id, newOrder);
+          this._addToWalletOrderMap(newOrder);
         }
       } else if (result.taker.valueRemaining > 0) {
         this._bidMap.set(newOrder.id, newOrder);
         this._orderMap.set(newOrder.id, newOrder);
+        this._addToWalletOrderMap(newOrder);
       }
     }
 
     return result;
+  }
+
+  _addToWalletOrderMap(order) {
+    if (!this._sourceWalletOrderMap.has(order.sourceWalletAddress)) {
+      this._sourceWalletOrderMap.set(order.sourceWalletAddress, new Map());
+    }
+    let orderMap = this._sourceWalletOrderMap.get(order.sourceWalletAddress);
+    orderMap.set(order.id, order);
+  }
+
+  _removeFromWalletOrderMap(sourceWalletAddress, orderId) {
+    let orderMap = this._sourceWalletOrderMap.get(sourceWalletAddress);
+    if (orderMap) {
+      let result = orderMap.delete(orderId);
+      if (!orderMap.size) {
+        this._sourceWalletOrderMap.delete(sourceWalletAddress);
+      }
+      return result;
+    }
+    return false;
+  }
+
+  getSourceWalletOrderIterator(sourceWalletAddress) {
+    let orderMap = this._sourceWalletOrderMap.get(sourceWalletAddress);
+    return orderMap ? orderMap.values() : emptyGenerator();
+  }
+
+  *getSourceWalletBidIterator(sourceWalletAddress) {
+    let orderIterator = this.getSourceWalletOrderIterator(sourceWalletAddress);
+    for (let order of orderIterator) {
+      if (order.side === 'bid') {
+        yield order;
+      }
+    }
+  }
+
+  *getSourceWalletAskIterator(sourceWalletAddress) {
+    let orderIterator = this.getSourceWalletOrderIterator(sourceWalletAddress);
+    for (let order of orderIterator) {
+      if (order.side === 'ask') {
+        yield order;
+      }
+    }
   }
 
   getOrder(orderId) {
@@ -183,6 +234,7 @@ class TradeEngine {
       this._bidMap.delete(orderId);
     }
     this._orderMap.delete(orderId);
+    this._removeFromWalletOrderMap(order.sourceWalletAddress, orderId);
     return result;
   }
 
@@ -288,12 +340,14 @@ class TradeEngine {
       this._addToOrderBook(newOrder);
       this._askMap.set(newOrder.id, newOrder);
       this._orderMap.set(newOrder.id, newOrder);
+      this._addToWalletOrderMap(newOrder);
     });
     snapshot.bidLimitOrders.forEach((order) => {
       let newOrder = {...order};
       this._addToOrderBook(newOrder);
       this._bidMap.set(newOrder.id, newOrder);
       this._orderMap.set(newOrder.id, newOrder);
+      this._addToWalletOrderMap(newOrder);
     });
     if (snapshot.orderBookHash) {
       this.orderBookHash = snapshot.orderBookHash
@@ -306,6 +360,7 @@ class TradeEngine {
     this._askMap.clear();
     this._bidMap.clear();
     this._orderMap.clear();
+    this._sourceWalletOrderMap.clear();
     this.orderBook.clear();
   }
 }

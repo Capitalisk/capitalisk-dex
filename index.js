@@ -256,15 +256,22 @@ module.exports = class LiskDEXModule {
     return defaultConfig;
   }
 
-  _execQueryAgainstIterator(query, sourceIterator, idExtractorFn) {
+  _execQueryAgainstIterator(query, sourceIterator, idExtractorFn, allowFiltering, allowSorting) {
     query = query || {};
     let {after, before, limit, sort, ...filterMap} = query;
-    if (sort && !this.options.apiEnableSorting) {
-      let error = new Error('Sorting is disabled');
+    if (sort && !this.options.apiEnableAdvancedSorting && !allowSorting) {
+      let error = new Error('Advanced sorting is disabled');
       error.name = 'InvalidQueryError';
       throw error;
     }
     let filterFields = Object.keys(filterMap);
+    if (filterFields.length && !this.options.apiEnableAdvancedFiltering && !allowFiltering) {
+      let error = new Error(
+        'Advanced filtering is disabled'
+      );
+      error.name = 'InvalidQueryError';
+      throw error;
+    }
     if (filterFields.length > this.options.apiMaxFilterFields) {
       let error = new Error(
         `Too many custom filter fields were specified in the query - The maximum allowed is ${
@@ -423,8 +430,15 @@ module.exports = class LiskDEXModule {
           if (query.sort === 'price:desc') {
             delete query.sort;
           }
-          let bidIterator = this.tradeEngine.getBidIteratorFromMax();
-          return this._execQueryAgainstIterator(query, bidIterator, item => item.id);
+          let orderIterator;
+          if (query.sourceWalletAddress) {
+            // Optimization.
+            orderIterator = this.tradeEngine.getSourceWalletBidIterator(query.sourceWalletAddress);
+            delete query.sourceWalletAddress;
+          } else {
+            orderIterator = this.tradeEngine.getBidIteratorFromMax();
+          }
+          return this._execQueryAgainstIterator(query, orderIterator, item => item.id);
         }
       },
       getAsks: {
@@ -434,14 +448,29 @@ module.exports = class LiskDEXModule {
           if (query.sort === 'price:asc') {
             delete query.sort;
           }
-          let askIterator = this.tradeEngine.getAskIteratorFromMin();
-          return this._execQueryAgainstIterator(query, askIterator, item => item.id);
+          let orderIterator;
+          if (query.sourceWalletAddress) {
+            // Optimization.
+            orderIterator = this.tradeEngine.getSourceWalletAskIterator(query.sourceWalletAddress);
+            delete query.sourceWalletAddress;
+          } else {
+            orderIterator = this.tradeEngine.getAskIteratorFromMin();
+          }
+          return this._execQueryAgainstIterator(query, orderIterator, item => item.id);
         }
       },
       getOrders: {
         handler: (action) => {
-          let orderIterator = this.tradeEngine.getOrderIterator();
-          return this._execQueryAgainstIterator(action.params, orderIterator, item => item.id);
+          let query = {...action.params};
+          let orderIterator;
+          if (query.sourceWalletAddress) {
+            // Optimization.
+            orderIterator = this.tradeEngine.getSourceWalletOrderIterator(query.sourceWalletAddress);
+            delete query.sourceWalletAddress;
+          } else {
+            orderIterator = this.tradeEngine.getOrderIterator();
+          }
+          return this._execQueryAgainstIterator(query, orderIterator, item => item.id);
         }
       },
       getOrderBook: {
@@ -512,7 +541,9 @@ module.exports = class LiskDEXModule {
           let transferList = this._execQueryAgainstIterator(
             action.params,
             this.pendingTransfers.values(),
-            item => item.id
+            item => item.id,
+            true,
+            true
           );
           return transferList.map(transfer => ({
             id: transfer.id,
