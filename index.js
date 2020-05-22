@@ -1477,6 +1477,12 @@ module.exports = class LiskDEXModule {
 
       closeOrders.forEach(async (orderTxn) => {
         let targetOrder = this.tradeEngine.getOrder(orderTxn.orderIdToClose);
+        if (!targetOrder) {
+          this.logger.error(
+            `Failed to close order with ID ${orderTxn.orderIdToClose} because it could not be found`
+          );
+          return;
+        }
         let refundTxn = {
           sourceChain: targetOrder.sourceChain,
           sourceWalletAddress: targetOrder.sourceWalletAddress,
