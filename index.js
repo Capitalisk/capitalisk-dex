@@ -1532,7 +1532,7 @@ module.exports = class LiskDEXModule {
           return;
         }
 
-        if (result.takeSize <= 0 || this.passiveMode) {
+        if (this.passiveMode) {
           return;
         }
 
@@ -1545,14 +1545,13 @@ module.exports = class LiskDEXModule {
         takerAmount -= takerAmount * takerChainOptions.exchangeFeeRate;
         takerAmount = Math.floor(takerAmount);
 
-        if (takerAmount <= 0) {
-          this.logger.error(
-            `Chain ${chainSymbol}: Failed to post the taker trade order ${orderTxn.id} because the amount after fees was less than or equal to 0`
-          );
-          return;
-        }
-
         (async () => {
+          if (takerAmount <= 0) {
+            this.logger.error(
+              `Chain ${chainSymbol}: Failed to post the taker trade order ${orderTxn.id} because the amount after fees was less than or equal to 0`
+            );
+            return;
+          }
           let takerTxn = {
             amount: takerAmount.toString(),
             recipientId: takerAddress,
@@ -1631,6 +1630,7 @@ module.exports = class LiskDEXModule {
           }
         });
       });
+
       this.processedHeights = {...latestChainHeights};
     }
 
