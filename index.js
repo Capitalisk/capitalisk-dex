@@ -121,7 +121,9 @@ module.exports = class LiskDEXModule {
       baseCurrency: this.baseChainSymbol,
       quoteCurrency: this.quoteChainSymbol,
       baseOrderHeightExpiry: baseChainOptions.orderHeightExpiry,
-      quoteOrderHeightExpiry: quoteChainOptions.orderHeightExpiry
+      quoteOrderHeightExpiry: quoteChainOptions.orderHeightExpiry,
+      baseMinPartialTake: baseChainOptions.minPartialTake,
+      quoteMinPartialTake: quoteChainOptions.minPartialTake
     });
     this.processedHeights = {
       [this.baseChainSymbol]: 0,

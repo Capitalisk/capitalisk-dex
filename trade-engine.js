@@ -10,8 +10,13 @@ class TradeEngine {
     this.quoteCurrency = options.quoteCurrency;
     this.baseOrderHeightExpiry = options.baseOrderHeightExpiry;
     this.quoteOrderHeightExpiry = options.quoteOrderHeightExpiry;
+    this.baseMinPartialTake = options.baseMinPartialTake;
+    this.quoteMinPartialTake = options.quoteMinPartialTake;
     this.market = `${this.quoteCurrency}/${this.baseCurrency}`;
-    this.orderBook = new ProperOrderBook();
+    this.orderBook = new ProperOrderBook({
+      minPartialTakeValue: this.baseMinPartialTake,
+      minPartialTakeSize: this.quoteMinPartialTake
+    });
 
     this._askMap = new Map();
     this._bidMap = new Map();
