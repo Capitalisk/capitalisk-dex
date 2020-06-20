@@ -577,6 +577,7 @@ module.exports = class LiskDEXModule {
       multisigMembers: Object.values(multisigWalletInfo.members),
       multisigRequiredSignatureCount: multisigWalletInfo.requiredSignatureCount,
       minOrderAmount: chainOptions.minOrderAmount,
+      minPartialTake: chainOptions.minPartialTake,
       exchangeFeeBase: chainOptions.exchangeFeeBase,
       exchangeFeeRate: chainOptions.exchangeFeeRate,
       requiredConfirmations: chainOptions.requiredConfirmations,
