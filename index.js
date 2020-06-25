@@ -260,14 +260,15 @@ module.exports = class LiskDEXModule {
 
   _execQueryAgainstIterator(query, sourceIterator, idExtractorFn, allowFiltering, allowSorting) {
     query = query || {};
-    let {after, before, limit, sort, ...filterMap} = query;
+    let {before, after, limit, sort, ...filterMap} = query;
     if (sort && !this.options.apiEnableAdvancedSorting && !allowSorting) {
       let error = new Error('Advanced sorting is disabled');
       error.name = 'InvalidQueryError';
       throw error;
     }
     let filterFields = Object.keys(filterMap);
-    if (filterFields.length && !this.options.apiEnableAdvancedFiltering && !allowFiltering) {
+    let useFiltering = before || after || filterFields.length;
+    if (useFiltering && !this.options.apiEnableAdvancedFiltering && !allowFiltering) {
       let error = new Error(
         'Advanced filtering is disabled'
       );

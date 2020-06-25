@@ -19,7 +19,7 @@ module.exports = {
   apiMaxPageLimit: 200,
   apiMaxFilterFields: 10,
   apiEnableAdvancedSorting: false,
-  apiEnableAdvancedFiltering: false,
+  apiEnableAdvancedFiltering: true,
   tradeHistorySize: 10000,
   tradeHistoryUpdateInterval: 10000,
   readBlocksInterval: 3000,
