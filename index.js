@@ -861,7 +861,17 @@ module.exports = class LiskDEXModule {
       return;
     }
     for (let priceItem of recentPriceList) {
-      this.recentPricesSkipList.upsert(priceItem.baseTimestamp, priceItem);
+      let existingPriceEntry = this.recentPricesSkipList.find(priceItem.baseTimestamp);
+      if (existingPriceEntry) {
+        let existingEntryWeightedPrice = existingPriceEntry.volume * existingPriceEntry.price;
+        let newEntryWeightedPrice = priceItem.volume * priceItem.price;
+        let totalVolume = existingPriceEntry.volume + priceItem.volume;
+        let averagePrice = (existingEntryWeightedPrice + newEntryWeightedPrice) / totalVolume;
+        existingPriceEntry.price = averagePrice;
+        existingPriceEntry.volume = totalVolume;
+      } else {
+        this.recentPricesSkipList.upsert(priceItem.baseTimestamp, priceItem);
+      }
     }
     while (this.recentPricesSkipList.length > this.options.tradeHistorySize) {
       this.recentPricesSkipList.delete(this.recentPricesSkipList.minKey());
