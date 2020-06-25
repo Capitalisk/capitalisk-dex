@@ -863,6 +863,9 @@ module.exports = class LiskDEXModule {
     for (let priceItem of recentPriceList) {
       this.recentPricesSkipList.upsert(priceItem.baseTimestamp, priceItem);
     }
+    while (this.recentPricesSkipList.length > this.options.tradeHistorySize) {
+      this.recentPricesSkipList.delete(this.recentPricesSkipList.minKey());
+    }
   }
 
   async load(channel) {
