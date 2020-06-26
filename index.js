@@ -1174,10 +1174,11 @@ module.exports = class LiskDEXModule {
             this.recentTransfersSkipList.upsert(recentTransfer.timestamp, {[txn.id]: recentTransfer});
           }
           this.pendingTransfers.delete(txn.id);
-          let expiryTimestamp = Date.now() - this.options.recentTransfersExpiry;
-          this.recentTransfersSkipList.deleteRange(0, expiryTimestamp, true);
         }
       });
+
+      let expiryTimestamp = Date.now() - this.options.recentTransfersExpiry;
+      this.recentTransfersSkipList.deleteRange(0, expiryTimestamp, true);
 
       let orders = inboundTxns.map((txn) => {
         let orderTxn = {...txn};
