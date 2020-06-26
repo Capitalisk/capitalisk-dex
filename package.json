@@ -22,8 +22,8 @@
     "@liskhq/lisk-cryptography": "^2.2.0",
     "@liskhq/lisk-transactions": "^2.3.1",
     "mocha": "^7.1.1",
-    "proper-order-book": "^1.5.1",
-    "proper-skip-list": "^4.0.1"
+    "proper-order-book": "^1.5.2",
+    "proper-skip-list": "^4.0.2"
   },
   "bugs": {
     "url": "https://github.com/jondubois/lisk-dex/issues"

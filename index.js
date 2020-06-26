@@ -132,6 +132,7 @@ module.exports = class LiskDEXModule {
 
     this.chainCrypto = {};
     this.recentPricesSkipList = new ProperSkipList();
+    this.recentTransfersSkipList = new ProperSkipList();
 
     this.chainSymbols.forEach((chainSymbol) => {
       let chainOptions = this.options.chains[chainSymbol];
@@ -556,7 +557,34 @@ module.exports = class LiskDEXModule {
             targetChain: transfer.targetChain,
             collectedSignatures: [...transfer.processedSignatureSet.values()],
             contributors: [...transfer.contributors],
-            timestamp: transfer.timestamp
+            timestamp: transfer.timestamp,
+            type: transfer.type,
+            originOrderId: transfer.originOrderId,
+            takerOrderId: transfer.takerOrderId,
+            makerOrderId: transfer.makerOrderId,
+            makerCount: transfer.makerCount
+          }));
+        }
+      },
+      getRecentTransfers: {
+        handler: (action) => {
+          let recentTransfersIterator = this.recentTransfersSkipList.findEntriesFromMax();
+          let transferGenerator = this._getNestedObjectValuesGenerator(recentTransfersIterator);
+          let transferList = this._execQueryAgainstIterator(action.params, transferGenerator, item => item.id, true);
+          return transferList.map(transfer => ({
+            id: transfer.id,
+            transaction: transfer.transaction,
+            recipientId: transfer.recipientId,
+            senderPublicKey: transfer.senderPublicKey,
+            targetChain: transfer.targetChain,
+            collectedSignatures: [...transfer.processedSignatureSet.values()],
+            contributors: [...transfer.contributors],
+            timestamp: transfer.timestamp,
+            type: transfer.type,
+            originOrderId: transfer.originOrderId,
+            takerOrderId: transfer.takerOrderId,
+            makerOrderId: transfer.makerOrderId,
+            makerCount: transfer.makerCount
           }));
         }
       }
@@ -566,6 +594,15 @@ module.exports = class LiskDEXModule {
   *_getValuesGenerator(entriesIterator) {
     for (let [key, value] of entriesIterator) {
       yield value;
+    }
+  }
+
+  *_getNestedObjectValuesGenerator(iterator) {
+    for (let [key, nestedObject] of iterator) {
+      let values = Object.values(nestedObject);
+      for (let value of values) {
+        yield value;
+      }
     }
   }
 
@@ -860,18 +897,23 @@ module.exports = class LiskDEXModule {
       );
       return;
     }
-    for (let priceItem of recentPriceList) {
-      let existingPriceEntry = this.recentPricesSkipList.find(priceItem.baseTimestamp);
+
+    let mergedPriceMap = new Map();
+
+    for (let priceEntry of recentPriceList) {
+      let existingPriceEntry = mergedPriceMap.get(priceEntry.baseTimestamp);
       if (existingPriceEntry) {
         let existingEntryWeightedPrice = existingPriceEntry.volume * existingPriceEntry.price;
-        let newEntryWeightedPrice = priceItem.volume * priceItem.price;
-        let totalVolume = existingPriceEntry.volume + priceItem.volume;
-        let averagePrice = (existingEntryWeightedPrice + newEntryWeightedPrice) / totalVolume;
-        existingPriceEntry.price = averagePrice;
+        let newEntryWeightedPrice = priceEntry.volume * priceEntry.price;
+        let totalVolume = existingPriceEntry.volume + priceEntry.volume;
         existingPriceEntry.volume = totalVolume;
+        existingPriceEntry.price = (existingEntryWeightedPrice + newEntryWeightedPrice) / totalVolume;
       } else {
-        this.recentPricesSkipList.upsert(priceItem.baseTimestamp, priceItem);
+        mergedPriceMap.set(priceEntry.baseTimestamp, priceEntry);
       }
+    }
+    for (let priceItem of mergedPriceMap.values()) {
+      this.recentPricesSkipList.upsert(priceItem.baseTimestamp, priceItem);
     }
     while (this.recentPricesSkipList.length > this.options.tradeHistorySize) {
       this.recentPricesSkipList.delete(this.recentPricesSkipList.minKey());
@@ -1122,7 +1164,19 @@ module.exports = class LiskDEXModule {
       let [inboundTxns, outboundTxns] = blockTransactions;
 
       outboundTxns.forEach((txn) => {
-        this.pendingTransfers.delete(txn.id);
+        let pendingTransfer = this.pendingTransfers.get(txn.id);
+        if (pendingTransfer) {
+          let recentTransfer = {...pendingTransfer, transaction: txn};
+          let existingRecentTransfers = this.recentTransfersSkipList.find(recentTransfer.timestamp);
+          if (existingRecentTransfers) {
+            existingRecentTransfers[txn.id] = recentTransfer;
+          } else {
+            this.recentTransfersSkipList.upsert(recentTransfer.timestamp, {[txn.id]: recentTransfer});
+          }
+          this.pendingTransfers.delete(txn.id);
+          let expiryTimestamp = Date.now() - this.options.recentTransfersExpiry;
+          this.recentTransfersSkipList.deleteRange(0, expiryTimestamp, true);
+        }
       });
 
       let orders = inboundTxns.map((txn) => {
@@ -1334,7 +1388,7 @@ module.exports = class LiskDEXModule {
       if (!this.passiveMode) {
         movedOrders.forEach(async (orderTxn) => {
           try {
-            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r5,${orderTxn.id},${orderTxn.movedToAddress}: DEX has moved`);
+            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r5,${orderTxn.id},${orderTxn.movedToAddress}: DEX has moved`, {type: 'r5', originOrderId: orderTxn.id});
           } catch (error) {
             this.logger.error(
               `Chain ${chainSymbol}: Failed to post multisig refund transaction for moved DEX order ID ${
@@ -1352,7 +1406,7 @@ module.exports = class LiskDEXModule {
 
         disabledOrders.forEach(async (orderTxn) => {
           try {
-            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r6,${orderTxn.id}: DEX has been disabled`);
+            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r6,${orderTxn.id}: DEX has been disabled`, {type: 'r6', originOrderId: orderTxn.id});
           } catch (error) {
             this.logger.error(
               `Chain ${chainSymbol}: Failed to post multisig refund transaction for disabled DEX order ID ${
@@ -1377,7 +1431,7 @@ module.exports = class LiskDEXModule {
             reasonMessage += ` - ${orderTxn.reason}`;
           }
           try {
-            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: ${reasonMessage}`);
+            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: ${reasonMessage}`, {type: 'r1', originOrderId: orderTxn.id});
           } catch (error) {
             this.logger.error(
               `Chain ${chainSymbol}: Failed to post multisig refund transaction for invalid order ID ${
@@ -1395,7 +1449,7 @@ module.exports = class LiskDEXModule {
 
         oversizedOrders.forEach(async (orderTxn) => {
           try {
-            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: Oversized order`);
+            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: Oversized order`, {type: 'r1', originOrderId: orderTxn.id});
           } catch (error) {
             this.logger.error(
               `Chain ${chainSymbol}: Failed to post multisig refund transaction for oversized order ID ${
@@ -1413,7 +1467,7 @@ module.exports = class LiskDEXModule {
 
         undersizedOrders.forEach(async (orderTxn) => {
           try {
-            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: Undersized order`);
+            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: Undersized order`, {type: 'r1', originOrderId: orderTxn.id});
           } catch (error) {
             this.logger.error(
               `Chain ${chainSymbol}: Failed to post multisig refund transaction for undersized order ID ${
@@ -1475,7 +1529,8 @@ module.exports = class LiskDEXModule {
             expiredOrder,
             refundTimestamp,
             expiredOrder.expiryHeight,
-            `r2,${expiredOrder.id}: Expired order`
+            `r2,${expiredOrder.id}: Expired order`,
+            {type: 'r2', originOrderId: expiredOrder.id}
           );
         } catch (error) {
           this.logger.error(
@@ -1524,7 +1579,7 @@ module.exports = class LiskDEXModule {
           return;
         }
         try {
-          await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r3,${targetOrder.id},${orderTxn.id}: Closed order`);
+          await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r3,${targetOrder.id},${orderTxn.id}: Closed order`, {type: 'r3', originOrderId: targetOrder.id});
         } catch (error) {
           this.logger.error(
             `Chain ${chainSymbol}: Failed to post multisig refund transaction for closed order ID ${
@@ -1573,13 +1628,18 @@ module.exports = class LiskDEXModule {
             amount: takerAmount.toString(),
             recipientId: takerAddress,
             height: latestChainHeights[takerTargetChain],
-            timestamp: orderTxn.timestamp + 1
+            timestamp: latestBlockTimestamp
           };
+          // TODO: Delete this in next minor version. Always use latestBlockTimestamp.
+          if (!this.options.useBlockTime) {
+            takerTxn.timestamp = orderTxn.timestamp + 1;
+          }
           try {
             await this.execMultisigTransaction(
               takerTargetChain,
               takerTxn,
-              `t1,${result.taker.sourceChain},${result.taker.id},${result.makers.length}: Orders taken`
+              `t1,${result.taker.sourceChain},${result.taker.id},${result.makers.length}: Orders taken`,
+              {type: 't1', originOrderId: result.taker.id, takerOrderId: result.taker.id, makerCount: result.makers.length}
             );
           } catch (error) {
             this.logger.error(
@@ -1604,7 +1664,7 @@ module.exports = class LiskDEXModule {
               return;
             }
             try {
-              await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r4,${orderTxn.id}: Unmatched market order part`);
+              await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r4,${orderTxn.id}: Unmatched market order part`, {type: 'r4', originOrderId: orderTxn.id});
             } catch (error) {
               this.logger.error(
                 `Chain ${chainSymbol}: Failed to post multisig market order refund transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
@@ -1632,13 +1692,18 @@ module.exports = class LiskDEXModule {
             amount: makerAmount.toString(),
             recipientId: makerAddress,
             height: latestChainHeights[makerOrder.targetChain],
-            timestamp: orderTxn.timestamp + 1
+            timestamp: latestBlockTimestamp
           };
+          // TODO: Delete this in next minor version. Always use latestBlockTimestamp.
+          if (!this.options.useBlockTime) {
+            makerTxn.timestamp = orderTxn.timestamp + 1;
+          }
           try {
             await this.execMultisigTransaction(
               makerOrder.targetChain,
               makerTxn,
-              `t2,${makerOrder.sourceChain},${makerOrder.id},${result.taker.id}: Order made`
+              `t2,${makerOrder.sourceChain},${makerOrder.id},${result.taker.id}: Order made`,
+              {type: 't2', originOrderId: makerOrder.id, makerOrderId: makerOrder.id, takerOrderId: result.taker.id}
             );
           } catch (error) {
             this.logger.error(
@@ -2110,7 +2175,8 @@ module.exports = class LiskDEXModule {
             order,
             timestamp,
             snapshot.chainHeights[order.sourceChain],
-            `r5,${order.id},${movedToAddress}: DEX has moved`
+            `r5,${order.id},${movedToAddress}: DEX has moved`,
+            {type: 'r5', originOrderId: order.id}
           );
         } else {
           allOrders.map(async (order) => {
@@ -2118,7 +2184,8 @@ module.exports = class LiskDEXModule {
               order,
               timestamp,
               snapshot.chainHeights[order.sourceChain],
-              `r6,${order.id}: DEX has been disabled`
+              `r6,${order.id}: DEX has been disabled`,
+              {type: 'r6', originOrderId: order.id}
             );
           })
         }
@@ -2126,7 +2193,7 @@ module.exports = class LiskDEXModule {
     );
   }
 
-  async refundOrder(order, timestamp, refundHeight, reason) {
+  async refundOrder(order, timestamp, refundHeight, reason, extraTransferData) {
     let refundTxn = {
       sourceChain: order.sourceChain,
       sourceWalletAddress: order.sourceWalletAddress,
@@ -2137,10 +2204,10 @@ module.exports = class LiskDEXModule {
     } else {
       refundTxn.sourceChainAmount = order.sizeRemaining;
     }
-    await this.execRefundTransaction(refundTxn, timestamp, reason);
+    await this.execRefundTransaction(refundTxn, timestamp, reason, extraTransferData);
   }
 
-  async execRefundTransaction(txn, timestamp, reason) {
+  async execRefundTransaction(txn, timestamp, reason, extraTransferData) {
     let refundChainOptions = this.options.chains[txn.sourceChain];
     let flooredAmount = Math.floor(txn.sourceChainAmount);
     let refundAmount = BigInt(flooredAmount) - BigInt(refundChainOptions.exchangeFeeBase);
@@ -2161,7 +2228,8 @@ module.exports = class LiskDEXModule {
     await this.execMultisigTransaction(
       txn.sourceChain,
       refundTxn,
-      reason
+      reason,
+      extraTransferData
     );
   }
 
@@ -2174,7 +2242,7 @@ module.exports = class LiskDEXModule {
     });
   }
 
-  async execMultisigTransaction(targetChain, transactionData, message) {
+  async execMultisigTransaction(targetChain, transactionData, message, extraTransferData) {
     let chainOptions = this.options.chains[targetChain];
     let chainCrypto = this.chainCrypto[targetChain];
     let {transaction: preparedTxn, signature: multisigTxnSignature} = chainCrypto.prepareTransaction(
@@ -2199,7 +2267,7 @@ module.exports = class LiskDEXModule {
     if (this.pendingTransfers.has(preparedTxn.id)) {
       this.pendingTransfers.delete(preparedTxn.id);
     }
-    this.pendingTransfers.set(preparedTxn.id, {
+    let transfer = {
       id: preparedTxn.id,
       transaction: preparedTxn,
       recipientId: preparedTxn.recipientId,
@@ -2209,8 +2277,10 @@ module.exports = class LiskDEXModule {
       contributors,
       publicKey,
       height: transactionData.height,
-      timestamp: Date.now()
-    });
+      timestamp: Date.now(),
+      ...extraTransferData
+    };
+    this.pendingTransfers.set(preparedTxn.id, transfer);
   }
 
   _getUpdateSnapshotFilePath(updateId) {

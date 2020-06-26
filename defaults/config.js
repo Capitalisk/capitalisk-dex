@@ -6,6 +6,7 @@ module.exports = {
   multisigFlushInterval: 15000,
   multisigReadyDelay: 5000,
   multisigMaxBatchSize: 25,
+  recentTransfersExpiry: 1800000,
   signatureFlushInterval: 5000,
   signatureMaxBatchSize: 400,
   orderBookSnapshotFinality: 303,
