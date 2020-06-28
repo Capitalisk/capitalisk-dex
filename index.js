@@ -2237,10 +2237,16 @@ module.exports = class LiskDEXModule {
   // Broadcast the signature to all DEX nodes with a matching baseAddress and quoteAddress
   async _broadcastSignaturesToSubnet(signatureDataList) {
     let actionRouteString = `${this.alias}?baseAddress=${this.baseAddress}&quoteAddress=${this.quoteAddress}`;
-    this.channel.invoke('network:emit', {
-      event: `${actionRouteString}:signatures`,
-      data: signatureDataList
-    });
+    try {
+      await this.channel.invoke('network:emit', {
+        event: `${actionRouteString}:signatures`,
+        data: signatureDataList
+      });
+    } catch (error) {
+      this.logger.error(
+        `Error encountered while attempting to broadcast signatures to the network - ${error.message}`
+      );
+    }
   }
 
   async execMultisigTransaction(targetChain, transactionData, message, extraTransferData) {
