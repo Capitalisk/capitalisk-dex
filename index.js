@@ -1616,10 +1616,6 @@ module.exports = class LiskDEXModule {
             height: latestChainHeights[takerTargetChain],
             timestamp: latestBlockTimestamp
           };
-          // TODO: Delete this in next minor version. Always use latestBlockTimestamp.
-          if (!this.options.useBlockTime) {
-            takerTxn.timestamp = orderTxn.timestamp + 1;
-          }
           try {
             await this.execMultisigTransaction(
               takerTargetChain,
@@ -1673,17 +1669,12 @@ module.exports = class LiskDEXModule {
             );
             return;
           }
-
           let makerTxn = {
             amount: makerAmount.toString(),
             recipientId: makerAddress,
             height: latestChainHeights[makerOrder.targetChain],
             timestamp: latestBlockTimestamp
           };
-          // TODO: Delete this in next minor version. Always use latestBlockTimestamp.
-          if (!this.options.useBlockTime) {
-            makerTxn.timestamp = orderTxn.timestamp + 1;
-          }
           try {
             await this.execMultisigTransaction(
               makerOrder.targetChain,
