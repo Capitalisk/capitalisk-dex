@@ -110,13 +110,6 @@ module.exports = class LiskDEXModule {
       this.validPriceRegex = new RegExp(`^([0-9]+\.?|[0-9]*\.[0-9]{1,${this.options.priceDecimalPrecision}})$`);
     }
 
-    if (this.options.chainsWhitelistPath) {
-      let chainsWhitelist = require(path.join(process.cwd(), this.options.chainsWhitelistPath));
-      this.chainsWhitelist = new Set([this.baseChainSymbol, this.quoteChainSymbol].concat(chainsWhitelist));
-    } else {
-      this.chainsWhitelist = new Set([this.baseChainSymbol, this.quoteChainSymbol]);
-    }
-
     this.tradeEngine = new TradeEngine({
       baseCurrency: this.baseChainSymbol,
       quoteCurrency: this.quoteChainSymbol,
@@ -410,7 +403,6 @@ module.exports = class LiskDEXModule {
             processedHeights: this.processedHeights,
             baseChain: this.options.baseChain,
             priceDecimalPrecision: this.options.priceDecimalPrecision,
-            chainsWhitelist: [...this.chainsWhitelist],
             chains: {
               [this.baseChainSymbol]: this._getChainInfo(this.baseChainSymbol),
               [this.quoteChainSymbol]: this._getChainInfo(this.quoteChainSymbol)
@@ -1232,13 +1224,9 @@ module.exports = class LiskDEXModule {
         if (!isSupportedChain) {
           orderTxn.type = 'invalid';
           orderTxn.reason = 'Invalid target chain';
-          let isChainWhitelisted = this.chainsWhitelist.has(targetChain);
-          orderTxn.isNonRefundable = isChainWhitelisted;
-          if (!isChainWhitelisted) {
-            this.logger.debug(
-              `Chain ${chainSymbol}: Incoming order ${orderTxn.id} has an invalid target chain ${targetChain}`
-            );
-          }
+          this.logger.debug(
+            `Chain ${chainSymbol}: Incoming order ${orderTxn.id} has an invalid target chain ${targetChain}`
+          );
           return orderTxn;
         }
 
@@ -1424,9 +1412,6 @@ module.exports = class LiskDEXModule {
         });
 
         invalidOrders.forEach(async (orderTxn) => {
-          if (orderTxn.isNonRefundable) {
-            return;
-          }
           let reasonMessage = 'Invalid order';
           if (orderTxn.reason) {
             reasonMessage += ` - ${orderTxn.reason}`;
