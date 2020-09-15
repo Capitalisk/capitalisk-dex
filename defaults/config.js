@@ -15,7 +15,6 @@ module.exports = {
   orderBookSnapshotBackupDirPath: './dex-snapshot-backups',
   orderBookSnapshotBackupMaxCount: 50,
   baseChain: 'lsk',
-  chainsWhitelistPath: null,
   apiDefaultPageLimit: 100,
   apiMaxPageLimit: 200,
   apiMaxFilterFields: 10,
