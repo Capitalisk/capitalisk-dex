@@ -13,10 +13,10 @@ To send an order to the DEX, a user needs to send a regular transfer transaction
 - **Credit**: `credit`
 
 ### Parameters
-- **targetChain** is name of trading pair for given market eg. LSH
+- **targetChain** is the name of trading pair for a given market (e.g. LSH)
 - **bidOrAskPrice** is a limit order price.
-- **targetWalletAddress** is trading pair user walletAddress.
-- **orderId** is a transaction Id.
+- **targetWalletAddress** is the wallet address on the opposite blockchain where tokens should be sent to.
+- **orderId** is the order ID (which matches the blockchain transaction ID).
 
 When making a limit or a market order, the DEX will use the amount of the underlying transaction to calculate the quantity of counterparty tokens to acquire.
 When performing a close order, the amount is not relevant; in this case, any amount can be specified as part of the close transaction (less is better); in any case, whatever amount is specified (minus blockchain transaction fees) will be refunded to the user's wallet via an `r3` refund transaction.
@@ -40,20 +40,20 @@ These status codes and messages appear in transactions created by the DEX (as pa
 - `t1,${takerChain},${takerOrderId},${makerOrderCount}: Orders taken`
 - `t2,${makerChain},${makerOrderId},${takerOrderId}: Order made`
 
-- Taker is the account/wallet who takes the trade from someone else (the maker).
-- Maker provides tokens for someone else to take (the taker).
-- All Market orders are takers.
+- Taker is the account/wallet which takes the trade from someone else (from the maker).
+- Maker provides tokens for someone else to take (to the taker).
+- All market orders are takers.
 - Pending limit orders in the order book will be makers.
 - Limit orders can be makers or takers or both.
-  1. If limit order is fulfilled immediately as soon as placed, it is a taker.
-  2. If limit order goes into pending state after placed, it is a maker.
-  3. If limit order is partially filled after placed (it's a taker), then it goes into pending state (it's a maker).
-- Takers are always responsible for matching orders against pending limit orders in order book.
+  1. If a limit order is filled immediately as soon as placed, it is a taker.
+  2. If a limit order goes into pending state after placed, it will be a maker.
+  3. If a limit order is partially filled after it is placed, it is a taker; then the unfilled portion will be added to the order book and will be a maker.
+- Takers are always matched against pending limit orders in the order book.
 - t1 transaction represents money going into taker's wallet.
 - t2 transaction represents money going into maker's wallet.
-- t1 has **makerOrderCount** denoting number of makers it matched against (sums up all makers amount and received as a single transaction).
-- t2 is a individual transaction matched against single order **takerOrderId** created by taker.
-- For both market and limit order there is always **1 t1** and **1-N t2**. 
+- t1 has **makerOrderCount** denoting number of makers it matched against from a single taker order.
+- t2 is an individual maker transaction matched against a single taker order **takerOrderId**.
+- For both market and limit orders there is always **1 t1** and **1-N t2** transactions.
 
 **Dividends**
 
