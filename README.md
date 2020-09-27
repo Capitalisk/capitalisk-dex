@@ -41,17 +41,17 @@ These status codes and messages appear in transactions created by the DEX (as pa
 - `t2,${makerChain},${makerOrderId},${takerOrderId}: Order made`
 
 - Taker is the account/wallet who takes the trade from someone else (the maker).
-- Maker is responsible for initialising the trade.
-- All Market orders makes up takers.
-- Pending limit orders in orderbook makes up makers.
+- Maker provides tokens for someone else to take (the taker).
+- All Market orders are takers.
+- Pending limit orders in the order book will be makers.
 - Limit orders can be makers or takers or both.
-  1. If limit order is fullfilled immediately as soon as placed, it is a taker.
+  1. If limit order is fulfilled immediately as soon as placed, it is a taker.
   2. If limit order goes into pending state after placed, it is a maker.
-  3. If limit order is partially filled after placed (It's a taker), then it goes into pending state (It's a maker).
-- Takers are always responsible for matching orders against pending limit orders in orderbook.
+  3. If limit order is partially filled after placed (it's a taker), then it goes into pending state (it's a maker).
+- Takers are always responsible for matching orders against pending limit orders in order book.
 - t1 transaction represents money going into taker's wallet.
 - t2 transaction represents money going into maker's wallet.
-- t1 has **makerOrderCount** denoting number of makers it matched against (sums up all makers amount and sent as a single transaction).
+- t1 has **makerOrderCount** denoting number of makers it matched against (sums up all makers amount and received as a single transaction).
 - t2 is a individual transaction matched against single order **takerOrderId** created by taker.
 - For both market and limit order there is always **1 t1** and **1-N t2**. 
 
