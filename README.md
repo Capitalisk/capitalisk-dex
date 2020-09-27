@@ -12,6 +12,10 @@ To send an order to the DEX, a user needs to send a regular transfer transaction
 - **Close order**: `${targetChain},close,${orderId}`
 - **Credit**: `credit`
 
+### Parameters
+- **targetChain** is name of trading pair for given market eg. LSH
+- **bidOrAskPrice** is a limit order price.
+- **targetWalletAddress** is trading pair user walletAddress.
 - **orderId** is a transaction Id.
 
 When making a limit or a market order, the DEX will use the amount of the underlying transaction to calculate the quantity of counterparty tokens to acquire.
