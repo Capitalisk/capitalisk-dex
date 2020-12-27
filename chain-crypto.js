@@ -2,16 +2,30 @@ const liskCryptography = require('@liskhq/lisk-cryptography');
 const liskTransactions = require('@liskhq/lisk-transactions');
 
 class ChainCrypto {
+  constructor({chainOptions}) {
+    this.sharedPassphrase = chainOptions.sharedPassphrase;
+    this.passphrase = chainOptions.passphrase;
+  }
+
+  // This method checks that:
+  // 1. The signerAddress corresponds to the publicKey.
+  // 2. The publicKey corresponds to the signature.
   async verifyTransactionSignature(transaction, signaturePacket) {
-    // TODO 222: Ensure that the signaturePacket.signerAddress corresponds to the signaturePacket.publicKey or signature; for stateful chain, will need to fetch the account
-    let {singature: signatureToVerify, publicKey} = signaturePacket;
-    let {signature, signSignature, ...transactionToHash} = transaction;
+    let { signature: signatureToVerify, publicKey, signerAddress } = signaturePacket;
+    let expectedAddress = liskCryptography.getAddressFromPublicKey(publicKey);
+    if (signerAddress !== expectedAddress) {
+      return false;
+    }
+    let { signature, signSignature, ...transactionToHash } = transaction;
     let txnHash = liskCryptography.hash(liskTransactions.utils.getTransactionBytes(transactionToHash));
     return liskCryptography.verifyData(txnHash, signatureToVerify, publicKey);
   }
 
-  prepareTransaction(transactionData, chainOptions) {
-    let {sharedPassphrase, passphrase} = chainOptions;
+  // The signature property needs to be an object with a signerAddress property, the other
+  // properties are flexible and depend on the requirements of the underlying blockchain.
+  prepareTransaction(transactionData) {
+    let sharedPassphrase = this.sharedPassphrase;
+    let passphrase = this.passphrase;
     let txn = {
       type: 0,
       amount: transactionData.amount.toString(),
@@ -26,7 +40,7 @@ class ChainCrypto {
     }
     let preparedTxn = liskTransactions.utils.prepareTransaction(txn, sharedPassphrase);
 
-    let {signature, signSignature, ...transactionToHash} = preparedTxn;
+    let { signature, signSignature, ...transactionToHash } = preparedTxn;
     let txnHash = liskCryptography.hash(liskTransactions.utils.getTransactionBytes(transactionToHash));
     let { address: signerAddress, publicKey } = liskCryptography.getAddressAndPublicKeyFromPassphrase(passphrase);
     let multisigTxnSignature = {

@@ -130,17 +130,6 @@ module.exports = class LiskDEXModule {
     this.chainSymbols.forEach((chainSymbol) => {
       let chainOptions = this.options.chains[chainSymbol];
 
-      let ChainCryptoClass;
-      if (chainOptions.chainCryptoLibPath) {
-        ChainCryptoClass = require(chainOptions.chainCryptoLibPath);
-      } else {
-        ChainCryptoClass = ChainCrypto;
-      }
-
-      this.chainCrypto[chainSymbol] = new ChainCryptoClass({
-        chainSymbol
-      });
-
       if (chainOptions.encryptedPassphrase) {
         if (!LISK_DEX_PASSWORD) {
           throw new Error(
@@ -209,6 +198,19 @@ module.exports = class LiskDEXModule {
           );
         }
       }
+
+      let ChainCryptoClass;
+      if (chainOptions.chainCryptoLibPath) {
+        ChainCryptoClass = require(chainOptions.chainCryptoLibPath);
+      } else {
+        ChainCryptoClass = ChainCrypto;
+      }
+
+      this.chainCrypto[chainSymbol] = new ChainCryptoClass({
+        chainSymbol,
+        chainOptions,
+        logger: this.logger
+      });
     });
 
     if (this.options.dividendLibPath) {
@@ -254,7 +256,7 @@ module.exports = class LiskDEXModule {
 
   _execQueryAgainstIterator(query, sourceIterator, idExtractorFn, allowFiltering, allowSorting) {
     query = query || {};
-    let {before, after, limit, sort, ...filterMap} = query;
+    let { before, after, limit, sort, ...filterMap } = query;
     if (sort && !this.options.apiEnableAdvancedSorting && !allowSorting) {
       let error = new Error('Advanced sorting is disabled');
       error.name = 'InvalidQueryError';
@@ -472,7 +474,7 @@ module.exports = class LiskDEXModule {
       getOrderBook: {
         handler: (action) => {
           let query = {...action.params};
-          let {depth} = query;
+          let { depth } = query;
           if (depth == null) {
             depth = Math.floor(this.options.apiDefaultPageLimit / 2);
           } else {
@@ -628,21 +630,20 @@ module.exports = class LiskDEXModule {
   }
 
   async _processSignature(signatureData) {
-    let {signaturePacket, transactionId} = signatureData;
+    let { signaturePacket, transactionId } = signatureData;
     if (!signaturePacket) {
       signaturePacket = {};
     }
     let transfer = this.pendingTransfers.get(transactionId);
-    let {signerAddress} = signaturePacket;
+    let { signerAddress } = signaturePacket;
     if (!transfer) {
       return;
     }
-    let {transaction, processedSignerAddressSet, targetChain} = transfer;
+    let { transaction, processedSignerAddressSet, targetChain } = transfer;
     if (processedSignerAddressSet.has(signerAddress)) {
       return;
     }
 
-    // TODO 222: Ensure that the signerAddress corresponds to the publicKey or signature (see comment inside chain-crypto)
     let isValidSignature = await this._verifySignature(targetChain, transaction, signaturePacket);
     if (!isValidSignature) {
       return;
@@ -1688,7 +1689,7 @@ module.exports = class LiskDEXModule {
     let processDividends = async ({chainSymbol, chainHeight, toHeight, latestBlockTimestamp}) => {
       let chainOptions = this.options.chains[chainSymbol];
       let fromHeight = toHeight - chainOptions.dividendHeightInterval;
-      let {readMaxBlocks} = chainOptions;
+      let { readMaxBlocks } = chainOptions;
       if (fromHeight < 1) {
         fromHeight = 1;
       }
@@ -1712,7 +1713,7 @@ module.exports = class LiskDEXModule {
         }
         currentBlock = blocksToProcess[blocksToProcess.length - 1];
       }
-      let {memberCount} = this.multisigWalletInfo[chainSymbol];
+      let { memberCount } = this.multisigWalletInfo[chainSymbol];
       let dividendList = await this.computeDividends({
         chainSymbol,
         contributionData,
@@ -2024,12 +2025,12 @@ module.exports = class LiskDEXModule {
 
   _isMarketOrderTooSmallToConvert(chainSymbol, amount) {
     if (chainSymbol === this.baseChainSymbol) {
-      let {price: quoteChainPrice} = this.tradeEngine.peekAsks() || {};
+      let { price: quoteChainPrice } = this.tradeEngine.peekAsks() || {};
       let quoteChainValue = Math.floor(amount / quoteChainPrice);
       let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
       return quoteChainValue <= quoteChainOptions.exchangeFeeBase;
     }
-    let {price: baseChainPrice} = this.tradeEngine.peekBids() || {};
+    let { price: baseChainPrice } = this.tradeEngine.peekBids() || {};
     let baseChainValue = Math.floor(amount * baseChainPrice);
     let baseChainOptions = this.options.chains[this.baseChainSymbol];
     return baseChainValue <= baseChainOptions.exchangeFeeBase;
@@ -2207,7 +2208,6 @@ module.exports = class LiskDEXModule {
   }
 
   async execMultisigTransaction(targetChain, transactionData, message, extraTransferData) {
-    let chainOptions = this.options.chains[targetChain];
     let chainCrypto = this.chainCrypto[targetChain];
     let {
       transaction: preparedTxn,
@@ -2216,8 +2216,7 @@ module.exports = class LiskDEXModule {
       {
         ...transactionData,
         message
-      },
-      chainOptions
+      }
     );
 
     let processedSignerAddressSet = new Set([multisigSignaturePacket.signerAddress]);
