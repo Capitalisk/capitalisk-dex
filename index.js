@@ -711,27 +711,18 @@ module.exports = class LiskDEXModule {
   async _broadcastTransactionsToChain(targetChain, transactions) {
     let chainOptions = this.options.chains[targetChain];
     if (chainOptions && chainOptions.moduleAlias) {
-      let modulePrefix;
-      if (chainOptions.moduleAlias === 'chain' || chainOptions.moduleAlias === 'ldem_lisk_chain') {
-        modulePrefix = '';
-      } else {
-        modulePrefix = `${chainOptions.moduleAlias}:`;
-      }
-      try {
-        await this.channel.invoke(
-          `network:emit`,
-          {
-            event: `${modulePrefix}postTransactions`,
-            data: {
-              transactions,
-              nonce: `DEXO2wTkjqplHw2l`
-            }
-          }
-        );
-      } catch (error) {
-        this.logger.error(
-          `Error encountered while attempting to post transactions to the ${targetChain} network - ${error.message}`
-        );
+      for (let transaction of transactions) {
+        try {
+          await this.channel.invoke(`${chainOptions.moduleAlias}:postTransaction`, {
+            transaction
+          });
+        } catch (error) {
+          this.logger.error(
+            `Error encountered while attempting to post transaction ${
+              transaction.id
+            } to the ${targetChain} network - ${error.message}`
+          );
+        }
       }
     }
   }
