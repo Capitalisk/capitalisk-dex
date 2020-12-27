@@ -21,7 +21,7 @@ class ChainCrypto {
     let txn = {
       type: 0,
       amount: transactionData.amount.toString(),
-      recipientId: transactionData.recipientId,
+      recipientId: transactionData.recipientAddress,
       fee: liskTransactions.constants.TRANSFER_FEE.toString(),
       asset: {},
       timestamp: transactionData.timestamp,

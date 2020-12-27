@@ -26,7 +26,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'ask',
         size: 100
       });
@@ -39,7 +39,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '22222222211111111111L',
+        senderAddress: '22222222211111111111L',
         side: 'bid',
         value: 100
       });
@@ -60,7 +60,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'ask',
         size: 100
       });
@@ -73,7 +73,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '33311111111222222333L',
+        senderAddress: '33311111111222222333L',
         side: 'bid',
         value: 200
       });
@@ -95,7 +95,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'ask',
         size: 4000
       });
@@ -108,7 +108,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '44411111111222222444L',
+        senderAddress: '44411111111222222444L',
         side: 'bid',
         value: 4
       });
@@ -123,7 +123,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '55511111111222222555L',
+        senderAddress: '55511111111222222555L',
         side: 'bid',
         value: 20
       });
@@ -138,7 +138,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '66611111111222222666L',
+        senderAddress: '66611111111222222666L',
         side: 'bid',
         value: 6
       });
@@ -157,7 +157,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'ask',
         size: 100
       });
@@ -173,7 +173,7 @@ describe('TradeEngine unit tests', async () => {
           targetChain: 'lsk',
           height: 1,
           targetWalletAddress: '22245678912345678222L',
-          senderId: '55511111111222222777L',
+          senderAddress: '55511111111222222777L',
           side: 'ask',
           size: 100
         });
@@ -196,7 +196,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'ask',
         size: 100
       });
@@ -209,7 +209,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'ask',
         size: 100
       });
@@ -222,7 +222,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'ask',
         size: 100
       });
@@ -235,7 +235,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'bid',
         value: 100
       });
@@ -248,7 +248,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'bid',
         value: 100
       });
@@ -261,7 +261,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'bid',
         value: 100
       });
@@ -284,7 +284,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'ask',
         size: 100
       });
@@ -297,7 +297,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '88811111111222222333L',
+        senderAddress: '88811111111222222333L',
         side: 'bid',
         value: 4
       });
@@ -310,7 +310,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '11555111111222226662L',
+        senderAddress: '11555111111222226662L',
         side: 'bid',
         value: 20
       });
@@ -333,7 +333,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '77711111111222442222L',
+        senderAddress: '77711111111222442222L',
         side: 'bid',
         value: 6
       });
@@ -348,7 +348,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '33331111111222222999L',
+        senderAddress: '33331111111222222999L',
         side: 'bid',
         value: 25
       });
@@ -366,7 +366,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'bid',
         value: 14
       });
@@ -379,7 +379,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '22222222211111111111L',
+        senderAddress: '22222222211111111111L',
         side: 'ask',
         size: 1.18
       });
@@ -392,7 +392,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '22222222211111111111L',
+        senderAddress: '22222222211111111111L',
         side: 'ask',
         size: 1.67
       });
@@ -405,7 +405,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '22222222211111111111L',
+        senderAddress: '22222222211111111111L',
         side: 'bid',
         value: 1.9992
       });
@@ -418,7 +418,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '22222222211111111111L',
+        senderAddress: '22222222211111111111L',
         side: 'ask',
         size: 6
       });
@@ -438,7 +438,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'ask',
         size: 100
       });
@@ -450,7 +450,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '22222222211111111111L',
+        senderAddress: '22222222211111111111L',
         side: 'bid',
         value: 10
       });
@@ -472,7 +472,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'bid',
         value: 50
       });
@@ -484,7 +484,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '22222222211111111111L',
+        senderAddress: '22222222211111111111L',
         side: 'ask',
         size: 50
       });
@@ -506,7 +506,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'ask',
         size: 4000000000
       });
@@ -518,7 +518,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '22222222211111111111L',
+        senderAddress: '22222222211111111111L',
         side: 'bid',
         value: 2000000000
       });
@@ -538,7 +538,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'clsk',
         height: 1,
         targetWalletAddress: '22245678912345678222L',
-        senderId: '11111111111222222222L',
+        senderAddress: '11111111111222222222L',
         side: 'bid',
         value: 500000000
       });
@@ -550,7 +550,7 @@ describe('TradeEngine unit tests', async () => {
         targetChain: 'lsk',
         height: 1,
         targetWalletAddress: '11145678912345678111L',
-        senderId: '22222222211111111111L',
+        senderAddress: '22222222211111111111L',
         side: 'ask',
         size: 2000000000
       });

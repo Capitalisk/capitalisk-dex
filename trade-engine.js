@@ -134,7 +134,7 @@ class TradeEngine {
     newOrder.type = order.type;
     newOrder.targetChain = order.targetChain;
     newOrder.targetWalletAddress = order.targetWalletAddress;
-    newOrder.senderId = order.senderId;
+    newOrder.senderAddress = order.senderAddress;
     newOrder.sourceChain = order.sourceChain;
     newOrder.sourceChainAmount = order.sourceChainAmount;
     newOrder.sourceWalletAddress = order.sourceWalletAddress;

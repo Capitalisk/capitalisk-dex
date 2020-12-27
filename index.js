@@ -544,7 +544,7 @@ module.exports = class LiskDEXModule {
           return transferList.map(transfer => ({
             id: transfer.id,
             transaction: transfer.transaction,
-            recipientId: transfer.recipientId,
+            recipientAddress: transfer.recipientAddress,
             senderPublicKey: transfer.senderPublicKey,
             targetChain: transfer.targetChain,
             collectedSignatures: [...transfer.processedSignatureSet.values()],
@@ -566,7 +566,7 @@ module.exports = class LiskDEXModule {
           return transferList.map(transfer => ({
             id: transfer.id,
             transaction: transfer.transaction,
-            recipientId: transfer.recipientId,
+            recipientAddress: transfer.recipientAddress,
             senderPublicKey: transfer.senderPublicKey,
             targetChain: transfer.targetChain,
             collectedSignatures: [...transfer.processedSignatureSet.values()],
@@ -1166,7 +1166,7 @@ module.exports = class LiskDEXModule {
       let orders = inboundTxns.map((txn) => {
         let orderTxn = {...txn};
         orderTxn.sourceChain = chainSymbol;
-        orderTxn.sourceWalletAddress = orderTxn.senderId;
+        orderTxn.sourceWalletAddress = orderTxn.senderAddress;
         let amount = parseInt(orderTxn.amount);
 
         let transferMessageString = orderTxn.message == null ? '' : orderTxn.message;
@@ -1603,7 +1603,7 @@ module.exports = class LiskDEXModule {
           }
           let takerTxn = {
             amount: takerAmount.toString(),
-            recipientId: takerAddress,
+            recipientAddress: takerAddress,
             height: latestChainHeights[takerTargetChain],
             timestamp: latestBlockTimestamp
           };
@@ -1662,7 +1662,7 @@ module.exports = class LiskDEXModule {
           }
           let makerTxn = {
             amount: makerAmount.toString(),
-            recipientId: makerAddress,
+            recipientAddress: makerAddress,
             height: latestChainHeights[makerOrder.targetChain],
             timestamp: latestBlockTimestamp
           };
@@ -1725,7 +1725,7 @@ module.exports = class LiskDEXModule {
           let txnAmount = dividend.amount - BigInt(chainOptions.exchangeFeeBase);
           let dividendTxn = {
             amount: txnAmount.toString(),
-            recipientId: dividend.walletAddress,
+            recipientAddress: dividend.walletAddress,
             height: chainHeight,
             timestamp: latestBlockTimestamp
           };
@@ -1994,31 +1994,20 @@ module.exports = class LiskDEXModule {
     if (txnData.charAt(0) !== 't') {
       return [];
     }
-    transaction.asset.data = txnData;
 
-    let memberSignatures = transaction.signatures ? transaction.signatures.split(',') : [];
-    let amountBeforeFee = Math.floor(transaction.amount / (1 - exchangeFeeRate));
+    let memberSignatures = transaction.signatures || [];
+    let amountBeforeFee = Math.floor(Number(transaction.amount) / (1 - exchangeFeeRate));
 
-    return memberSignatures.map((signature) => {
-      let walletAddress = this._getMemberWalletAddress(chainSymbol, transaction, signature);
-      if (!walletAddress) {
+    return memberSignatures.map((signaturePacket) => {
+      let { signerAddress } = signaturePacket;
+      if (!signerAddress) {
         return null;
       }
       return {
-        walletAddress,
+        walletAddress: signerAddress,
         amount: amountBeforeFee
       };
     }).filter(dividend => !!dividend);
-  }
-
-  _getMemberWalletAddress(chainSymbol, transaction, signature) {
-    let memberPublicKey = Object.keys(this.multisigWalletInfo[chainSymbol].members).find((publicKey) => {
-      return this._verifySignature(chainSymbol, publicKey, transaction, signature);
-    });
-    if (!memberPublicKey) {
-      return null;
-    }
-    return this.chainCrypto[chainSymbol].getAddressFromPublicKey(memberPublicKey);
   }
 
   _isLimitOrderTooSmallToConvert(chainSymbol, amount, price) {
@@ -2189,7 +2178,7 @@ module.exports = class LiskDEXModule {
 
     let refundTxn = {
       amount: refundAmount.toString(),
-      recipientId: txn.sourceWalletAddress,
+      recipientAddress: txn.sourceWalletAddress,
       height: txn.height,
       timestamp
     };
@@ -2219,7 +2208,10 @@ module.exports = class LiskDEXModule {
   async execMultisigTransaction(targetChain, transactionData, message, extraTransferData) {
     let chainOptions = this.options.chains[targetChain];
     let chainCrypto = this.chainCrypto[targetChain];
-    let {transaction: preparedTxn, signature: multisigTxnSignature} = chainCrypto.prepareTransaction(
+    let {
+      transaction: preparedTxn,
+      signature: multisigTxnSignature
+    } = chainCrypto.prepareTransaction(
       {
         ...transactionData,
         message
@@ -2244,7 +2236,7 @@ module.exports = class LiskDEXModule {
     let transfer = {
       id: preparedTxn.id,
       transaction: preparedTxn,
-      recipientId: preparedTxn.recipientId,
+      recipientAddress: transactionData.recipientAddress,
       senderPublicKey: preparedTxn.senderPublicKey,
       targetChain,
       processedSignatureSet,
