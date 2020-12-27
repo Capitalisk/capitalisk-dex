@@ -2,15 +2,9 @@ const liskCryptography = require('@liskhq/lisk-cryptography');
 const liskTransactions = require('@liskhq/lisk-transactions');
 
 class ChainCrypto {
-  getPublicKeyFromPassphrase(passphrase) {
-    return liskCryptography.getAddressAndPublicKeyFromPassphrase(passphrase).publicKey;
-  }
-
-  getAddressFromPublicKey(publicKey) {
-    return liskCryptography.getAddressFromPublicKey(publicKey);
-  }
-
-  verifyTransactionSignature(transaction, signatureToVerify, publicKey) {
+  async verifyTransactionSignature(transaction, signaturePacket) {
+    // TODO 222: Ensure that the signaturePacket.signerAddress corresponds to the signaturePacket.publicKey or signature; for stateful chain, will need to fetch the account
+    let {singature: signatureToVerify, publicKey} = signaturePacket;
     let {signature, signSignature, ...transactionToHash} = transaction;
     let txnHash = liskCryptography.hash(liskTransactions.utils.getTransactionBytes(transactionToHash));
     return liskCryptography.verifyData(txnHash, signatureToVerify, publicKey);
@@ -25,7 +19,7 @@ class ChainCrypto {
       fee: liskTransactions.constants.TRANSFER_FEE.toString(),
       asset: {},
       timestamp: transactionData.timestamp,
-      senderPublicKey: this.getPublicKeyFromPassphrase(sharedPassphrase)
+      senderPublicKey: liskCryptography.getAddressAndPublicKeyFromPassphrase(sharedPassphrase).publicKey
     };
     if (transactionData.message != null) {
       txn.asset.data = transactionData.message;
@@ -34,7 +28,13 @@ class ChainCrypto {
 
     let {signature, signSignature, ...transactionToHash} = preparedTxn;
     let txnHash = liskCryptography.hash(liskTransactions.utils.getTransactionBytes(transactionToHash));
-    let multisigTxnSignature = liskCryptography.signData(txnHash, passphrase);
+    let { address: signerAddress, publicKey } = liskCryptography.getAddressAndPublicKeyFromPassphrase(passphrase);
+    let multisigTxnSignature = {
+      signerAddress,
+      publicKey,
+      signature: liskCryptography.signData(txnHash, passphrase)
+    };
+    // Signature needs to be full signaturePacket object and not just a string
 
     preparedTxn.signatures = [multisigTxnSignature];
 

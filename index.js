@@ -89,7 +89,7 @@ module.exports = class LiskDEXModule {
     this.pendingTransfers = new Map();
     this.chainSymbols.forEach((chainSymbol) => {
       this.multisigWalletInfo[chainSymbol] = {
-        members: {},
+        members: new Set(),
         memberCount: 0,
         requiredSignatureCount: null
       };
@@ -547,8 +547,8 @@ module.exports = class LiskDEXModule {
             recipientAddress: transfer.recipientAddress,
             senderPublicKey: transfer.senderPublicKey,
             targetChain: transfer.targetChain,
-            collectedSignatures: [...transfer.processedSignatureSet.values()],
-            contributors: [...transfer.contributors],
+            collectedSignatureCount: transfer.processedSignerAddressSet.size,
+            contributors: [...transfer.processedSignerAddressSet],
             timestamp: transfer.timestamp,
             type: transfer.type,
             originOrderId: transfer.originOrderId,
@@ -569,8 +569,8 @@ module.exports = class LiskDEXModule {
             recipientAddress: transfer.recipientAddress,
             senderPublicKey: transfer.senderPublicKey,
             targetChain: transfer.targetChain,
-            collectedSignatures: [...transfer.processedSignatureSet.values()],
-            contributors: [...transfer.contributors],
+            collectedSignatureCount: transfer.processedSignerAddressSet.size,
+            contributors: [...transfer.processedSignerAddressSet],
             timestamp: transfer.timestamp,
             type: transfer.type,
             originOrderId: transfer.originOrderId,
@@ -604,7 +604,7 @@ module.exports = class LiskDEXModule {
     return {
       walletAddressSystem: chainOptions.walletAddressSystem,
       walletAddress: chainOptions.walletAddress,
-      multisigMembers: Object.values(multisigWalletInfo.members),
+      multisigMembers: [...multisigWalletInfo.members],
       multisigRequiredSignatureCount: multisigWalletInfo.requiredSignatureCount,
       minOrderAmount: chainOptions.minOrderAmount,
       minPartialTake: chainOptions.minPartialTake || 0,
@@ -619,36 +619,37 @@ module.exports = class LiskDEXModule {
     return transaction.signatures.length - (this.multisigWalletInfo[targetChain] || {}).requiredSignatureCount;
   }
 
-  _verifySignature(targetChain, publicKey, transaction, signatureToVerify) {
-    let memberWalletAddress = this.multisigWalletInfo[targetChain].members[publicKey];
-    if (!memberWalletAddress) {
+  async _verifySignature(targetChain, transaction, signaturePacket) {
+    let hasMemberAddress = this.multisigWalletInfo[targetChain].members.has(signaturePacket.signerAddress);
+    if (!hasMemberAddress) {
       return false;
     }
-    return this.chainCrypto[targetChain].verifyTransactionSignature(transaction, signatureToVerify, publicKey);
+    return this.chainCrypto[targetChain].verifyTransactionSignature(transaction, signaturePacket);
   }
 
-  _processSignature(signatureData) {
-    let transfer = this.pendingTransfers.get(signatureData.transactionId);
-    let signature = signatureData.signature;
-    let publicKey = signatureData.publicKey;
+  async _processSignature(signatureData) {
+    let {signaturePacket, transactionId} = signatureData;
+    if (!signaturePacket) {
+      signaturePacket = {};
+    }
+    let transfer = this.pendingTransfers.get(transactionId);
+    let {signerAddress} = signaturePacket;
     if (!transfer) {
       return;
     }
-    let {transaction, processedSignatureSet, contributors, targetChain} = transfer;
-    if (processedSignatureSet.has(signature)) {
+    let {transaction, processedSignerAddressSet, targetChain} = transfer;
+    if (processedSignerAddressSet.has(signerAddress)) {
       return;
     }
 
-    let isValidSignature = this._verifySignature(targetChain, publicKey, transaction, signature);
+    // TODO 222: Ensure that the signerAddress corresponds to the publicKey or signature (see comment inside chain-crypto)
+    let isValidSignature = await this._verifySignature(targetChain, transaction, signaturePacket);
     if (!isValidSignature) {
       return;
     }
 
-    processedSignatureSet.add(signature);
-    transaction.signatures.push(signature);
-
-    let memberAddress = this.chainCrypto[targetChain].getAddressFromPublicKey(publicKey);
-    contributors.add(memberAddress);
+    processedSignerAddressSet.add(signerAddress);
+    transaction.signatures.push(signaturePacket);
 
     let signatureQuota = this._getSignatureQuota(targetChain, transaction);
     if (signatureQuota >= 0 && transfer.readyTimestamp == null) {
@@ -691,11 +692,10 @@ module.exports = class LiskDEXModule {
     let signaturesToBroadcast = [];
 
     for (let transfer of this.pendingTransfers.values()) {
-      for (let signature of transfer.transaction.signatures) {
+      for (let signaturePacket of transfer.transaction.signatures) {
         signaturesToBroadcast.push({
-          signature,
-          transactionId: transfer.transaction.id,
-          publicKey: transfer.publicKey
+          signaturePacket,
+          transactionId: transfer.transaction.id
         });
       }
     }
@@ -938,7 +938,9 @@ module.exports = class LiskDEXModule {
         return;
       }
       let signatureDataList = Array.isArray(data) ? data.slice(0, this.options.signatureMaxBatchSize) : [];
-      signatureDataList.forEach(signatureData => this._processSignature(signatureData || {}));
+      await Promise.all([
+        signatureDataList.map(async (signatureData) => this._processSignature(signatureData))
+      ]);
     });
 
     try {
@@ -958,10 +960,9 @@ module.exports = class LiskDEXModule {
         this.chainSymbols.map(async (chainSymbol) => {
           let chainOptions = this.options.chains[chainSymbol];
           let multisigMembers = await this._getMultisigWalletMembers(chainSymbol, chainOptions.walletAddress);
-          multisigMembers.forEach((member) => {
-            this.multisigWalletInfo[chainSymbol].members[member.dependentId] = this.chainCrypto[chainSymbol].getAddressFromPublicKey(member.dependentId);
-          });
-          this.multisigWalletInfo[chainSymbol].memberCount = multisigMembers.length;
+          let multisigMemberSet = new Set(multisigMembers);
+          this.multisigWalletInfo[chainSymbol].members = multisigMemberSet;
+          this.multisigWalletInfo[chainSymbol].memberCount = multisigMemberSet.size;
           this.multisigWalletInfo[chainSymbol].requiredSignatureCount = await this._getMinMultisigRequiredSignatures(chainSymbol, chainOptions.walletAddress);
         })
       );
@@ -2210,7 +2211,7 @@ module.exports = class LiskDEXModule {
     let chainCrypto = this.chainCrypto[targetChain];
     let {
       transaction: preparedTxn,
-      signature: multisigTxnSignature
+      signature: multisigSignaturePacket
     } = chainCrypto.prepareTransaction(
       {
         ...transactionData,
@@ -2219,13 +2220,7 @@ module.exports = class LiskDEXModule {
       chainOptions
     );
 
-    let publicKey = chainCrypto.getPublicKeyFromPassphrase(chainOptions.passphrase);
-    let walletAddress = chainCrypto.getAddressFromPublicKey(publicKey);
-
-    let processedSignatureSet = new Set([multisigTxnSignature]);
-
-    let contributors = new Set();
-    contributors.add(walletAddress);
+    let processedSignerAddressSet = new Set([multisigSignaturePacket.signerAddress]);
 
     // If the pendingTransfers map already has a transaction with the specified id, delete the existing entry so
     // that when it is re-inserted, it will be added at the end of the queue.
@@ -2239,9 +2234,7 @@ module.exports = class LiskDEXModule {
       recipientAddress: transactionData.recipientAddress,
       senderPublicKey: preparedTxn.senderPublicKey,
       targetChain,
-      processedSignatureSet,
-      contributors,
-      publicKey,
+      processedSignerAddressSet,
       height: transactionData.height,
       timestamp: Date.now(),
       ...extraTransferData
