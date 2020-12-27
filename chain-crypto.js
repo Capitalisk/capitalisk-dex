@@ -16,13 +16,11 @@ class ChainCrypto {
     if (signerAddress !== expectedAddress) {
       return false;
     }
-    let { signature, signSignature, ...transactionToHash } = transaction;
+    let { signature, signSignature, signatures, ...transactionToHash } = transaction;
     let txnHash = liskCryptography.hash(liskTransactions.utils.getTransactionBytes(transactionToHash));
     return liskCryptography.verifyData(txnHash, signatureToVerify, publicKey);
   }
 
-  // The signature property needs to be an object with a signerAddress property, the other
-  // properties are flexible and depend on the requirements of the underlying blockchain.
   prepareTransaction(transactionData) {
     let sharedPassphrase = this.sharedPassphrase;
     let passphrase = this.passphrase;
@@ -40,16 +38,17 @@ class ChainCrypto {
     }
     let preparedTxn = liskTransactions.utils.prepareTransaction(txn, sharedPassphrase);
 
-    let { signature, signSignature, ...transactionToHash } = preparedTxn;
+    let { signature, signSignature, signatures, ...transactionToHash } = preparedTxn;
     let txnHash = liskCryptography.hash(liskTransactions.utils.getTransactionBytes(transactionToHash));
     let { address: signerAddress, publicKey } = liskCryptography.getAddressAndPublicKeyFromPassphrase(passphrase);
+
+    // The signature needs to be an object with a signerAddress property, the other
+    // properties are flexible and depend on the requirements of the underlying blockchain.
     let multisigTxnSignature = {
       signerAddress,
       publicKey,
       signature: liskCryptography.signData(txnHash, passphrase)
     };
-    // Signature needs to be full signaturePacket object and not just a string
-
     preparedTxn.signatures = [multisigTxnSignature];
 
     return {transaction: preparedTxn, signature: multisigTxnSignature};

@@ -940,7 +940,7 @@ module.exports = class LiskDEXModule {
       }
       let signatureDataList = Array.isArray(data) ? data.slice(0, this.options.signatureMaxBatchSize) : [];
       await Promise.all([
-        signatureDataList.map(async (signatureData) => this._processSignature(signatureData))
+        signatureDataList.map(async (signatureData) => this._processSignature(signatureData || {}))
       ]);
     });
 
@@ -2049,7 +2049,7 @@ module.exports = class LiskDEXModule {
       return 1;
     }
 
-    // This should never happen unless there is an md5 hash collision.
+    // This should never happen unless there is a hash collision.
     this.logger.error(
       `Failed to compare transactions ${
         a.id
