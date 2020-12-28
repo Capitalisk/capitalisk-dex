@@ -2074,9 +2074,7 @@ module.exports = class LiskDEXModule {
 
   async _getOutboundTransactions(chainSymbol, walletAddress, fromTimestamp, limit) {
     let chainOptions = this.options.chains[chainSymbol];
-    let txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactions`, {walletAddress, fromTimestamp, limit});
-
-    return txns;
+    return this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactions`, {walletAddress, fromTimestamp, limit});
   }
 
   async _getInboundTransactionsFromBlock(chainSymbol, walletAddress, blockId) {
