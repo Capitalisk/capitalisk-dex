@@ -54,6 +54,8 @@ These status codes and messages appear in transactions created by the DEX (as pa
 - t1 has **makerOrderCount** denoting number of makers it matched against from a single taker order.
 - t2 is an individual maker transaction matched against a single taker order **takerOrderId**.
 - For both market and limit orders there is always **1 t1** and **1-N t2** transactions.
+- Only the first part of message is mandatory, the part which begins with the column character is optional depending on the market implementation.
+- If one of the blockchains involved in a market does not provide sufficient space in a transaction to store a full protocol message, order IDs and wallet addresses may be trimmed down to fit within the available space.
 
 **Dividends**
 

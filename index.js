@@ -21,6 +21,8 @@ const CIPHER_ALGORITHM = 'aes-192-cbc';
 const CIPHER_KEY = LISK_DEX_PASSWORD ? crypto.scryptSync(LISK_DEX_PASSWORD, 'salt', 24) : undefined;
 const CIPHER_IV = Buffer.alloc(16, 0);
 const DEFAULT_MULTISIG_READY_DELAY = 5000;
+const DEFAULT_PROTOCOL_EXCLUDE_REASON = false;
+const DEFAULT_PROTOCOL_MAX_ARGUMENT_LENGTH = 64;
 
 /**
  * Lisk DEX module specification
@@ -103,6 +105,8 @@ module.exports = class LiskDEXModule {
     this.baseAddress = baseChainOptions.walletAddress;
     this.quoteAddress = quoteChainOptions.walletAddress;
     this.multisigReadyDelay = this.options.multisigReadyDelay || DEFAULT_MULTISIG_READY_DELAY;
+    this.protocolExcludeReason = this.options.protocolExcludeReason || DEFAULT_PROTOCOL_EXCLUDE_REASON;
+    this.protocolMaxArgumentLength = this.options.protocolMaxArgumentLength || DEFAULT_PROTOCOL_MAX_ARGUMENT_LENGTH;
 
     if (this.options.priceDecimalPrecision == null) {
       this.validPriceRegex = new RegExp('^([0-9]+\.?|[0-9]*\.[0-9]+)$');
@@ -1369,8 +1373,9 @@ module.exports = class LiskDEXModule {
 
       if (!this.passiveMode) {
         movedOrders.forEach(async (orderTxn) => {
+          let protocolMessage = this._computeProtocolMessage('r5', [orderTxn.id, orderTxn.movedToAddress], 'DEX has moved');
           try {
-            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r5,${orderTxn.id},${orderTxn.movedToAddress}: DEX has moved`, {type: 'r5', originOrderId: orderTxn.id});
+            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, protocolMessage, {type: 'r5', originOrderId: orderTxn.id});
           } catch (error) {
             this.logger.error(
               `Chain ${chainSymbol}: Failed to post multisig refund transaction for moved DEX order ID ${
@@ -1387,8 +1392,9 @@ module.exports = class LiskDEXModule {
         });
 
         disabledOrders.forEach(async (orderTxn) => {
+          let protocolMessage = this._computeProtocolMessage('r6', [orderTxn.id], 'DEX has been disabled');
           try {
-            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r6,${orderTxn.id}: DEX has been disabled`, {type: 'r6', originOrderId: orderTxn.id});
+            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, protocolMessage, {type: 'r6', originOrderId: orderTxn.id});
           } catch (error) {
             this.logger.error(
               `Chain ${chainSymbol}: Failed to post multisig refund transaction for disabled DEX order ID ${
@@ -1409,8 +1415,9 @@ module.exports = class LiskDEXModule {
           if (orderTxn.reason) {
             reasonMessage += ` - ${orderTxn.reason}`;
           }
+          let protocolMessage = this._computeProtocolMessage('r1', [orderTxn.id], reasonMessage);
           try {
-            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: ${reasonMessage}`, {type: 'r1', originOrderId: orderTxn.id});
+            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, protocolMessage, {type: 'r1', originOrderId: orderTxn.id});
           } catch (error) {
             this.logger.error(
               `Chain ${chainSymbol}: Failed to post multisig refund transaction for invalid order ID ${
@@ -1427,8 +1434,9 @@ module.exports = class LiskDEXModule {
         });
 
         oversizedOrders.forEach(async (orderTxn) => {
+          let protocolMessage = this._computeProtocolMessage('r1', [orderTxn.id], 'Oversized order');
           try {
-            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: Oversized order`, {type: 'r1', originOrderId: orderTxn.id});
+            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, protocolMessage, {type: 'r1', originOrderId: orderTxn.id});
           } catch (error) {
             this.logger.error(
               `Chain ${chainSymbol}: Failed to post multisig refund transaction for oversized order ID ${
@@ -1445,8 +1453,9 @@ module.exports = class LiskDEXModule {
         });
 
         undersizedOrders.forEach(async (orderTxn) => {
+          let protocolMessage = this._computeProtocolMessage('r1', [orderTxn.id], 'Undersized order');
           try {
-            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, `r1,${orderTxn.id}: Undersized order`, {type: 'r1', originOrderId: orderTxn.id});
+            await this.execRefundTransaction(orderTxn, latestBlockTimestamp, protocolMessage, {type: 'r1', originOrderId: orderTxn.id});
           } catch (error) {
             this.logger.error(
               `Chain ${chainSymbol}: Failed to post multisig refund transaction for undersized order ID ${
@@ -1503,12 +1512,13 @@ module.exports = class LiskDEXModule {
             return;
           }
         }
+        let protocolMessage = this._computeProtocolMessage('r2', [expiredOrder.id], 'Expired order');
         try {
           await this.refundOrder(
             expiredOrder,
             refundTimestamp,
             expiredOrder.expiryHeight,
-            `r2,${expiredOrder.id}: Expired order`,
+            protocolMessage,
             {type: 'r2', originOrderId: expiredOrder.id}
           );
         } catch (error) {
@@ -1557,8 +1567,9 @@ module.exports = class LiskDEXModule {
         if (this.passiveMode) {
           return;
         }
+        let protocolMessage = this._computeProtocolMessage('r3', [targetOrder.id, orderTxn.id], 'Closed order');
         try {
-          await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r3,${targetOrder.id},${orderTxn.id}: Closed order`, {type: 'r3', originOrderId: targetOrder.id});
+          await this.execRefundTransaction(refundTxn, latestBlockTimestamp, protocolMessage, {type: 'r3', originOrderId: targetOrder.id});
         } catch (error) {
           this.logger.error(
             `Chain ${chainSymbol}: Failed to post multisig refund transaction for closed order ID ${
@@ -1609,11 +1620,16 @@ module.exports = class LiskDEXModule {
             height: latestChainHeights[takerTargetChain],
             timestamp: latestBlockTimestamp
           };
+          let protocolMessage = this._computeProtocolMessage(
+            't1',
+            [result.taker.sourceChain, result.taker.id, result.makers.length],
+            'Orders taken'
+          );
           try {
             await this.execMultisigTransaction(
               takerTargetChain,
               takerTxn,
-              `t1,${result.taker.sourceChain},${result.taker.id},${result.makers.length}: Orders taken`,
+              protocolMessage,
               {type: 't1', originOrderId: result.taker.id, takerOrderId: result.taker.id, makerCount: result.makers.length}
             );
           } catch (error) {
@@ -1638,8 +1654,9 @@ module.exports = class LiskDEXModule {
             if (refundTxn.sourceChainAmount <= 0) {
               return;
             }
+            let protocolMessage = this._computeProtocolMessage('r4', [orderTxn.id], 'Unmatched market order part');
             try {
-              await this.execRefundTransaction(refundTxn, latestBlockTimestamp, `r4,${orderTxn.id}: Unmatched market order part`, {type: 'r4', originOrderId: orderTxn.id});
+              await this.execRefundTransaction(refundTxn, latestBlockTimestamp, protocolMessage, {type: 'r4', originOrderId: orderTxn.id});
             } catch (error) {
               this.logger.error(
                 `Chain ${chainSymbol}: Failed to post multisig market order refund transaction of taker ${takerAddress} on chain ${takerTargetChain} because of error: ${error.message}`
@@ -1668,11 +1685,16 @@ module.exports = class LiskDEXModule {
             height: latestChainHeights[makerOrder.targetChain],
             timestamp: latestBlockTimestamp
           };
+          let protocolMessage = this._computeProtocolMessage(
+            't2',
+            [makerOrder.sourceChain, makerOrder.id, result.taker.id],
+            'Order made'
+          );
           try {
             await this.execMultisigTransaction(
               makerOrder.targetChain,
               makerTxn,
-              `t2,${makerOrder.sourceChain},${makerOrder.id},${result.taker.id}: Order made`,
+              protocolMessage,
               {type: 't2', originOrderId: makerOrder.id, makerOrderId: makerOrder.id, takerOrderId: result.taker.id}
             );
           } catch (error) {
@@ -1731,12 +1753,9 @@ module.exports = class LiskDEXModule {
             height: chainHeight,
             timestamp: latestBlockTimestamp
           };
+          let protocolMessage = this._computeProtocolMessage('d1', [fromHeight + 1, toHeight], 'Member dividend');
           try {
-            await this.execMultisigTransaction(
-              chainSymbol,
-              dividendTxn,
-              `d1,${fromHeight + 1},${toHeight}: Member dividend`
-            );
+            await this.execMultisigTransaction(chainSymbol, dividendTxn, protocolMessage);
           } catch (error) {
             this.logger.error(
               `Chain ${chainSymbol}: Failed to post multisig dividend transaction to member address ${dividend.walletAddress} because of error: ${error.message}`
@@ -2128,20 +2147,22 @@ module.exports = class LiskDEXModule {
       allOrders.map(async (order) => {
         let movedToAddress = movedToAddresses[order.sourceChain];
         if (movedToAddress) {
+          let protocolMessage = this._computeProtocolMessage('r5', [order.id, movedToAddress], 'DEX has moved');
           await this.refundOrder(
             order,
             timestamp,
             snapshot.chainHeights[order.sourceChain],
-            `r5,${order.id},${movedToAddress}: DEX has moved`,
+            protocolMessage,
             {type: 'r5', originOrderId: order.id}
           );
         } else {
+          let protocolMessage = this._computeProtocolMessage('r6', [order.id], 'DEX has been disabled');
           allOrders.map(async (order) => {
             await this.refundOrder(
               order,
               timestamp,
               snapshot.chainHeights[order.sourceChain],
-              `r6,${order.id}: DEX has been disabled`,
+              protocolMessage,
               {type: 'r6', originOrderId: order.id}
             );
           })
@@ -2162,6 +2183,17 @@ module.exports = class LiskDEXModule {
       refundTxn.sourceChainAmount = order.sizeRemaining;
     }
     await this.execRefundTransaction(refundTxn, timestamp, reason, extraTransferData);
+  }
+
+  _computeProtocolMessage(code, args, reasonMessage) {
+    let sanitizedArgs = args.map(arg => String(arg).slice(0, this.protocolMaxArgumentLength));
+    let messageHeaderParts = [code, ...sanitizedArgs];
+    let messageHeader = messageHeaderParts.join(',');
+    let messageParts = [messageHeader];
+    if (!this.protocolExcludeReason && reasonMessage) {
+      messageParts.push(reasonMessage);
+    }
+    return messageParts.join(': ');
   }
 
   async execRefundTransaction(txn, timestamp, reason, extraTransferData) {
