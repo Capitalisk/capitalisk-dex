@@ -1,6 +1,6 @@
 {
   "name": "lisk-dex",
-  "version": "9.4.2",
+  "version": "10.0.0",
   "description": "Decentralized exchange module.",
   "main": "index.js",
   "scripts": {
@@ -19,9 +19,9 @@
   "author": "Jonathan Gros-Dubois",
   "license": "GPL-3.0",
   "dependencies": {
-    "@liskhq/lisk-cryptography": "^2.2.0",
+    "@liskhq/lisk-cryptography": "^2.5.0",
     "@liskhq/lisk-transactions": "^2.3.1",
-    "mocha": "^7.1.1",
+    "mocha": "^7.2.0",
     "proper-order-book": "^1.5.2",
     "proper-skip-list": "^4.0.2"
   },
