@@ -54,8 +54,6 @@ These status codes and messages appear in transactions created by the DEX (as pa
 - t1 has **makerOrderCount** denoting number of makers it matched against from a single taker order.
 - t2 is an individual maker transaction matched against a single taker order **takerOrderId**.
 - For both market and limit orders there is always **1 t1** and **1-N t2** transactions.
-- Only the first part of message is mandatory, the part which begins with the column character is optional depending on the market implementation.
-- If one of the blockchains involved in a market does not provide sufficient space in a transaction to store a full protocol message, order IDs and wallet addresses may be trimmed down to fit within the available space.
 
 **Dividends**
 
@@ -70,6 +68,11 @@ These status codes and messages appear in transactions created by the DEX (as pa
 - If the majority of DEX operators have agreed to move the DEX to a new multisig wallet address, the DEX will issue a full refund (minus blockchain transaction fees) for every pending order and also every new order which is sent to the DEX wallet address thereafter via `r5` transactions. The DEX should keep refunding all transactions that are sent to the old address for at least 6 months in order to give clients enough time to update their caches to point to the new address.
 - If the majority of DEX operators have agreed to shut down the DEX, the DEX will issue a full refund (minus blockchain transaction fees) for every pending order and also every new order which is sent to the DEX wallet address thereafter via `r6` transactions. The DEX should keep refunding transactions sent to the last active address for at least 6 months to give clients enough time to update their caches to point to a different DEX. In practice, a DEX should not shut down because it does not align with financial incentives and it requires a high degree of coordination between members but this refund type exists anyway to account for unusual scenarios and use cases.
 - In addition to basic blockchain fees, a DEX can charge an exchange fee as a percentage of the order value. All DEX members/nodes need to agree on the same percentage fee.
+
+### Short protocol
+
+- For trades and refunds, only the first part of message is mandatory, the part which begins with the column character is optional depending on the market implementation.
+- If one of the blockchains involved in a market does not provide sufficient space in a transaction to store a full protocol message, order IDs and wallet addresses may be trimmed down to fit within the available space.
 
 ### Sponsors
 
