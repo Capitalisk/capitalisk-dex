@@ -911,6 +911,12 @@ module.exports = class LiskDEXModule {
   async load(channel) {
     this.channel = channel;
 
+    await Promise.all(
+      this.chainSymbols.map(async (chainSymbol) => {
+        return this.chainCrypto[chainSymbol].init(channel);
+      })
+    );
+
     this._multisigExpiryInterval = setInterval(() => {
       this.expireMultisigTransactions();
     }, this.options.multisigExpiryCheckInterval);
@@ -943,9 +949,17 @@ module.exports = class LiskDEXModule {
         return;
       }
       let signatureDataList = Array.isArray(data) ? data.slice(0, this.options.signatureMaxBatchSize) : [];
-      await Promise.all([
-        signatureDataList.map(async (signatureData) => this._processSignature(signatureData || {}))
-      ]);
+      await Promise.all(
+        signatureDataList.map(async (signatureData) => {
+          try {
+            await this._processSignature(signatureData || {});
+          } catch (error) {
+            this.logger.error(
+              `Failed to process signature because of error: ${error.message}`
+            );
+          }
+        })
+      );
     });
 
     try {
