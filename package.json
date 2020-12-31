@@ -19,8 +19,8 @@
   "author": "Jonathan Gros-Dubois",
   "license": "GPL-3.0",
   "dependencies": {
-    "@liskhq/lisk-cryptography": "^2.5.0",
-    "@liskhq/lisk-transactions": "^2.3.1",
+    "@liskhq/lisk-cryptography": "2.3.0",
+    "@liskhq/lisk-transactions": "2.3.1",
     "mocha": "^7.2.0",
     "proper-order-book": "^1.5.2",
     "proper-skip-list": "^4.0.2"
