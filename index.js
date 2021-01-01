@@ -913,7 +913,7 @@ module.exports = class LiskDEXModule {
 
     await Promise.all(
       this.chainSymbols.map(async (chainSymbol) => {
-        return this.chainCrypto[chainSymbol].init(channel);
+        return this.chainCrypto[chainSymbol].load(channel);
       })
     );
 
@@ -2401,6 +2401,11 @@ module.exports = class LiskDEXModule {
     clearInterval(this._multisigFlushInterval);
     clearInterval(this._signatureFlushInterval);
     clearInterval(this._tradeHistoryUpdateInterval);
+    await Promise.all(
+      this.chainSymbols.map(async (chainSymbol) => {
+        return this.chainCrypto[chainSymbol].unload();
+      })
+    );
   }
 };
 

@@ -7,7 +7,9 @@ class ChainCrypto {
     this.passphrase = chainOptions.passphrase;
   }
 
-  async init() {}
+  async load() {}
+
+  async unload() {}
 
   // This method checks that:
   // 1. The signerAddress corresponds to the publicKey.
