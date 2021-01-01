@@ -1629,10 +1629,11 @@ module.exports = class LiskDEXModule {
             return;
           }
           let takerTxn = {
-            amount: takerAmount.toString(),
             recipientAddress: takerAddress,
-            height: latestChainHeights[takerTargetChain],
-            timestamp: latestBlockTimestamp
+            amount: takerAmount.toString(),
+            fee: takerChainOptions.exchangeFeeBase.toString(),
+            timestamp: latestBlockTimestamp,
+            height: latestChainHeights[takerTargetChain]
           };
           let protocolMessage = this._computeProtocolMessage(
             't1',
@@ -1694,10 +1695,11 @@ module.exports = class LiskDEXModule {
             return;
           }
           let makerTxn = {
-            amount: makerAmount.toString(),
             recipientAddress: makerAddress,
-            height: latestChainHeights[makerOrder.targetChain],
-            timestamp: latestBlockTimestamp
+            amount: makerAmount.toString(),
+            fee: makerChainOptions.exchangeFeeBase.toString(),
+            timestamp: latestBlockTimestamp,
+            height: latestChainHeights[makerOrder.targetChain]
           };
           let protocolMessage = this._computeProtocolMessage(
             't2',
@@ -1753,7 +1755,7 @@ module.exports = class LiskDEXModule {
       let dividendList = await this.computeDividends({
         chainSymbol,
         contributionData,
-        chainOptions: this.options.chains[chainSymbol],
+        chainOptions,
         memberCount,
         fromHeight,
         toHeight
@@ -1762,10 +1764,11 @@ module.exports = class LiskDEXModule {
         dividendList.map(async (dividend) => {
           let txnAmount = dividend.amount - BigInt(chainOptions.exchangeFeeBase);
           let dividendTxn = {
-            amount: txnAmount.toString(),
             recipientAddress: dividend.walletAddress,
-            height: chainHeight,
-            timestamp: latestBlockTimestamp
+            amount: txnAmount.toString(),
+            fee: chainOptions.exchangeFeeBase.toString(),
+            timestamp: latestBlockTimestamp,
+            height: chainHeight
           };
           let protocolMessage = this._computeProtocolMessage('d1', [fromHeight + 1, toHeight], 'Member dividend');
           try {
@@ -2214,8 +2217,8 @@ module.exports = class LiskDEXModule {
     let refundChainOptions = this.options.chains[txn.sourceChain];
     let flooredAmount = Math.floor(txn.sourceChainAmount);
     let refundAmount = BigInt(flooredAmount) - BigInt(refundChainOptions.exchangeFeeBase);
-    // Refunds do not charge the exchangeFeeRate.
 
+    // Refunds do not charge the exchangeFeeRate.
     if (refundAmount <= 0n) {
       throw new Error(
         'Failed to make refund because amount was less than or equal to 0'
@@ -2223,10 +2226,11 @@ module.exports = class LiskDEXModule {
     }
 
     let refundTxn = {
-      amount: refundAmount.toString(),
       recipientAddress: txn.sourceWalletAddress,
-      height: txn.height,
-      timestamp
+      amount: refundAmount.toString(),
+      fee: refundChainOptions.exchangeFeeBase.toString(),
+      timestamp,
+      height: txn.height
     };
     await this.execMultisigTransaction(
       txn.sourceChain,
@@ -2256,12 +2260,13 @@ module.exports = class LiskDEXModule {
     let {
       transaction: preparedTxn,
       signature: multisigSignaturePacket
-    } = chainCrypto.prepareTransaction(
-      {
-        ...transactionData,
-        message
-      }
-    );
+    } = chainCrypto.prepareTransaction({
+      recipientAddress: transactionData.recipientAddress,
+      amount: transactionData.amount,
+      fee: transactionData.fee,
+      timestamp: transactionData.timestamp,
+      message
+    });
 
     let processedSignerAddressSet = new Set([multisigSignaturePacket.signerAddress]);
 
