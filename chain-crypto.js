@@ -53,7 +53,7 @@ class ChainCrypto {
       publicKey,
       signature: liskCryptography.signData(txnHash, passphrase)
     };
-    preparedTxn.signatures = [multisigTxnSignature];
+    preparedTxn.signatures = [];
 
     return {transaction: preparedTxn, signature: multisigTxnSignature};
   }
