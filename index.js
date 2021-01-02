@@ -2267,7 +2267,7 @@ module.exports = class LiskDEXModule {
     });
 
     let processedSignerAddressSet = new Set([multisigSignaturePacket.signerAddress]);
-    transaction.signatures.push(multisigSignaturePacket);
+    preparedTxn.signatures.push(multisigSignaturePacket);
 
     // If the pendingTransfers map already has a transaction with the specified id, delete the existing entry so
     // that when it is re-inserted, it will be added at the end of the queue.
