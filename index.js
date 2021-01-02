@@ -551,7 +551,6 @@ module.exports = class LiskDEXModule {
             id: transfer.id,
             transaction: transfer.transaction,
             recipientAddress: transfer.recipientAddress,
-            senderPublicKey: transfer.senderPublicKey,
             targetChain: transfer.targetChain,
             collectedSignatureCount: transfer.processedSignerAddressSet.size,
             contributors: [...transfer.processedSignerAddressSet],
@@ -573,7 +572,6 @@ module.exports = class LiskDEXModule {
             id: transfer.id,
             transaction: transfer.transaction,
             recipientAddress: transfer.recipientAddress,
-            senderPublicKey: transfer.senderPublicKey,
             targetChain: transfer.targetChain,
             collectedSignatureCount: transfer.processedSignerAddressSet.size,
             contributors: [...transfer.processedSignerAddressSet],
@@ -664,8 +662,8 @@ module.exports = class LiskDEXModule {
 
   expireMultisigTransactions() {
     let now = Date.now();
-    for (let [txnId, txnData] of this.pendingTransfers) {
-      if (now - txnData.timestamp < this.options.multisigExpiry) {
+    for (let [txnId, transferData] of this.pendingTransfers) {
+      if (now - transferData.timestamp < this.options.multisigExpiry) {
         break;
       }
       this.pendingTransfers.delete(txnId);
@@ -2280,7 +2278,6 @@ module.exports = class LiskDEXModule {
       id: preparedTxn.id,
       transaction: preparedTxn,
       recipientAddress: transactionData.recipientAddress,
-      senderPublicKey: preparedTxn.senderPublicKey,
       targetChain,
       processedSignerAddressSet,
       height: transactionData.height,
