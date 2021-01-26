@@ -557,6 +557,7 @@ module.exports = class LiskDEXModule {
             timestamp: transfer.timestamp,
             type: transfer.type,
             originOrderId: transfer.originOrderId,
+            closerOrderId: transfer.closerOrderId,
             takerOrderId: transfer.takerOrderId,
             makerOrderId: transfer.makerOrderId,
             makerCount: transfer.makerCount
@@ -578,6 +579,7 @@ module.exports = class LiskDEXModule {
             timestamp: transfer.timestamp,
             type: transfer.type,
             originOrderId: transfer.originOrderId,
+            closerOrderId: transfer.closerOrderId,
             takerOrderId: transfer.takerOrderId,
             makerOrderId: transfer.makerOrderId,
             makerCount: transfer.makerCount
@@ -1581,7 +1583,12 @@ module.exports = class LiskDEXModule {
         }
         let protocolMessage = this._computeProtocolMessage('r3', [targetOrder.id, orderTxn.id], 'Closed order');
         try {
-          await this.execRefundTransaction(refundTxn, latestBlockTimestamp, protocolMessage, {type: 'r3', originOrderId: targetOrder.id});
+          await this.execRefundTransaction(
+            refundTxn,
+            latestBlockTimestamp,
+            protocolMessage,
+            {type: 'r3', originOrderId: targetOrder.id, closerOrderId: orderTxn.id}
+          );
         } catch (error) {
           this.logger.error(
             `Chain ${chainSymbol}: Failed to post multisig refund transaction for closed order ID ${
