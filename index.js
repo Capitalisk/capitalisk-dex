@@ -131,8 +131,15 @@ module.exports = class LiskDEXModule {
     this.recentPricesSkipList = new ProperSkipList();
     this.recentTransfersSkipList = new ProperSkipList();
 
+    this.timestampTransforms = {};
+
     this.chainSymbols.forEach((chainSymbol) => {
       let chainOptions = this.options.chains[chainSymbol];
+
+      this.timestampTransforms[chainSymbol] = {
+        multiplier: chainOptions.timestampMultiplier || 1,
+        offset: chainOptions.timestampOffset || 0
+      };
 
       if (chainOptions.encryptedPassphrase) {
         if (!LISK_DEX_PASSWORD) {
@@ -1227,9 +1234,10 @@ module.exports = class LiskDEXModule {
           return orderTxn;
         }
 
+        let useRawTargetAddresses = !!chainOptions.useRawTargetAddresses;
         let dataParts = transferMessageString.split(',');
-
         let targetChain = dataParts[0];
+
         orderTxn.targetChain = targetChain;
         let isSupportedChain = this.options.chains[targetChain] && targetChain !== chainSymbol;
         if (!isSupportedChain) {
@@ -1273,6 +1281,9 @@ module.exports = class LiskDEXModule {
             );
             return orderTxn;
           }
+          if (useRawTargetAddresses) {
+            targetWalletAddress += targetChain;
+          }
           if (this._isLimitOrderTooSmallToConvert(chainSymbol, amount, price)) {
             orderTxn.type = 'invalid';
             orderTxn.reason = 'Too small to convert';
@@ -1303,6 +1314,9 @@ module.exports = class LiskDEXModule {
               `Chain ${chainSymbol}: Incoming market order ${orderTxn.id} has an invalid wallet address`
             );
             return orderTxn;
+          }
+          if (useRawTargetAddresses) {
+            targetWalletAddress += targetChain;
           }
           if (this._isMarketOrderTooSmallToConvert(chainSymbol, amount)) {
             orderTxn.type = 'invalid';
@@ -1987,7 +2001,7 @@ module.exports = class LiskDEXModule {
 
           // If starting without a snapshot, use the timestamp of the first new block.
           if (lastProcessedTimestamp == null) {
-            lastProcessedTimestamp = parseInt(event.data.block.timestamp);
+            lastProcessedTimestamp = this._normalizeTimestamp(chainSymbol, parseInt(event.data.block.timestamp));
           }
 
           if (areAllChainsProgressing()) {
@@ -2010,7 +2024,7 @@ module.exports = class LiskDEXModule {
 
           // If starting without a snapshot, use the timestamp of the first new block.
           if (lastProcessedTimestamp == null) {
-            lastProcessedTimestamp = parseInt(event.data.timestamp);
+            lastProcessedTimestamp = this._normalizeTimestamp(chainSymbol, parseInt(event.data.timestamp));
           }
           if (areAllChainsProgressing()) {
             this.isForked = false;
@@ -2103,6 +2117,32 @@ module.exports = class LiskDEXModule {
     return 0;
   }
 
+  _normalizeListTimestamps(chainSymbol, objectList) {
+    for (let obj of objectList) {
+      obj.timestamp = this._normalizeTimestamp(chainSymbol, obj.timestamp);
+    }
+  }
+
+  _normalizeObjectTimestamp(chainSymbol, obj) {
+    obj.timestamp = this._normalizeTimestamp(chainSymbol, obj.timestamp);
+  }
+
+  // Normalize a timestamp to make it line up with the other chain.
+  _normalizeTimestamp(chainSymbol, timestamp) {
+    let transform = this.timestampTransforms[chainSymbol];
+    timestamp *= transform.multiplier;
+    timestamp += transform.offset;
+    return timestamp;
+  }
+
+  // Denormalize a timestamp to put it back in its original state.
+  _denormalizeTimestamp(chainSymbol, timestamp) {
+    let transform = this.timestampTransforms[chainSymbol];
+    timestamp -= transform.offset;
+    timestamp = Math.round(timestamp / transform.multiplier);
+    return timestamp;
+  }
+
   async _getMultisigWalletMembers(chainSymbol, walletAddress) {
     let chainOptions = this.options.chains[chainSymbol];
     return this.channel.invoke(`${chainOptions.moduleAlias}:getMultisigWalletMembers`, {walletAddress});
@@ -2114,33 +2154,45 @@ module.exports = class LiskDEXModule {
   }
 
   async _getOutboundTransactions(chainSymbol, walletAddress, fromTimestamp, limit) {
+    fromTimestamp = this._denormalizeTimestamp(chainSymbol, fromTimestamp);
     let chainOptions = this.options.chains[chainSymbol];
-    return this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactions`, {walletAddress, fromTimestamp, limit});
+    let transactions = await this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactions`, {walletAddress, fromTimestamp, limit});
+    this._normalizeListTimestamps(chainSymbol, transactions);
+    return transactions;
   }
 
   async _getInboundTransactionsFromBlock(chainSymbol, walletAddress, blockId) {
     let chainOptions = this.options.chains[chainSymbol];
     let txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getInboundTransactionsFromBlock`, {walletAddress, blockId});
 
-    return txns.map(txn => ({
+    let transactions = txns.map(txn => ({
       ...txn,
       sortKey: this._sha1(txn.id + blockId)
     })).sort((a, b) => this._transactionComparator(a, b));
+
+    this._normalizeListTimestamps(chainSymbol, transactions);
+    return transactions;
   }
 
   async _getOutboundTransactionsFromBlock(chainSymbol, walletAddress, blockId) {
     let chainOptions = this.options.chains[chainSymbol];
     let txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactionsFromBlock`, {walletAddress, blockId});
 
-    return txns.map(txn => ({
+    let transactions = txns.map(txn => ({
       ...txn,
       sortKey: this._sha1(txn.id + blockId)
     })).sort((a, b) => this._transactionComparator(a, b));
+
+    this._normalizeListTimestamps(chainSymbol, transactions);
+    return transactions;
   }
 
   async _getLastBlockAtTimestamp(chainSymbol, timestamp) {
+    timestamp = this._denormalizeTimestamp(chainSymbol, timestamp);
     let chainOptions = this.options.chains[chainSymbol];
-    return this.channel.invoke(`${chainOptions.moduleAlias}:getLastBlockAtTimestamp`, {timestamp});
+    let block = await this.channel.invoke(`${chainOptions.moduleAlias}:getLastBlockAtTimestamp`, {timestamp});
+    this._normalizeObjectTimestamp(chainSymbol, block);
+    return block;
   }
 
   async _getMaxBlockHeight(chainSymbol) {
@@ -2150,12 +2202,16 @@ module.exports = class LiskDEXModule {
 
   async _getBlocksBetweenHeights(chainSymbol, fromHeight, toHeight, limit) {
     let chainOptions = this.options.chains[chainSymbol];
-    return this.channel.invoke(`${chainOptions.moduleAlias}:getBlocksBetweenHeights`, {fromHeight, toHeight, limit});
+    let blocks = await this.channel.invoke(`${chainOptions.moduleAlias}:getBlocksBetweenHeights`, {fromHeight, toHeight, limit});
+    this._normalizeListTimestamps(chainSymbol, blocks);
+    return blocks;
   }
 
   async _getBlockAtHeight(chainSymbol, height) {
     let chainOptions = this.options.chains[chainSymbol];
-    return this.channel.invoke(`${chainOptions.moduleAlias}:getBlockAtHeight`, {height});
+    let block = await this.channel.invoke(`${chainOptions.moduleAlias}:getBlockAtHeight`, {height});
+    this._normalizeObjectTimestamp(chainSymbol, block);
+    return block;
   }
 
   async _getBaseChainBlockTimestamp(height) {
@@ -2261,6 +2317,7 @@ module.exports = class LiskDEXModule {
   }
 
   async execMultisigTransaction(targetChain, transactionData, message, extraTransferData) {
+    let chainTimestamp = this._denormalizeTimestamp(targetChain, transactionData.timestamp);
     let chainCrypto = this.chainCrypto[targetChain];
     let {
       transaction: preparedTxn,
@@ -2269,7 +2326,7 @@ module.exports = class LiskDEXModule {
       recipientAddress: transactionData.recipientAddress,
       amount: transactionData.amount,
       fee: transactionData.fee,
-      timestamp: transactionData.timestamp,
+      timestamp: chainTimestamp,
       message
     });
 
