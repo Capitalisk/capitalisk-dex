@@ -1834,8 +1834,15 @@ module.exports = class LiskDEXModule {
 
       let [baseChainLastProcessedHeight, quoteChainLastProcessedHeight] = await Promise.all(
         orderedChainSymbols.map(async (chainSymbol) => {
-          let lastProcessedBlock = await this._getLastBlockAtTimestamp(chainSymbol, lastProcessedTimestamp);
-          return lastProcessedBlock.height;
+          try {
+            let lastProcessedBlock = await this._getLastBlockAtTimestamp(chainSymbol, lastProcessedTimestamp);
+            return lastProcessedBlock.height;
+          } catch (error) {
+            if (error.sourceError && error.sourceError.name === 'BlockDidNotExistError') {
+              return 0;
+            }
+            throw error;
+          }
         })
       );
 
