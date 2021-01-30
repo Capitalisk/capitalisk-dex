@@ -132,6 +132,7 @@ module.exports = class LiskDEXModule {
     this.recentTransfersSkipList = new ProperSkipList();
 
     this.timestampTransforms = {};
+    this.lastSkippedBlocks = {};
 
     this.chainSymbols.forEach((chainSymbol) => {
       let chainOptions = this.options.chains[chainSymbol];
@@ -1003,7 +1004,7 @@ module.exports = class LiskDEXModule {
       );
     }
 
-    let processBlock = async ({chainSymbol, chainHeight, latestChainHeights, isLastBlock, blockData}) => {
+    let processBlock = async ({chainSymbol, chainHeight, latestChainHeights, blockData}) => {
       this.logger.info(
         `Chain ${chainSymbol}: Processing block at height ${chainHeight}`
       );
@@ -1882,6 +1883,31 @@ module.exports = class LiskDEXModule {
         })
       );
 
+      for (let chainSymbol of orderedChainSymbols) {
+        let chainBlockList = chainSymbol === this.baseChainSymbol ? baseChainBlocks : quoteChainBlocks;
+        let lastSkippedChainBlock = this.lastSkippedBlocks[chainSymbol];
+        if (lastSkippedChainBlock) {
+          if (chainBlockList.length) {
+            let lastChainBlock = chainBlockList[chainBlockList.length - 1];
+            if (lastSkippedChainBlock.timestamp > lastChainBlock.timestamp) {
+              chainBlockList.push({
+                ...lastSkippedChainBlock,
+                chainSymbol,
+                isSkipped: true
+              });
+            }
+          } else {
+            if (lastSkippedChainBlock.timestamp >= lastProcessedTimestamp) {
+              chainBlockList.push({
+                ...lastSkippedChainBlock,
+                chainSymbol,
+                isSkipped: true
+              });
+            }
+          }
+        }
+      }
+
       if (baseChainBlocks.length <= 0 || quoteChainBlocks.length <= 0) {
         return 0;
       }
@@ -1897,14 +1923,9 @@ module.exports = class LiskDEXModule {
         quoteChainBlocks.pop();
       }
 
-      if (baseChainBlocks.length > 0) {
-        let lastBaseChainBlockToProcess = baseChainBlocks[baseChainBlocks.length - 1];
-        lastBaseChainBlockToProcess.isLastBlock = true;
-      }
       let isQuoteChainSegmentIncomplete = true;
       if (quoteChainBlocks.length > 0) {
         let lastQuoteChainBlockToProcess = quoteChainBlocks[quoteChainBlocks.length - 1];
-        lastQuoteChainBlockToProcess.isLastBlock = true;
         isQuoteChainSegmentIncomplete = (
           lastQuoteChainBlockToProcess.timestamp !== highestTimestampOfShortestChain &&
           lastQuoteChainBlock.timestamp > highestTimestampOfShortestChain
@@ -1934,19 +1955,22 @@ module.exports = class LiskDEXModule {
         }
         latestProcessedChainHeights[block.chainSymbol] = block.height;
         try {
-          await processBlock({
-            chainSymbol: block.chainSymbol,
-            chainHeight: block.height,
-            latestChainHeights: {...latestProcessedChainHeights},
-            isLastBlock: block.isLastBlock,
-            blockData: {...block}
-          });
+          if (!block.isSkipped) {
+            await processBlock({
+              chainSymbol: block.chainSymbol,
+              chainHeight: block.height,
+              latestChainHeights: {...latestProcessedChainHeights},
+              blockData: {...block}
+            });
+          }
           if (block.chainSymbol === this.quoteChainSymbol) {
             lastProcessedTimestamp = block.timestamp;
           }
         } catch (error) {
           this.logger.error(
-            `Encountered the following error while processing block id ${block.id} on chain ${block.chainSymbol} at height ${block.height}: ${error.stack}`
+            `Encountered the following error while processing block with id ${
+              block.id
+            } on chain ${block.chainSymbol} at height ${block.height}: ${error.stack}`
           );
           return orderedBlockList.length;
         }
@@ -1954,6 +1978,8 @@ module.exports = class LiskDEXModule {
       if (isQuoteChainSegmentIncomplete) {
         lastProcessedTimestamp = highestTimestampOfShortestChain;
       }
+
+      this.lastSkippedBlocks = {};
 
       return orderedBlockList.length;
     };
@@ -1995,31 +2021,8 @@ module.exports = class LiskDEXModule {
 
       // This is to detect forks in the underlying blockchains.
 
-      if (chainOptions.useChainChangesChannel) {
-        // This approach is recommended.
-
-        channel.subscribe(`${chainModuleAlias}:chainChanges`, async (event) => {
-          let type = event.data.type;
-          if (type !== 'addBlock' && type !== 'removeBlock') {
-            return;
-          }
-
-          progressingChains[chainSymbol] = type === 'addBlock';
-
-          // If starting without a snapshot, use the timestamp of the first new block.
-          if (lastProcessedTimestamp == null) {
-            lastProcessedTimestamp = this._normalizeTimestamp(chainSymbol, parseInt(event.data.block.timestamp));
-          }
-
-          if (areAllChainsProgressing()) {
-            this.isForked = false;
-          } else {
-            this.isForked = true;
-            isInForkRecovery = true;
-          }
-        });
-      } else {
-        // This approach supports compatibility with the current Lisk chain module interface.
+      if (chainOptions.useBlocksChangeChannel) {
+        // This approach supports compatibility with older Lisk chain module interface.
 
         let lastSeenChainHeight = 0;
 
@@ -2033,6 +2036,37 @@ module.exports = class LiskDEXModule {
           if (lastProcessedTimestamp == null) {
             lastProcessedTimestamp = this._normalizeTimestamp(chainSymbol, parseInt(event.data.timestamp));
           }
+          if (areAllChainsProgressing()) {
+            this.isForked = false;
+          } else {
+            this.isForked = true;
+            isInForkRecovery = true;
+          }
+        });
+      } else {
+        // This approach is recommended and is the default.
+
+        channel.subscribe(`${chainModuleAlias}:chainChanges`, async (event) => {
+          let type = event.data.type;
+          if (type !== 'addBlock' && type !== 'removeBlock' && type !== 'skipBlock') {
+            return;
+          }
+
+          if (type === 'skipBlock') {
+            let skippedBlock = event.data.block;
+            this.lastSkippedBlocks[chainSymbol] = {
+              timestamp: this._normalizeTimestamp(chainSymbol, parseInt(skippedBlock.timestamp)),
+              height: skippedBlock.height
+            };
+          }
+
+          progressingChains[chainSymbol] = type !== 'removeBlock';
+
+          // If starting without a snapshot, use the timestamp of the first new block.
+          if (lastProcessedTimestamp == null) {
+            lastProcessedTimestamp = this._normalizeTimestamp(chainSymbol, parseInt(event.data.block.timestamp));
+          }
+
           if (areAllChainsProgressing()) {
             this.isForked = false;
           } else {
