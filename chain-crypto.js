@@ -25,7 +25,7 @@ class ChainCrypto {
     return liskCryptography.verifyData(txnHash, signatureToVerify, publicKey);
   }
 
-  prepareTransaction(transactionData) {
+  async prepareTransaction(transactionData) {
     let sharedPassphrase = this.sharedPassphrase;
     let passphrase = this.passphrase;
     let txn = {

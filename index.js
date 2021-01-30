@@ -2363,7 +2363,7 @@ module.exports = class LiskDEXModule {
     let {
       transaction: preparedTxn,
       signature: multisigSignaturePacket
-    } = chainCrypto.prepareTransaction({
+    } = await chainCrypto.prepareTransaction({
       recipientAddress: transactionData.recipientAddress,
       amount: transactionData.amount,
       fee: transactionData.fee,
