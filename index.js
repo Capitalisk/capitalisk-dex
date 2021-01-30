@@ -555,21 +555,24 @@ module.exports = class LiskDEXModule {
             true,
             true
           );
-          return transferList.map(transfer => ({
-            id: transfer.id,
-            transaction: transfer.transaction,
-            recipientAddress: transfer.recipientAddress,
-            targetChain: transfer.targetChain,
-            collectedSignatureCount: transfer.processedSignerAddressSet.size,
-            contributors: [...transfer.processedSignerAddressSet],
-            timestamp: transfer.timestamp,
-            type: transfer.type,
-            originOrderId: transfer.originOrderId,
-            closerOrderId: transfer.closerOrderId,
-            takerOrderId: transfer.takerOrderId,
-            makerOrderId: transfer.makerOrderId,
-            makerCount: transfer.makerCount
-          }));
+          return transferList.map((transfer) => {
+            let { signatures, ...transactionWithoutSignatures } = transfer.transaction;
+            return {
+              id: transfer.id,
+              transaction: transactionWithoutSignatures,
+              recipientAddress: transfer.recipientAddress,
+              targetChain: transfer.targetChain,
+              collectedSignatureCount: transfer.processedSignerAddressSet.size,
+              contributors: [...transfer.processedSignerAddressSet],
+              timestamp: transfer.timestamp,
+              type: transfer.type,
+              originOrderId: transfer.originOrderId,
+              closerOrderId: transfer.closerOrderId,
+              takerOrderId: transfer.takerOrderId,
+              makerOrderId: transfer.makerOrderId,
+              makerCount: transfer.makerCount
+            };
+          });
         }
       },
       getRecentTransfers: {
@@ -577,21 +580,24 @@ module.exports = class LiskDEXModule {
           let recentTransfersIterator = this.recentTransfersSkipList.findEntriesFromMax();
           let transferGenerator = this._getNestedObjectValuesGenerator(recentTransfersIterator);
           let transferList = this._execQueryAgainstIterator(action.params, transferGenerator, item => item.id, true);
-          return transferList.map(transfer => ({
-            id: transfer.id,
-            transaction: transfer.transaction,
-            recipientAddress: transfer.recipientAddress,
-            targetChain: transfer.targetChain,
-            collectedSignatureCount: transfer.processedSignerAddressSet.size,
-            contributors: [...transfer.processedSignerAddressSet],
-            timestamp: transfer.timestamp,
-            type: transfer.type,
-            originOrderId: transfer.originOrderId,
-            closerOrderId: transfer.closerOrderId,
-            takerOrderId: transfer.takerOrderId,
-            makerOrderId: transfer.makerOrderId,
-            makerCount: transfer.makerCount
-          }));
+          return transferList.map((transfer) => {
+            let { signatures, ...transactionWithoutSignatures } = transfer.transaction;
+            return {
+              id: transfer.id,
+              transaction: transactionWithoutSignatures,
+              recipientAddress: transfer.recipientAddress,
+              targetChain: transfer.targetChain,
+              collectedSignatureCount: transfer.processedSignerAddressSet.size,
+              contributors: [...transfer.processedSignerAddressSet],
+              timestamp: transfer.timestamp,
+              type: transfer.type,
+              originOrderId: transfer.originOrderId,
+              closerOrderId: transfer.closerOrderId,
+              takerOrderId: transfer.takerOrderId,
+              makerOrderId: transfer.makerOrderId,
+              makerCount: transfer.makerCount
+            };
+          });
         }
       }
     };
