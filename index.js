@@ -1574,7 +1574,7 @@ module.exports = class LiskDEXModule {
       closeOrders.forEach(async (orderTxn) => {
         let targetOrder = this.tradeEngine.getOrder(orderTxn.orderIdToClose);
         if (!targetOrder) {
-          this.logger.error(
+          this.logger.warn(
             `Failed to close order with ID ${orderTxn.orderIdToClose} because it could not be found`
           );
           return;
@@ -1633,6 +1633,9 @@ module.exports = class LiskDEXModule {
           this.logger.warn(error);
           return;
         }
+        this.logger.info(
+          `Chain ${chainSymbol}: Added order ${orderTxn.id} to the trade matching engine`
+        );
 
         if (this.passiveMode) {
           return;
@@ -1648,9 +1651,12 @@ module.exports = class LiskDEXModule {
         takerAmount = Math.floor(takerAmount);
 
         (async () => {
+          if (!result.makers.length) {
+            return;
+          }
           if (takerAmount <= 0) {
-            this.logger.error(
-              `Chain ${chainSymbol}: Failed to post the taker trade order ${orderTxn.id} because the amount after fees was less than or equal to 0`
+            this.logger.warn(
+              `Chain ${chainSymbol}: Did not post the taker trade order ${orderTxn.id} because the amount after fees was less than or equal to 0`
             );
             return;
           }
