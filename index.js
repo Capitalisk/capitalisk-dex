@@ -1241,7 +1241,6 @@ module.exports = class LiskDEXModule {
           return orderTxn;
         }
 
-        let useRawTargetAddresses = !!chainOptions.useRawTargetAddresses;
         let dataParts = transferMessageString.split(',');
         let targetChain = dataParts[0];
 
@@ -1288,9 +1287,6 @@ module.exports = class LiskDEXModule {
             );
             return orderTxn;
           }
-          if (useRawTargetAddresses) {
-            targetWalletAddress += targetChain;
-          }
           if (this._isLimitOrderTooSmallToConvert(chainSymbol, amount, price)) {
             orderTxn.type = 'invalid';
             orderTxn.reason = 'Too small to convert';
@@ -1321,9 +1317,6 @@ module.exports = class LiskDEXModule {
               `Chain ${chainSymbol}: Incoming market order ${orderTxn.id} has an invalid wallet address`
             );
             return orderTxn;
-          }
-          if (useRawTargetAddresses) {
-            targetWalletAddress += targetChain;
           }
           if (this._isMarketOrderTooSmallToConvert(chainSymbol, amount)) {
             orderTxn.type = 'invalid';
