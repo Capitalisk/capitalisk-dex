@@ -1351,7 +1351,7 @@ module.exports = class LiskDEXModule {
           if (!targetOrder) {
             orderTxn.type = 'invalid';
             orderTxn.reason = 'Invalid order ID';
-            this.logger.error(
+            this.logger.debug(
               `Chain ${chainSymbol}: Failed to close order with ID ${targetOrderId} because it could not be found`
             );
             return orderTxn;
@@ -1359,7 +1359,7 @@ module.exports = class LiskDEXModule {
           if (targetOrder.sourceChain !== orderTxn.sourceChain) {
             orderTxn.type = 'invalid';
             orderTxn.reason = 'Wrong chain';
-            this.logger.error(
+            this.logger.debug(
               `Chain ${chainSymbol}: Could not close order ID ${targetOrderId} because it is on a different chain`
             );
             return orderTxn;
@@ -1367,7 +1367,7 @@ module.exports = class LiskDEXModule {
           if (targetOrder.sourceWalletAddress !== orderTxn.sourceWalletAddress) {
             orderTxn.type = 'invalid';
             orderTxn.reason = 'Not authorized';
-            this.logger.error(
+            this.logger.debug(
               `Chain ${chainSymbol}: Could not close order ID ${targetOrderId} because it belongs to a different account`
             );
             return orderTxn;
