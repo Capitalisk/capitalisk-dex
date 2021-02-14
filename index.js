@@ -655,16 +655,34 @@ module.exports = class LiskDEXModule {
     let transfer = this.pendingTransfers.get(transactionId);
     let { signerAddress } = signaturePacket;
     if (!transfer) {
-      return;
+      throw new Error(
+        `Could not find a pending transfer ${
+          transactionId
+        } to match the signature from the signer ${
+          signerAddress
+        }`
+      );
     }
     let { transaction, processedSignerAddressSet, targetChain } = transfer;
     if (processedSignerAddressSet.has(signerAddress)) {
-      return;
+      throw new Error(
+        `A signature from the signer ${
+          signerAddress
+        } has already been received for the transaction ${
+          transactionId
+        }`
+      );
     }
 
     let isValidSignature = await this._verifySignature(targetChain, transaction, signaturePacket);
     if (!isValidSignature) {
-      return;
+      throw new Error(
+        `The signature from the signer ${
+          signerAddress
+        } for the transaction ${
+          transactionId
+        } was invalid or did not correspond to the account in its current state`
+      );
     }
 
     processedSignerAddressSet.add(signerAddress);
@@ -968,7 +986,7 @@ module.exports = class LiskDEXModule {
           try {
             await this._processSignature(signatureData || {});
           } catch (error) {
-            this.logger.error(
+            this.logger.debug(
               `Failed to process signature because of error: ${error.message}`
             );
           }
@@ -1912,7 +1930,7 @@ module.exports = class LiskDEXModule {
               });
             }
           } else {
-            if (lastSkippedChainBlock.timestamp >= lastProcessedTimestamp) {
+            if (lastSkippedChainBlock.timestamp > lastProcessedTimestamp) {
               chainBlockList.push({
                 ...lastSkippedChainBlock,
                 chainSymbol,
@@ -1923,7 +1941,7 @@ module.exports = class LiskDEXModule {
         }
       }
 
-      if (baseChainBlocks.length <= 0 || quoteChainBlocks.length <= 0) {
+      if (!baseChainBlocks.length || !quoteChainBlocks.length) {
         return 0;
       }
 
@@ -1936,15 +1954,6 @@ module.exports = class LiskDEXModule {
       }
       while (quoteChainBlocks.length > 0 && quoteChainBlocks[quoteChainBlocks.length - 1].timestamp > highestTimestampOfShortestChain) {
         quoteChainBlocks.pop();
-      }
-
-      let isQuoteChainSegmentIncomplete = true;
-      if (quoteChainBlocks.length > 0) {
-        let lastQuoteChainBlockToProcess = quoteChainBlocks[quoteChainBlocks.length - 1];
-        isQuoteChainSegmentIncomplete = (
-          lastQuoteChainBlockToProcess.timestamp !== highestTimestampOfShortestChain &&
-          lastQuoteChainBlock.timestamp > highestTimestampOfShortestChain
-        );
       }
 
       let orderedBlockList = baseChainBlocks.concat(quoteChainBlocks);
@@ -1990,11 +1999,10 @@ module.exports = class LiskDEXModule {
           return orderedBlockList.length;
         }
       }
-      if (isQuoteChainSegmentIncomplete) {
+
+      if (lastQuoteChainBlock.timestamp > highestTimestampOfShortestChain) {
         lastProcessedTimestamp = highestTimestampOfShortestChain;
       }
-
-      this.lastSkippedBlocks = {};
 
       return orderedBlockList.length;
     };
