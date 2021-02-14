@@ -75,15 +75,14 @@ class TradeEngine {
     return expiredOrders;
   }
 
-  addOrder(order) {
-    let existingOrder = this.orderBook.has(order.id);
+  wasOrderProcessed(orderId, orderSourceChain, orderHeight) {
+    let lastChainProcessedHeightInfo = this.lastProcessedHeightsInfo[orderSourceChain];
+    let topChainHeight = lastChainProcessedHeightInfo.height;
 
-    if (existingOrder) {
-      let error = new Error(`An order with ID ${order.id} already exists`);
-      error.name = 'DuplicateOrderError';
-      throw error;
-    }
+    return orderHeight < topChainHeight || lastChainProcessedHeightInfo.orderIds.has(orderId);
+  }
 
+  trackProcessedOrder(order) {
     let lastChainProcessedHeightInfo = this.lastProcessedHeightsInfo[order.sourceChain];
     let topChainHeight = lastChainProcessedHeightInfo.height;
     if (order.height > topChainHeight) {
@@ -110,6 +109,18 @@ class TradeEngine {
         throw error;
       }
       lastChainProcessedHeightInfo.orderIds.add(order.id);
+    }
+  }
+
+  addOrder(order) {
+    this.trackProcessedOrder(order);
+
+    let existingOrder = this.orderBook.has(order.id);
+
+    if (existingOrder) {
+      let error = new Error(`An order with ID ${order.id} already exists`);
+      error.name = 'DuplicateOrderError';
+      throw error;
     }
 
     let orderHeightExpiry;
@@ -224,22 +235,25 @@ class TradeEngine {
     return this._orderMap.get(orderId);
   }
 
-  closeOrder(orderId) {
-    let order = this.getOrder(orderId);
-    if (!order) {
+  addCloseOrder(order) {
+    this.trackProcessedOrder(order);
+    
+    let targetOrderId = order.orderIdToClose;
+    let targetOrder = this.getOrder(targetOrderId);
+    if (!targetOrder) {
       throw new Error(
-        `An order with ID ${orderId} could not be found`
+        `An order with ID ${targetOrderId} could not be found`
       );
     }
 
-    let result = this._removeFromOrderBook(orderId);
-    if (order.side === 'ask') {
-      this._askMap.delete(orderId);
+    let result = this._removeFromOrderBook(targetOrderId);
+    if (targetOrder.side === 'ask') {
+      this._askMap.delete(targetOrderId);
     } else {
-      this._bidMap.delete(orderId);
+      this._bidMap.delete(targetOrderId);
     }
-    this._orderMap.delete(orderId);
-    this._removeFromWalletOrderMap(order.sourceWalletAddress, orderId);
+    this._orderMap.delete(targetOrderId);
+    this._removeFromWalletOrderMap(targetOrder.sourceWalletAddress, targetOrderId);
     return result;
   }
 

@@ -171,11 +171,11 @@ describe('TradeEngine unit tests', async () => {
           price: .1,
           sourceChain: 'clsk',
           targetChain: 'lsk',
-          height: 1,
+          height: 2,
           targetWalletAddress: '22245678912345678222L',
           senderAddress: '55511111111222222777L',
           side: 'ask',
-          size: 100
+          size: 1000
         });
       } catch (err) {
         error = err;

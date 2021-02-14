@@ -1266,6 +1266,15 @@ module.exports = class LiskDEXModule {
           return orderTxn;
         }
 
+        if (this.tradeEngine.wasOrderProcessed(orderTxn.id, chainSymbol, chainHeight)) {
+          orderTxn.type = 'redundant';
+          orderTxn.reason = 'Already processed';
+          this.logger.debug(
+            `Chain ${chainSymbol}: Failed to process order ${orderTxn.id} because it was already processed`
+          );
+          return orderTxn;
+        }
+
         if (dataParts[1] === 'limit') {
           // E.g. clsk,limit,.5,9205805648791671841L
           let priceString = dataParts[2];
@@ -1347,6 +1356,7 @@ module.exports = class LiskDEXModule {
             );
             return orderTxn;
           }
+
           let targetOrder = this.tradeEngine.getOrder(targetOrderId);
           if (!targetOrder) {
             orderTxn.type = 'invalid';
@@ -1587,7 +1597,7 @@ module.exports = class LiskDEXModule {
 
         let result;
         try {
-          result = this.tradeEngine.closeOrder(orderTxn.orderIdToClose);
+          result = this.tradeEngine.addCloseOrder(orderTxn);
         } catch (error) {
           this.logger.error(error);
           return;
