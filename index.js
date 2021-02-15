@@ -754,6 +754,9 @@ module.exports = class LiskDEXModule {
             transaction
           });
         } catch (error) {
+          if (error.sourceError && error.sourceError.name === 'InvalidTransactionError') {
+            this.pendingTransfers.delete(transaction.id);
+          }
           this.logger.error(
             `Error encountered while attempting to post transaction ${
               transaction.id
