@@ -10,9 +10,9 @@ const readdir = util.promisify(fs.readdir);
 const unlink = util.promisify(fs.unlink);
 const mkdir = util.promisify(fs.mkdir);
 const ProperSkipList = require('proper-skip-list');
+const LiskChainCrypto = require('lisk-chain-crypto');
 const defaultConfig = require('./defaults/config');
 const TradeEngine = require('./trade-engine');
-const ChainCrypto = require('./chain-crypto');
 const packageJSON = require('./package.json');
 
 const DEFAULT_MODULE_ALIAS = 'lisk_dex';
@@ -215,7 +215,7 @@ module.exports = class LiskDEXModule {
       if (chainOptions.chainCryptoLibPath) {
         ChainCryptoClass = require(chainOptions.chainCryptoLibPath);
       } else {
-        ChainCryptoClass = ChainCrypto;
+        ChainCryptoClass = LiskChainCrypto;
       }
 
       this.chainCrypto[chainSymbol] = new ChainCryptoClass({
