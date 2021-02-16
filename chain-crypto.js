@@ -26,6 +26,13 @@ class ChainCrypto {
   }
 
   async prepareTransaction(transactionData) {
+    try {
+      liskTransactions.utils.validateAddress(transactionData.recipientAddress);
+    } catch (error) {
+      throw new Error(
+        'Failed to prepare the transaction because the recipientAddress was invalid'
+      );
+    }
     let sharedPassphrase = this.sharedPassphrase;
     let passphrase = this.passphrase;
     let txn = {

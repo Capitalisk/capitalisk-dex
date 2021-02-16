@@ -753,17 +753,7 @@ module.exports = class LiskDEXModule {
           await this.channel.invoke(`${chainOptions.moduleAlias}:postTransaction`, {
             transaction
           });
-          let pendingTransfer = this.pendingTransfers.get(transaction.id);
-          if (pendingTransfer) {
-            pendingTransfer.submitted = true;
-          }
         } catch (error) {
-          if (error.sourceError && error.sourceError.name === 'InvalidTransactionError') {
-            let pendingTransfer = this.pendingTransfers.get(transaction.id);
-            if (pendingTransfer && !pendingTransfer.submitted) {
-              this.pendingTransfers.delete(transaction.id);
-            }
-          }
           this.logger.error(
             `Error encountered while attempting to post transaction ${
               transaction.id
