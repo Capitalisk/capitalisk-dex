@@ -696,8 +696,8 @@ module.exports = class LiskDEXModule {
 
   expireMultisigTransactions() {
     let now = Date.now();
-    for (let [txnId, transferData] of this.pendingTransfers) {
-      if (now - transferData.timestamp < this.options.multisigExpiry) {
+    for (let [txnId, transfer] of this.pendingTransfers) {
+      if (now - transfer.timestamp < this.options.multisigExpiry) {
         break;
       }
       this.pendingTransfers.delete(txnId);
@@ -753,9 +753,16 @@ module.exports = class LiskDEXModule {
           await this.channel.invoke(`${chainOptions.moduleAlias}:postTransaction`, {
             transaction
           });
+          let pendingTransfer = this.pendingTransfers.get(transaction.id);
+          if (pendingTransfer) {
+            pendingTransfer.submitted = true;
+          }
         } catch (error) {
           if (error.sourceError && error.sourceError.name === 'InvalidTransactionError') {
-            this.pendingTransfers.delete(transaction.id);
+            let pendingTransfer = this.pendingTransfers.get(transaction.id);
+            if (pendingTransfer && !pendingTransfer.submitted) {
+              this.pendingTransfers.delete(transaction.id);
+            }
           }
           this.logger.error(
             `Error encountered while attempting to post transaction ${
