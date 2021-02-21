@@ -2194,7 +2194,7 @@ module.exports = class LiskDEXModule {
   // Normalize a timestamp to make it line up with the other chain.
   _normalizeTimestamp(chainSymbol, timestamp) {
     let transform = this.timestampTransforms[chainSymbol];
-    timestamp *= transform.multiplier;
+    timestamp = Math.round(timestamp * transform.multiplier);
     timestamp += transform.offset;
     return timestamp;
   }
