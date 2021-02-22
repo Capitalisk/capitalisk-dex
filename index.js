@@ -1910,7 +1910,7 @@ module.exports = class LiskDEXModule {
             chainOptions.readMaxBlocks
           );
           return timestampedBlockList
-            .filter(block => block.timestamp > lastProcessedTimestamp)
+            .filter(block => block.timestamp >= lastProcessedTimestamp)
             .map(block => ({...block, chainSymbol}));
         })
       );
@@ -1918,7 +1918,7 @@ module.exports = class LiskDEXModule {
       for (let chainSymbol of orderedChainSymbols) {
         let chainBlockList = chainSymbol === this.baseChainSymbol ? baseChainBlocks : quoteChainBlocks;
         let lastSkippedChainBlock = this.lastSkippedBlocks[chainSymbol];
-        if (lastSkippedChainBlock && lastSkippedChainBlock.timestamp > lastProcessedTimestamp) {
+        if (lastSkippedChainBlock && lastSkippedChainBlock.timestamp >= lastProcessedTimestamp) {
           if (chainBlockList.length) {
             let lastChainBlock = chainBlockList[chainBlockList.length - 1];
             if (lastSkippedChainBlock.timestamp > lastChainBlock.timestamp) {
