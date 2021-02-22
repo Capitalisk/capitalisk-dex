@@ -1909,17 +1909,16 @@ module.exports = class LiskDEXModule {
             maxSafeBlockHeight,
             chainOptions.readMaxBlocks
           );
-          return timestampedBlockList.map(block => ({
-            ...block,
-            chainSymbol
-          }));
+          return timestampedBlockList
+            .filter(block => block.timestamp > lastProcessedTimestamp)
+            .map(block => ({...block, chainSymbol}));
         })
       );
 
       for (let chainSymbol of orderedChainSymbols) {
         let chainBlockList = chainSymbol === this.baseChainSymbol ? baseChainBlocks : quoteChainBlocks;
         let lastSkippedChainBlock = this.lastSkippedBlocks[chainSymbol];
-        if (lastSkippedChainBlock) {
+        if (lastSkippedChainBlock && lastSkippedChainBlock.timestamp > lastProcessedTimestamp) {
           if (chainBlockList.length) {
             let lastChainBlock = chainBlockList[chainBlockList.length - 1];
             if (lastSkippedChainBlock.timestamp > lastChainBlock.timestamp) {
@@ -1930,13 +1929,11 @@ module.exports = class LiskDEXModule {
               });
             }
           } else {
-            if (lastSkippedChainBlock.timestamp > lastProcessedTimestamp) {
-              chainBlockList.push({
-                ...lastSkippedChainBlock,
-                chainSymbol,
-                isSkipped: true
-              });
-            }
+            chainBlockList.push({
+              ...lastSkippedChainBlock,
+              chainSymbol,
+              isSkipped: true
+            });
           }
         }
       }
