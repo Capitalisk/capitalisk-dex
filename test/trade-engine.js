@@ -9,7 +9,8 @@ describe('TradeEngine unit tests', async () => {
       baseCurrency: 'lsk',
       quoteCurrency: 'clsk',
       baseOrderHeightExpiry: 100,
-      quoteOrderHeightExpiry: 100
+      quoteOrderHeightExpiry: 100,
+      priceDecimalPrecision: 5
     });
   });
 
@@ -368,7 +369,7 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '22245678912345678222L',
         senderAddress: '11111111111222222222L',
         side: 'bid',
-        value: 14
+        value: 140000
       });
 
       result = tradeEngine.addOrder({
@@ -381,7 +382,7 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderAddress: '22222222211111111111L',
         side: 'ask',
-        size: 1.18
+        size: 11800
       });
 
       result = tradeEngine.addOrder({
@@ -394,7 +395,7 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderAddress: '22222222211111111111L',
         side: 'ask',
-        size: 1.67
+        size: 16700
       });
 
       result = tradeEngine.addOrder({
@@ -407,7 +408,7 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderAddress: '22222222211111111111L',
         side: 'bid',
-        value: 1.9992
+        value: 19992
       });
 
       result = tradeEngine.addOrder({
@@ -420,11 +421,11 @@ describe('TradeEngine unit tests', async () => {
         targetWalletAddress: '11145678912345678111L',
         senderAddress: '22222222211111111111L',
         side: 'ask',
-        size: 6
+        size: 60000
       });
 
       assert.notEqual(result.makers[0], null);
-      assert.equal(result.makers[0].lastSizeTaken, 2.4110714285714283);
+      assert.equal(Math.floor(Number(result.makers[0].lastSizeTaken)), 24110);
     });
 
     it('Market bid order', async () => {

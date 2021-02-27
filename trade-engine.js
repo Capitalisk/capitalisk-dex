@@ -1,5 +1,6 @@
-const ProperOrderBook = require('proper-order-book');
+const BigOrderBook = require('big-order-book');
 const crypto = require('crypto');
+const { mapListFields } = require('./utils');
 
 const EMPTY_ORDER_BOOK_HASH = '0000000000000000000000000000000000000000';
 const emptyGenerator = function * () {};
@@ -13,9 +14,10 @@ class TradeEngine {
     this.baseMinPartialTake = options.baseMinPartialTake;
     this.quoteMinPartialTake = options.quoteMinPartialTake;
     this.market = `${this.quoteCurrency}/${this.baseCurrency}`;
-    this.orderBook = new ProperOrderBook({
+    this.orderBook = new BigOrderBook({
       minPartialTakeValue: this.baseMinPartialTake,
-      minPartialTakeSize: this.quoteMinPartialTake
+      minPartialTakeSize: this.quoteMinPartialTake,
+      priceDecimalPrecision: options.priceDecimalPrecision
     });
 
     this._askMap = new Map();
@@ -157,13 +159,13 @@ class TradeEngine {
 
     result.makers.forEach((makerOrder) => {
       if (makerOrder.side === 'ask') {
-        if (makerOrder.sizeRemaining <= 0) {
+        if (makerOrder.sizeRemaining <= 0n) {
           this._askMap.delete(makerOrder.id);
           this._orderMap.delete(makerOrder.id);
           this._removeFromWalletOrderMap(makerOrder.sourceWalletAddress, makerOrder.id);
         }
       } else {
-        if (makerOrder.valueRemaining <= 0) {
+        if (makerOrder.valueRemaining <= 0n) {
           this._bidMap.delete(makerOrder.id);
           this._orderMap.delete(makerOrder.id);
           this._removeFromWalletOrderMap(makerOrder.sourceWalletAddress, makerOrder.id);
@@ -173,12 +175,12 @@ class TradeEngine {
 
     if (newOrder.type !== 'market') {
       if (newOrder.side === 'ask') {
-        if (result.taker.sizeRemaining > 0) {
+        if (result.taker.sizeRemaining > 0n) {
           this._askMap.set(newOrder.id, newOrder);
           this._orderMap.set(newOrder.id, newOrder);
           this._addToWalletOrderMap(newOrder);
         }
-      } else if (result.taker.valueRemaining > 0) {
+      } else if (result.taker.valueRemaining > 0n) {
         this._bidMap.set(newOrder.id, newOrder);
         this._orderMap.set(newOrder.id, newOrder);
         this._addToWalletOrderMap(newOrder);
@@ -237,7 +239,7 @@ class TradeEngine {
 
   addCloseOrder(order) {
     this.trackProcessedOrder(order);
-    
+
     let targetOrderId = order.orderIdToClose;
     let targetOrder = this.getOrder(targetOrderId);
     if (!targetOrder) {
@@ -314,9 +316,20 @@ class TradeEngine {
   }
 
   getSnapshot() {
-    let askLimitOrders = this.getAsks().map(order => ({...order}));
-    let bidLimitOrders = this.getBids().map(order => ({...order}));
-
+    let askLimitOrders = mapListFields(this.getAsks(), {
+      size: String,
+      sizeRemaining: String,
+      lastSizeTaken: String,
+      lastValueTaken: String,
+      sourceChainAmount: String
+    });
+    let bidLimitOrders = mapListFields(this.getBids(), {
+      value: String,
+      valueRemaining: String,
+      lastSizeTaken: String,
+      lastValueTaken: String,
+      sourceChainAmount: String
+    });
     return {
       orderBookHash: this.orderBookHash,
       askLimitOrders,

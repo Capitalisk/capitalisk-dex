@@ -13,6 +13,8 @@ const ProperSkipList = require('proper-skip-list');
 const LiskChainCrypto = require('lisk-chain-crypto');
 const defaultConfig = require('./defaults/config');
 const TradeEngine = require('./trade-engine');
+const BigIntCalculator = require('./big-int-calculator');
+const { mapListFields } = require('./utils');
 const packageJSON = require('./package.json');
 
 const DEFAULT_MODULE_ALIAS = 'lisk_dex';
@@ -23,6 +25,7 @@ const CIPHER_IV = Buffer.alloc(16, 0);
 const DEFAULT_MULTISIG_READY_DELAY = 5000;
 const DEFAULT_PROTOCOL_EXCLUDE_REASON = false;
 const DEFAULT_PROTOCOL_MAX_ARGUMENT_LENGTH = 64;
+const DEFAULT_PRICE_DECIMAL_PRECISION = 4;
 
 /**
  * Lisk DEX module specification
@@ -108,19 +111,25 @@ module.exports = class LiskDEXModule {
     this.protocolExcludeReason = this.options.protocolExcludeReason || DEFAULT_PROTOCOL_EXCLUDE_REASON;
     this.protocolMaxArgumentLength = this.options.protocolMaxArgumentLength || DEFAULT_PROTOCOL_MAX_ARGUMENT_LENGTH;
 
-    if (this.options.priceDecimalPrecision == null) {
-      this.validPriceRegex = new RegExp('^([0-9]+\.?|[0-9]*\.[0-9]+)$');
-    } else {
-      this.validPriceRegex = new RegExp(`^([0-9]+\.?|[0-9]*\.[0-9]{1,${this.options.priceDecimalPrecision}})$`);
+    this.priceDecimalPrecision = this.options.priceDecimalPrecision == null ?
+      DEFAULT_PRICE_DECIMAL_PRECISION : this.options.priceDecimalPrecision;
+
+    if (this.priceDecimalPrecision <= 0) {
+      throw new Error('DEX module priceDecimalPrecision config must be greater than 0');
     }
+
+    this.validPriceRegex = new RegExp(`^([0-9]+\.?|[0-9]*\.[0-9]{1,${this.priceDecimalPrecision}})$`);
+
+    this.defaultMaxOrderAmount = BigInt(Number.MAX_SAFE_INTEGER);
 
     this.tradeEngine = new TradeEngine({
       baseCurrency: this.baseChainSymbol,
       quoteCurrency: this.quoteChainSymbol,
       baseOrderHeightExpiry: baseChainOptions.orderHeightExpiry,
       quoteOrderHeightExpiry: quoteChainOptions.orderHeightExpiry,
-      baseMinPartialTake: baseChainOptions.minPartialTake,
-      quoteMinPartialTake: quoteChainOptions.minPartialTake
+      baseMinPartialTake: BigInt(baseChainOptions.minPartialTake || 0),
+      quoteMinPartialTake: BigInt(quoteChainOptions.minPartialTake || 0),
+      priceDecimalPrecision: this.priceDecimalPrecision
     });
     this.processedHeights = {
       [this.baseChainSymbol]: 0,
@@ -134,6 +143,13 @@ module.exports = class LiskDEXModule {
     this.timestampTransforms = {};
     this.lastSkippedBlocks = {};
 
+    this.bigIntPriceCalculator = new BigIntCalculator({
+      decimalPrecision: this.priceDecimalPrecision
+    });
+
+    this.bigIntFeeCalculators = {};
+    this.chainExchangeFeeBases = {};
+
     this.chainSymbols.forEach((chainSymbol) => {
       let chainOptions = this.options.chains[chainSymbol];
 
@@ -141,6 +157,12 @@ module.exports = class LiskDEXModule {
         multiplier: chainOptions.timestampMultiplier || 1,
         offset: chainOptions.timestampOffset || 0
       };
+
+      this.bigIntFeeCalculators[chainSymbol] = new BigIntCalculator({
+        decimalPrecision: this._getDecimalCount(chainOptions.exchangeFeeRate)
+      });
+
+      this.chainExchangeFeeBases[chainSymbol] = BigInt(chainOptions.exchangeFeeBase);
 
       if (chainOptions.encryptedPassphrase) {
         if (!LISK_DEX_PASSWORD) {
@@ -264,6 +286,10 @@ module.exports = class LiskDEXModule {
 
   static get defaults() {
     return defaultConfig;
+  }
+
+  _getDecimalCount(decimalNumber) {
+    return (String(decimalNumber).split('.')[1] || '').length;
   }
 
   _execQueryAgainstIterator(query, sourceIterator, idExtractorFn, allowFiltering, allowSorting) {
@@ -416,7 +442,7 @@ module.exports = class LiskDEXModule {
             orderBookHash: this.tradeEngine.orderBookHash,
             processedHeights: this.processedHeights,
             baseChain: this.options.baseChain,
-            priceDecimalPrecision: this.options.priceDecimalPrecision,
+            priceDecimalPrecision: this.priceDecimalPrecision,
             chains: {
               [this.baseChainSymbol]: this._getChainInfo(this.baseChainSymbol),
               [this.quoteChainSymbol]: this._getChainInfo(this.quoteChainSymbol)
@@ -448,7 +474,14 @@ module.exports = class LiskDEXModule {
           } else {
             orderIterator = this.tradeEngine.getBidIteratorFromMax();
           }
-          return this._execQueryAgainstIterator(query, orderIterator, item => item.id);
+          let orderList = this._execQueryAgainstIterator(query, orderIterator, item => item.id);
+          return mapListFields(orderList, {
+            value: String,
+            sourceChainAmount: String,
+            valueRemaining: String,
+            lastSizeTaken: String,
+            lastValueTaken: String
+          });
         }
       },
       getAsks: {
@@ -466,7 +499,14 @@ module.exports = class LiskDEXModule {
           } else {
             orderIterator = this.tradeEngine.getAskIteratorFromMin();
           }
-          return this._execQueryAgainstIterator(query, orderIterator, item => item.id);
+          let orderList = this._execQueryAgainstIterator(query, orderIterator, item => item.id);
+          return mapListFields(orderList, {
+            size: String,
+            sourceChainAmount: String,
+            sizeRemaining: String,
+            lastSizeTaken: String,
+            lastValueTaken: String
+          });
         }
       },
       getOrders: {
@@ -480,7 +520,16 @@ module.exports = class LiskDEXModule {
           } else {
             orderIterator = this.tradeEngine.getOrderIterator();
           }
-          return this._execQueryAgainstIterator(query, orderIterator, item => item.id);
+          let orderList = this._execQueryAgainstIterator(query, orderIterator, item => item.id);
+          return mapListFields(orderList, {
+            value: String,
+            size: String,
+            sourceChainAmount: String,
+            valueRemaining: String,
+            sizeRemaining: String,
+            lastSizeTaken: String,
+            lastValueTaken: String
+          });
         }
       },
       getOrderBook: {
@@ -536,14 +585,21 @@ module.exports = class LiskDEXModule {
             }
           }
 
-          return this._execQueryAgainstIterator(query, orderBook, item => item.price);
+          let orderLevelList = this._execQueryAgainstIterator(query, orderBook, item => item.price);
+          return mapListFields(orderLevelList, {
+            valueRemaining: String,
+            sizeRemaining: String
+          });
         }
       },
       getRecentPrices: {
         handler: (action) => {
           let priceEntryIterator = this.recentPricesSkipList.findEntriesFromMax();
           let priceGenerator = this._getValuesGenerator(priceEntryIterator);
-          return this._execQueryAgainstIterator(action.params, priceGenerator, item => item.baseTimestamp);
+          let recentPricesList = this._execQueryAgainstIterator(action.params, priceGenerator, item => item.baseTimestamp);
+          return mapListFields(recentPricesList, {
+            volume: String
+          });
         }
       },
       getPendingTransfers: {
@@ -626,9 +682,12 @@ module.exports = class LiskDEXModule {
       walletAddress: chainOptions.walletAddress,
       multisigMembers: [...multisigWalletInfo.members],
       multisigRequiredSignatureCount: multisigWalletInfo.requiredSignatureCount,
-      minOrderAmount: chainOptions.minOrderAmount,
-      minPartialTake: chainOptions.minPartialTake || 0,
-      exchangeFeeBase: chainOptions.exchangeFeeBase,
+      minOrderAmount: String(chainOptions.minOrderAmount || 0n),
+      maxOrderAmount: String(
+        chainOptions.maxOrderAmount == null ? this.defaultMaxOrderAmount : chainOptions.maxOrderAmount
+      ),
+      minPartialTake: String(chainOptions.minPartialTake || 0n),
+      exchangeFeeBase: String(chainOptions.exchangeFeeBase),
       exchangeFeeRate: chainOptions.exchangeFeeRate,
       requiredConfirmations: chainOptions.requiredConfirmations,
       orderHeightExpiry: chainOptions.orderHeightExpiry
@@ -876,28 +935,36 @@ module.exports = class LiskDEXModule {
 
     for (let txnPair of txnPairsList) {
       let baseChainOptions = this.options.chains[this.baseChainSymbol];
-      let baseChainFeeBase = baseChainOptions.exchangeFeeBase;
+      let baseChainFeeBase = this.chainExchangeFeeBases[this.baseChainSymbol];
       let baseChainFeeRate = baseChainOptions.exchangeFeeRate;
-      let baseTotalFee = baseChainFeeBase * txnPair.base.length;
-      let fullBaseAmount = txnPair.base.reduce((accumulator, txn) => accumulator + Number(txn.amount) / (1 - baseChainFeeRate), 0) + baseTotalFee;
+      let baseTotalFee = baseChainFeeBase * BigInt(txnPair.base.length);
+      let baseCalc = this.bigIntFeeCalculators[this.baseChainSymbol];
+      let fullBaseAmount = txnPair.base.reduce(
+        (accumulator, txn) => {
+          return accumulator + baseCalc.divideBigIntByDecimal(BigInt(txn.amount), 1 - baseChainFeeRate);
+        },
+        0n
+      ) + baseTotalFee;
 
       let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
-      let quoteChainFeeBase = quoteChainOptions.exchangeFeeBase;
+      let quoteChainFeeBase = this.chainExchangeFeeBases[this.quoteChainSymbol];
       let quoteChainFeeRate = quoteChainOptions.exchangeFeeRate;
-      let quoteTotalFee = quoteChainFeeBase * txnPair.quote.length;
-      let fullQuoteAmount = txnPair.quote.reduce((accumulator, txn) => accumulator + Number(txn.amount) / (1 - quoteChainFeeRate), 0) + quoteTotalFee;
+      let quoteTotalFee = quoteChainFeeBase * BigInt(txnPair.quote.length);
+      let quoteCalc = this.bigIntFeeCalculators[this.quoteChainSymbol];
+      let fullQuoteAmount = txnPair.quote.reduce(
+        (accumulator, txn) => {
+          return accumulator + quoteCalc.divideBigIntByDecimal(BigInt(txn.amount), 1 - quoteChainFeeRate);
+        },
+        0n
+      ) + quoteTotalFee;
 
-      let price;
-      if (this.options.priceDecimalPrecision == null) {
-        price = fullBaseAmount / fullQuoteAmount;
-      } else {
-        price = Number((fullBaseAmount / fullQuoteAmount).toFixed(this.options.priceDecimalPrecision));
-      }
+      let price = this.bigIntPriceCalculator.divideBigIntByBigInt(fullBaseAmount, fullQuoteAmount);
+
       priceHistory.push({
         baseTimestamp: txnPair.base[txnPair.base.length - 1].timestamp,
         quoteTimestamp: txnPair.quote[txnPair.quote.length - 1].timestamp,
         price,
-        volume: Math.round(fullBaseAmount / 1000000) / 100,
+        volume: fullBaseAmount
       });
     }
 
@@ -923,11 +990,20 @@ module.exports = class LiskDEXModule {
     for (let priceEntry of recentPriceList) {
       let existingPriceEntry = mergedPriceMap.get(priceEntry.baseTimestamp);
       if (existingPriceEntry) {
-        let existingEntryWeightedPrice = existingPriceEntry.volume * existingPriceEntry.price;
-        let newEntryWeightedPrice = priceEntry.volume * priceEntry.price;
+        let existingEntryWeightedPrice = this.bigIntPriceCalculator.multiplyBigIntByDecimal(
+          existingPriceEntry.volume,
+          existingPriceEntry.price
+        );
+        let newEntryWeightedPrice = this.bigIntPriceCalculator.multiplyBigIntByDecimal(
+          priceEntry.volume,
+          priceEntry.price
+        );
         let totalVolume = existingPriceEntry.volume + priceEntry.volume;
         existingPriceEntry.volume = totalVolume;
-        existingPriceEntry.price = (existingEntryWeightedPrice + newEntryWeightedPrice) / totalVolume;
+        existingPriceEntry.price = this.bigIntPriceCalculator.divideBigIntByBigInt(
+          existingEntryWeightedPrice + newEntryWeightedPrice,
+          totalVolume
+        );
       } else {
         mergedPriceMap.set(priceEntry.baseTimestamp, priceEntry);
       }
@@ -1049,7 +1125,8 @@ module.exports = class LiskDEXModule {
       }
 
       let chainOptions = this.options.chains[chainSymbol];
-      let minOrderAmount = chainOptions.minOrderAmount;
+      let minOrderAmount = BigInt(chainOptions.minOrderAmount || 0);
+      let maxOrderAmount = chainOptions.maxOrderAmount == null ? this.defaultMaxOrderAmount : BigInt(chainOptions.maxOrderAmount);
 
       let latestBlockTimestamp = blockData.timestamp;
 
@@ -1219,7 +1296,7 @@ module.exports = class LiskDEXModule {
         let orderTxn = {...txn};
         orderTxn.sourceChain = chainSymbol;
         orderTxn.sourceWalletAddress = orderTxn.senderAddress;
-        let amount = parseInt(orderTxn.amount);
+        let amount = BigInt(orderTxn.amount);
 
         let transferMessageString = orderTxn.message == null ? '' : orderTxn.message;
 
@@ -1229,11 +1306,11 @@ module.exports = class LiskDEXModule {
           return orderTxn;
         }
 
-        if (amount > Number.MAX_SAFE_INTEGER) {
+        if (amount > maxOrderAmount) {
           orderTxn.type = 'oversized';
-          orderTxn.sourceChainAmount = BigInt(orderTxn.amount);
+          orderTxn.sourceChainAmount = amount;
           this.logger.debug(
-            `Chain ${chainSymbol}: Incoming order ${orderTxn.id} amount ${orderTxn.sourceChainAmount.toString()} was too large - Maximum order amount is ${Number.MAX_SAFE_INTEGER}`
+            `Chain ${chainSymbol}: Incoming order ${orderTxn.id} amount ${orderTxn.sourceChainAmount.toString()} was too large - Maximum order amount is ${maxOrderAmount}`
           );
           return orderTxn;
         }
@@ -1667,15 +1744,15 @@ module.exports = class LiskDEXModule {
         let takerTargetChainModuleAlias = takerChainOptions.moduleAlias;
         let takerAddress = result.taker.targetWalletAddress;
         let takerAmount = takerTargetChain === this.baseChainSymbol ? result.takeValue : result.takeSize;
-        takerAmount -= takerChainOptions.exchangeFeeBase;
-        takerAmount -= takerAmount * takerChainOptions.exchangeFeeRate;
-        takerAmount = Math.floor(takerAmount);
+        let feeCalc = this.bigIntFeeCalculators[takerTargetChain];
+        takerAmount -= BigInt(takerChainOptions.exchangeFeeBase);
+        takerAmount -= feeCalc.multiplyBigIntByDecimal(takerAmount, takerChainOptions.exchangeFeeRate);
 
         (async () => {
           if (!result.makers.length) {
             return;
           }
-          if (takerAmount <= 0) {
+          if (takerAmount <= 0n) {
             this.logger.warn(
               `Chain ${chainSymbol}: Did not post the taker trade order ${orderTxn.id} because the amount after fees was less than or equal to 0`
             );
@@ -1719,7 +1796,7 @@ module.exports = class LiskDEXModule {
             } else {
               refundTxn.sourceChainAmount = result.taker.sizeRemaining;
             }
-            if (refundTxn.sourceChainAmount <= 0) {
+            if (refundTxn.sourceChainAmount <= 0n) {
               return;
             }
             let protocolMessage = this._computeProtocolMessage('r4', [orderTxn.id], 'Unmatched market order part');
@@ -1737,11 +1814,11 @@ module.exports = class LiskDEXModule {
           let makerChainOptions = this.options.chains[makerOrder.targetChain];
           let makerAddress = makerOrder.targetWalletAddress;
           let makerAmount = makerOrder.targetChain === this.baseChainSymbol ? makerOrder.lastValueTaken : makerOrder.lastSizeTaken;
-          makerAmount -= makerChainOptions.exchangeFeeBase;
-          makerAmount -= makerAmount * makerChainOptions.exchangeFeeRate;
-          makerAmount = Math.floor(makerAmount);
+          let feeCalc = this.bigIntFeeCalculators[makerOrder.targetChain];
+          makerAmount -= BigInt(makerChainOptions.exchangeFeeBase);
+          makerAmount -= feeCalc.multiplyBigIntByDecimal(makerAmount, makerChainOptions.exchangeFeeRate);
 
-          if (makerAmount <= 0) {
+          if (makerAmount <= 0n) {
             this.logger.error(
               `Chain ${chainSymbol}: Failed to post the maker trade order ${makerOrder.id} because the amount after fees was less than or equal to 0`
             );
@@ -1793,7 +1870,7 @@ module.exports = class LiskDEXModule {
         for (let block of blocksToProcess) {
           let outboundTxns = await this._getOutboundTransactionsFromBlock(chainSymbol, chainOptions.walletAddress, block.id);
           outboundTxns.forEach((txn) => {
-            let contributionList = this._computeContributions(chainSymbol, txn, chainOptions.exchangeFeeRate, chainOptions.exchangeFeeBase);
+            let contributionList = this._computeContributions(chainSymbol, txn, chainOptions.exchangeFeeRate);
             contributionList.forEach((contribution) => {
               if (!contributionData[contribution.walletAddress]) {
                 contributionData[contribution.walletAddress] = 0n;
@@ -2113,8 +2190,9 @@ module.exports = class LiskDEXModule {
       return [];
     }
 
+    let feeCalc = this.bigIntFeeCalculators[chainSymbol];
+    let amountBeforeFee = feeCalc.divideBigIntByDecimal(BigInt(transaction.amount), 1 - exchangeFeeRate);
     let memberSignatures = transaction.signatures || [];
-    let amountBeforeFee = Math.floor(Number(transaction.amount) / (1 - exchangeFeeRate));
 
     return memberSignatures.map((signaturePacket) => {
       let { signerAddress } = signaturePacket;
@@ -2130,26 +2208,26 @@ module.exports = class LiskDEXModule {
 
   _isLimitOrderTooSmallToConvert(chainSymbol, amount, price) {
     if (chainSymbol === this.baseChainSymbol) {
-      let quoteChainValue = Math.floor(amount / price);
+      let quoteChainValue = this.bigIntPriceCalculator.divideBigIntByDecimal(amount, price);
       let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
-      return quoteChainValue <= quoteChainOptions.exchangeFeeBase;
+      return quoteChainValue <= this.chainExchangeFeeBases[this.quoteChainSymbol];
     }
-    let baseChainValue = Math.floor(amount * price);
+    let baseChainValue = this.bigIntPriceCalculator.multiplyBigIntByDecimal(amount, price);
     let baseChainOptions = this.options.chains[this.baseChainSymbol];
-    return baseChainValue <= baseChainOptions.exchangeFeeBase;
+    return baseChainValue <= this.chainExchangeFeeBases[this.baseChainSymbol];
   }
 
   _isMarketOrderTooSmallToConvert(chainSymbol, amount) {
     if (chainSymbol === this.baseChainSymbol) {
       let { price: quoteChainPrice } = this.tradeEngine.peekAsks() || {};
-      let quoteChainValue = Math.floor(amount / quoteChainPrice);
+      let quoteChainValue = this.bigIntPriceCalculator.divideBigIntByDecimal(amount, quoteChainPrice);
       let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
-      return quoteChainValue <= quoteChainOptions.exchangeFeeBase;
+      return quoteChainValue <= this.chainExchangeFeeBases[this.quoteChainSymbol];
     }
     let { price: baseChainPrice } = this.tradeEngine.peekBids() || {};
-    let baseChainValue = Math.floor(amount * baseChainPrice);
+    let baseChainValue = this.bigIntPriceCalculator.multiplyBigIntByDecimal(amount, baseChainPrice);
     let baseChainOptions = this.options.chains[this.baseChainSymbol];
-    return baseChainValue <= baseChainOptions.exchangeFeeBase;
+    return baseChainValue <= this.chainExchangeFeeBases[this.baseChainSymbol];
   }
 
   _sha1(string) {
@@ -2337,8 +2415,7 @@ module.exports = class LiskDEXModule {
 
   async execRefundTransaction(txn, timestamp, reason, extraTransferData) {
     let refundChainOptions = this.options.chains[txn.sourceChain];
-    let flooredAmount = Math.floor(txn.sourceChainAmount);
-    let refundAmount = BigInt(flooredAmount) - BigInt(refundChainOptions.exchangeFeeBase);
+    let refundAmount = txn.sourceChainAmount - BigInt(refundChainOptions.exchangeFeeBase);
 
     // Refunds do not charge the exchangeFeeRate.
     if (refundAmount <= 0n) {
@@ -2446,12 +2523,6 @@ module.exports = class LiskDEXModule {
       if (order.orderId != null) {
         order.id = order.orderId;
         delete order.orderId;
-      }
-      if (order.value == null) {
-        order.value = order.size * order.price;
-        order.valueRemaining = order.sizeRemaining * order.price;
-        delete order.size;
-        delete order.sizeRemaining;
       }
     });
     this.lastSnapshot = safeSnapshot;
