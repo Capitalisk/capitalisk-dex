@@ -1298,7 +1298,7 @@ module.exports = class LiskDEXModule {
           let priceString = dataParts[2];
           let price = Number(priceString);
           let targetWalletAddress = dataParts[3];
-          if (!this.validPriceRegex.test(priceString) || isNaN(price)) {
+          if (!this.validPriceRegex.test(priceString) || isNaN(price) || price === 0) {
             orderTxn.type = 'invalid';
             orderTxn.reason = 'Invalid price';
             this.logger.debug(
