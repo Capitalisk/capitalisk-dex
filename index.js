@@ -10,7 +10,6 @@ const readdir = util.promisify(fs.readdir);
 const unlink = util.promisify(fs.unlink);
 const mkdir = util.promisify(fs.mkdir);
 const ProperSkipList = require('proper-skip-list');
-const LiskChainCrypto = require('lisk-chain-crypto');
 const defaultConfig = require('./defaults/config');
 const TradeEngine = require('./trade-engine');
 const BigIntCalculator = require('./big-int-calculator');
@@ -233,12 +232,17 @@ module.exports = class LiskDEXModule {
         }
       }
 
-      let ChainCryptoClass;
-      if (chainOptions.chainCryptoLibPath) {
-        ChainCryptoClass = require(chainOptions.chainCryptoLibPath);
-      } else {
-        ChainCryptoClass = LiskChainCrypto;
+      if (chainOptions.chainCryptoLibPath == null) {
+        throw new Error(
+          `The ${
+            this.alias
+          } config for chain ${
+            chainSymbol
+          } should specify a chainCryptoLibPath`
+        );
       }
+
+      let ChainCryptoClass = require(chainOptions.chainCryptoLibPath);
 
       this.chainCrypto[chainSymbol] = new ChainCryptoClass({
         chainSymbol,
