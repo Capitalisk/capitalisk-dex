@@ -118,7 +118,7 @@ module.exports = class LiskDEXModule {
       throw new Error('DEX module priceDecimalPrecision config must be greater than 0');
     }
 
-    this.validPriceRegex = new RegExp(`^([0-9]+\.?|[0-9]*\.[0-9]{1,${this.priceDecimalPrecision}})$`);
+    this.validPriceRegex = new RegExp(`^([0-9]+[.]?|[0-9]*[.][0-9]{1,${this.priceDecimalPrecision}})$`);
 
     this.defaultMaxOrderAmount = BigInt(Number.MAX_SAFE_INTEGER);
 
