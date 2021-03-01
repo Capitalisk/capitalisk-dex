@@ -104,8 +104,8 @@ module.exports = class LiskDEXModule {
     this.quoteChainSymbol = this.chainSymbols.find(chain => chain !== this.baseChainSymbol);
     let baseChainOptions = this.options.chains[this.baseChainSymbol];
     let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
-    this.baseAddress = baseChainOptions.walletAddress;
-    this.quoteAddress = quoteChainOptions.walletAddress;
+    this.baseAddress = baseChainOptions.multisigAddress;
+    this.quoteAddress = quoteChainOptions.multisigAddress;
     this.multisigReadyDelay = this.options.multisigReadyDelay || DEFAULT_MULTISIG_READY_DELAY;
     this.protocolExcludeReason = this.options.protocolExcludeReason || DEFAULT_PROTOCOL_EXCLUDE_REASON;
     this.protocolMaxArgumentLength = this.options.protocolMaxArgumentLength || DEFAULT_PROTOCOL_MAX_ARGUMENT_LENGTH;
@@ -682,8 +682,8 @@ module.exports = class LiskDEXModule {
     let chainOptions = this.options.chains[chainSymbol];
     let multisigWalletInfo = this.multisigWalletInfo[chainSymbol];
     return {
-      walletAddressSystem: chainOptions.walletAddressSystem,
-      walletAddress: chainOptions.walletAddress,
+      multisigAddressSystem: chainOptions.multisigAddressSystem,
+      multisigAddress: chainOptions.multisigAddress,
       multisigMembers: [...multisigWalletInfo.members],
       multisigRequiredSignatureCount: multisigWalletInfo.requiredSignatureCount,
       minOrderAmount: String(chainOptions.minOrderAmount || 0n),
@@ -1090,11 +1090,11 @@ module.exports = class LiskDEXModule {
       return Promise.all(
         this.chainSymbols.map(async (chainSymbol) => {
           let chainOptions = this.options.chains[chainSymbol];
-          let multisigMembers = await this._getMultisigWalletMembers(chainSymbol, chainOptions.walletAddress);
+          let multisigMembers = await this._getMultisigWalletMembers(chainSymbol, chainOptions.multisigAddress);
           let multisigMemberSet = new Set(multisigMembers);
           this.multisigWalletInfo[chainSymbol].members = multisigMemberSet;
           this.multisigWalletInfo[chainSymbol].memberCount = multisigMemberSet.size;
-          this.multisigWalletInfo[chainSymbol].requiredSignatureCount = await this._getMinMultisigRequiredSignatures(chainSymbol, chainOptions.walletAddress);
+          this.multisigWalletInfo[chainSymbol].requiredSignatureCount = await this._getMinMultisigRequiredSignatures(chainSymbol, chainOptions.multisigAddress);
         })
       );
     };
@@ -1273,8 +1273,8 @@ module.exports = class LiskDEXModule {
       }
 
       let blockTransactions = await Promise.all([
-        this._getInboundTransactionsFromBlock(chainSymbol, chainOptions.walletAddress, blockData.id),
-        this._getOutboundTransactionsFromBlock(chainSymbol, chainOptions.walletAddress, blockData.id)
+        this._getInboundTransactionsFromBlock(chainSymbol, chainOptions.multisigAddress, blockData.id),
+        this._getOutboundTransactionsFromBlock(chainSymbol, chainOptions.multisigAddress, blockData.id)
       ]);
 
       let [inboundTxns, outboundTxns] = blockTransactions;
@@ -1872,7 +1872,7 @@ module.exports = class LiskDEXModule {
       while (currentBlock) {
         let blocksToProcess = await this._getBlocksBetweenHeights(chainSymbol, currentBlock.height, toHeight, readMaxBlocks);
         for (let block of blocksToProcess) {
-          let outboundTxns = await this._getOutboundTransactionsFromBlock(chainSymbol, chainOptions.walletAddress, block.id);
+          let outboundTxns = await this._getOutboundTransactionsFromBlock(chainSymbol, chainOptions.multisigAddress, block.id);
           outboundTxns.forEach((txn) => {
             let contributionList = this._computeContributions(chainSymbol, txn, chainOptions.exchangeFeeRate);
             contributionList.forEach((contribution) => {
