@@ -1947,8 +1947,13 @@ module.exports = class LiskDEXModule {
         this.quoteChainSymbol
       ];
 
-      let [baseChainLastProcessedHeight, quoteChainLastProcessedHeight] = await Promise.all(
-        orderedChainSymbols.map(async (chainSymbol) => {
+      let [
+        baseChainLastProcessedHeight,
+        quoteChainLastProcessedHeight,
+        baseChainMaxHeight,
+        quoteChainMaxHeight
+      ] = await Promise.all([
+        ...orderedChainSymbols.map(async (chainSymbol) => {
           try {
             let lastProcessedBlock = await this._getLastBlockAtTimestamp(chainSymbol, lastProcessedTimestamp);
             return lastProcessedBlock.height;
@@ -1958,20 +1963,36 @@ module.exports = class LiskDEXModule {
             }
             throw error;
           }
-        })
-      );
+        }),
+        ...orderedChainSymbols.map(async (chainSymbol) => this._getMaxBlockHeight(chainSymbol))
+      ]);
 
       let latestProcessedChainHeights = {
         [this.baseChainSymbol]: baseChainLastProcessedHeight,
         [this.quoteChainSymbol]: quoteChainLastProcessedHeight
       };
 
+      let maxChainHeights = {
+        [this.baseChainSymbol]: baseChainMaxHeight,
+        [this.quoteChainSymbol]: quoteChainMaxHeight
+      };
+
       let [baseChainBlocks, quoteChainBlocks] = await Promise.all(
         orderedChainSymbols.map(async (chainSymbol) => {
           let chainOptions = this.options.chains[chainSymbol];
           let lastProcessedheight = latestProcessedChainHeights[chainSymbol];
-          let maxBlockHeight = await this._getMaxBlockHeight(chainSymbol);
+          let maxBlockHeight = maxChainHeights[chainSymbol];
           let maxSafeBlockHeight;
+
+          let lastSkippedChainBlock = this.lastSkippedBlocks[chainSymbol];
+          let recentSkippedChainBlock;
+
+          if (
+            lastSkippedChainBlock &&
+            lastSkippedChainBlock.timestamp > lastProcessedTimestamp
+          ) {
+            recentSkippedChainBlock = lastSkippedChainBlock;
+          }
 
           if (
             chainSymbol === this.baseChainSymbol &&
@@ -1980,6 +2001,9 @@ module.exports = class LiskDEXModule {
             maxBlockHeight < this.options.dexDisabledFromHeight + this.options.dexDisabledRefundHeightOffset
           ) {
             maxSafeBlockHeight = this.options.dexDisabledFromHeight - 1;
+          } else if (recentSkippedChainBlock) {
+            // Ignore requiredConfirmations if there is a skipped block. The skipped block acts as a checkpoint.
+            maxSafeBlockHeight = maxBlockHeight;
           } else {
             maxSafeBlockHeight = maxBlockHeight - chainOptions.requiredConfirmations;
           }
@@ -1990,34 +2014,27 @@ module.exports = class LiskDEXModule {
             maxSafeBlockHeight,
             chainOptions.readMaxBlocks
           );
-          return timestampedBlockList
+          let sanitizedBlockList = timestampedBlockList
             .filter(block => block.timestamp >= lastProcessedTimestamp)
             .map(block => ({...block, chainSymbol}));
-        })
-      );
 
-      for (let chainSymbol of orderedChainSymbols) {
-        let chainBlockList = chainSymbol === this.baseChainSymbol ? baseChainBlocks : quoteChainBlocks;
-        let lastSkippedChainBlock = this.lastSkippedBlocks[chainSymbol];
-        if (lastSkippedChainBlock && lastSkippedChainBlock.timestamp >= lastProcessedTimestamp) {
-          if (chainBlockList.length) {
-            let lastChainBlock = chainBlockList[chainBlockList.length - 1];
-            if (lastSkippedChainBlock.timestamp > lastChainBlock.timestamp) {
-              chainBlockList.push({
-                ...lastSkippedChainBlock,
-                chainSymbol,
-                isSkipped: true
-              });
-            }
-          } else {
-            chainBlockList.push({
-              ...lastSkippedChainBlock,
+          if (
+            recentSkippedChainBlock &&
+            (
+              !sanitizedBlockList.length ||
+              recentSkippedChainBlock.height === sanitizedBlockList[sanitizedBlockList.length - 1].height + 1
+            )
+          ) {
+            sanitizedBlockList.push({
+              ...recentSkippedChainBlock,
               chainSymbol,
               isSkipped: true
             });
           }
-        }
-      }
+
+          return sanitizedBlockList;
+        })
+      );
 
       if (!baseChainBlocks.length || !quoteChainBlocks.length) {
         return 0;
@@ -2026,11 +2043,11 @@ module.exports = class LiskDEXModule {
       let lastBaseChainBlock = baseChainBlocks[baseChainBlocks.length - 1];
       let lastQuoteChainBlock = quoteChainBlocks[quoteChainBlocks.length - 1];
 
-      let highestTimestampOfShortestChain = Math.min(lastBaseChainBlock.timestamp, lastQuoteChainBlock.timestamp);
-      while (baseChainBlocks.length > 0 && baseChainBlocks[baseChainBlocks.length - 1].timestamp > highestTimestampOfShortestChain) {
+      let highestTimestampOfOldestChain = Math.min(lastBaseChainBlock.timestamp, lastQuoteChainBlock.timestamp);
+      while (baseChainBlocks.length > 0 && baseChainBlocks[baseChainBlocks.length - 1].timestamp > highestTimestampOfOldestChain) {
         baseChainBlocks.pop();
       }
-      while (quoteChainBlocks.length > 0 && quoteChainBlocks[quoteChainBlocks.length - 1].timestamp > highestTimestampOfShortestChain) {
+      while (quoteChainBlocks.length > 0 && quoteChainBlocks[quoteChainBlocks.length - 1].timestamp > highestTimestampOfOldestChain) {
         quoteChainBlocks.pop();
       }
 
@@ -2078,8 +2095,8 @@ module.exports = class LiskDEXModule {
         }
       }
 
-      if (lastQuoteChainBlock.timestamp > highestTimestampOfShortestChain) {
-        lastProcessedTimestamp = highestTimestampOfShortestChain;
+      if (lastQuoteChainBlock.timestamp > highestTimestampOfOldestChain) {
+        lastProcessedTimestamp = highestTimestampOfOldestChain;
       }
 
       return orderedBlockList.length;
