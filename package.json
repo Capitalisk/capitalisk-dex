@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jondubois/lisk-dex.git"
+    "url": "git+https://github.com/Capitalisk/lisk-dex.git"
   },
   "keywords": [
     "dex",
@@ -26,7 +26,7 @@
     "mocha": "^7.2.0"
   },
   "bugs": {
-    "url": "https://github.com/jondubois/lisk-dex/issues"
+    "url": "https://github.com/Capitalisk/lisk-dex/issues"
   },
-  "homepage": "https://github.com/jondubois/lisk-dex#readme"
+  "homepage": "https://github.com/Capitalisk/lisk-dex#readme"
 }
