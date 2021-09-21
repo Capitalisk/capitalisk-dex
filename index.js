@@ -880,12 +880,12 @@ module.exports = class LiskDEXModule {
     let quoteChainReadMaxTransactions = quoteChainOptions.readMaxTransactions == null ? tradeHistorySize : quoteChainOptions.readMaxTransactions;
 
     if (fromBaseTimestamp == null) {
-      fromBaseTimestamp = this.options.tradeHistoryStartBaseTimestamp == null ? 0 :
-        this._denormalizeTimestamp(this.baseChainSymbol, this.options.tradeHistoryStartBaseTimestamp);
+      fromBaseTimestamp = this.options.tradeHistoryStartTimestamp == null ? 0 :
+        this._denormalizeTimestamp(this.baseChainSymbol, this.options.tradeHistoryStartTimestamp);
     }
     if (fromQuoteTimestamp == null) {
-      fromQuoteTimestamp = this.options.tradeHistoryStartBaseTimestamp == null ? 0 :
-        this._denormalizeTimestamp(this.quoteChainSymbol, this.options.tradeHistoryStartBaseTimestamp);
+      fromQuoteTimestamp = this.options.tradeHistoryStartTimestamp == null ? 0 :
+        this._denormalizeTimestamp(this.quoteChainSymbol, this.options.tradeHistoryStartTimestamp);
     }
 
     let [baseChainTxns, quoteChainTxns] = await Promise.all([
