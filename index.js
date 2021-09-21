@@ -872,9 +872,25 @@ module.exports = class LiskDEXModule {
     if (!tradeHistorySize) {
       return [];
     }
+
+    let baseChainOptions = this.options.chains[this.baseChainSymbol];
+    let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
+
+    let baseChainReadMaxTransactions = baseChainOptions.readMaxTransactions == null ? tradeHistorySize : baseChainOptions.readMaxTransactions;
+    let quoteChainReadMaxTransactions = quoteChainOptions.readMaxTransactions == null ? tradeHistorySize : quoteChainOptions.readMaxTransactions;
+
+    if (fromBaseTimestamp == null) {
+      fromBaseTimestamp = this.options.tradeHistoryStartBaseTimestamp == null ? 0 :
+        this._denormalizeTimestamp(this.baseChainSymbol, this.options.tradeHistoryStartBaseTimestamp);
+    }
+    if (fromQuoteTimestamp == null) {
+      fromQuoteTimestamp = this.options.tradeHistoryStartBaseTimestamp == null ? 0 :
+        this._denormalizeTimestamp(this.quoteChainSymbol, this.options.tradeHistoryStartBaseTimestamp);
+    }
+
     let [baseChainTxns, quoteChainTxns] = await Promise.all([
-      this._getOutboundTransactions(this.baseChainSymbol, this.baseAddress, fromBaseTimestamp, tradeHistorySize),
-      this._getOutboundTransactions(this.quoteChainSymbol, this.quoteAddress, fromQuoteTimestamp, tradeHistorySize)
+      this._getOutboundTransactions(this.baseChainSymbol, this.baseAddress, fromBaseTimestamp, baseChainReadMaxTransactions),
+      this._getOutboundTransactions(this.quoteChainSymbol, this.quoteAddress, fromQuoteTimestamp, quoteChainReadMaxTransactions)
     ]);
 
     let quoteChainMakers = {};
@@ -938,7 +954,6 @@ module.exports = class LiskDEXModule {
     });
 
     for (let txnPair of txnPairsList) {
-      let baseChainOptions = this.options.chains[this.baseChainSymbol];
       let baseChainFeeBase = this.chainExchangeFeeBases[this.baseChainSymbol];
       let baseChainFeeRate = baseChainOptions.exchangeFeeRate;
       let baseTotalFee = baseChainFeeBase * BigInt(txnPair.base.length);
@@ -950,7 +965,6 @@ module.exports = class LiskDEXModule {
         0n
       ) + baseTotalFee;
 
-      let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
       let quoteChainFeeBase = this.chainExchangeFeeBases[this.quoteChainSymbol];
       let quoteChainFeeRate = quoteChainOptions.exchangeFeeRate;
       let quoteTotalFee = quoteChainFeeBase * BigInt(txnPair.quote.length);
@@ -2289,6 +2303,9 @@ module.exports = class LiskDEXModule {
 
   // Normalize a timestamp to make it line up with the other chain.
   _normalizeTimestamp(chainSymbol, timestamp) {
+    if (timestamp == null) {
+      return null;
+    }
     let transform = this.timestampTransforms[chainSymbol];
     timestamp = Math.round(timestamp * transform.multiplier);
     timestamp += transform.offset;
@@ -2297,6 +2314,9 @@ module.exports = class LiskDEXModule {
 
   // Denormalize a timestamp to put it back in its original state.
   _denormalizeTimestamp(chainSymbol, timestamp) {
+    if (timestamp == null) {
+      return null;
+    }
     let transform = this.timestampTransforms[chainSymbol];
     timestamp -= transform.offset;
     timestamp = Math.round(timestamp / transform.multiplier);
@@ -2314,11 +2334,8 @@ module.exports = class LiskDEXModule {
   }
 
   async _getOutboundTransactions(chainSymbol, walletAddress, fromTimestamp, limit) {
-    fromTimestamp = this._denormalizeTimestamp(chainSymbol, fromTimestamp);
     let chainOptions = this.options.chains[chainSymbol];
-    let transactions = await this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactions`, {walletAddress, fromTimestamp, limit});
-    this._normalizeListTimestamps(chainSymbol, transactions);
-    return transactions;
+    return this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactions`, {walletAddress, fromTimestamp, limit});
   }
 
   async _getInboundTransactionsFromBlock(chainSymbol, walletAddress, blockId) {
