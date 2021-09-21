@@ -2022,6 +2022,10 @@ module.exports = class LiskDEXModule {
             maxSafeBlockHeight = maxBlockHeight - chainOptions.requiredConfirmations;
           }
 
+          if (lastProcessedheight > maxSafeBlockHeight) {
+            return [];
+          }
+
           let timestampedBlockList = await this._getBlocksBetweenHeights(
             chainSymbol,
             lastProcessedheight,
