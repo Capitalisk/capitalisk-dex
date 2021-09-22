@@ -705,7 +705,18 @@ module.exports = class LiskDEXModule {
     if (!hasMemberAddress) {
       return false;
     }
-    return this.chainCrypto[targetChain].verifyTransactionSignature(transaction, signaturePacket);
+    try {
+      return await this.chainCrypto[targetChain].verifyTransactionSignature(transaction, signaturePacket);
+    } catch (error) {
+      this.logger.warn(
+        `Error encountered while attempting to verify the signature from member ${
+          signaturePacket.signerAddress
+        } for the transaction ${
+          transaction.id
+        } for the ${targetChain} network - ${error.message}`
+      );
+    }
+    return false;
   }
 
   async _processSignature(signatureData) {
