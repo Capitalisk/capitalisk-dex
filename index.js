@@ -107,8 +107,6 @@ module.exports = class LiskDEXModule {
     this.baseAddress = baseChainOptions.multisigAddress;
     this.quoteAddress = quoteChainOptions.multisigAddress;
     this.multisigReadyDelay = this.options.multisigReadyDelay || DEFAULT_MULTISIG_READY_DELAY;
-    this.protocolExcludeReason = this.options.protocolExcludeReason || DEFAULT_PROTOCOL_EXCLUDE_REASON;
-    this.protocolMaxArgumentLength = this.options.protocolMaxArgumentLength || DEFAULT_PROTOCOL_MAX_ARGUMENT_LENGTH;
 
     this.priceDecimalPrecision = this.options.priceDecimalPrecision == null ?
       DEFAULT_PRICE_DECIMAL_PRECISION : this.options.priceDecimalPrecision;
@@ -1524,7 +1522,7 @@ module.exports = class LiskDEXModule {
 
       if (!this.passiveMode) {
         movedOrders.forEach(async (orderTxn) => {
-          let protocolMessage = this._computeProtocolMessage('r5', [orderTxn.id, orderTxn.movedToAddress], 'DEX has moved');
+          let protocolMessage = this._computeProtocolMessage(orderTxn.sourceChain, 'r5', [orderTxn.id, orderTxn.movedToAddress], 'DEX has moved');
           try {
             await this.execRefundTransaction(orderTxn, latestBlockTimestamp, protocolMessage, {type: 'r5', originOrderId: orderTxn.id});
           } catch (error) {
@@ -1543,7 +1541,7 @@ module.exports = class LiskDEXModule {
         });
 
         disabledOrders.forEach(async (orderTxn) => {
-          let protocolMessage = this._computeProtocolMessage('r6', [orderTxn.id], 'DEX has been disabled');
+          let protocolMessage = this._computeProtocolMessage(orderTxn.sourceChain, 'r6', [orderTxn.id], 'DEX has been disabled');
           try {
             await this.execRefundTransaction(orderTxn, latestBlockTimestamp, protocolMessage, {type: 'r6', originOrderId: orderTxn.id});
           } catch (error) {
@@ -1566,7 +1564,7 @@ module.exports = class LiskDEXModule {
           if (orderTxn.reason) {
             reasonMessage += ` - ${orderTxn.reason}`;
           }
-          let protocolMessage = this._computeProtocolMessage('r1', [orderTxn.id], reasonMessage);
+          let protocolMessage = this._computeProtocolMessage(orderTxn.sourceChain, 'r1', [orderTxn.id], reasonMessage);
           try {
             await this.execRefundTransaction(orderTxn, latestBlockTimestamp, protocolMessage, {type: 'r1', originOrderId: orderTxn.id});
           } catch (error) {
@@ -1585,7 +1583,7 @@ module.exports = class LiskDEXModule {
         });
 
         oversizedOrders.forEach(async (orderTxn) => {
-          let protocolMessage = this._computeProtocolMessage('r1', [orderTxn.id], 'Oversized order');
+          let protocolMessage = this._computeProtocolMessage(orderTxn.sourceChain, 'r1', [orderTxn.id], 'Oversized order');
           try {
             await this.execRefundTransaction(orderTxn, latestBlockTimestamp, protocolMessage, {type: 'r1', originOrderId: orderTxn.id});
           } catch (error) {
@@ -1604,7 +1602,7 @@ module.exports = class LiskDEXModule {
         });
 
         undersizedOrders.forEach(async (orderTxn) => {
-          let protocolMessage = this._computeProtocolMessage('r1', [orderTxn.id], 'Undersized order');
+          let protocolMessage = this._computeProtocolMessage(orderTxn.sourceChain, 'r1', [orderTxn.id], 'Undersized order');
           try {
             await this.execRefundTransaction(orderTxn, latestBlockTimestamp, protocolMessage, {type: 'r1', originOrderId: orderTxn.id});
           } catch (error) {
@@ -1663,7 +1661,7 @@ module.exports = class LiskDEXModule {
             return;
           }
         }
-        let protocolMessage = this._computeProtocolMessage('r2', [expiredOrder.id], 'Expired order');
+        let protocolMessage = this._computeProtocolMessage(expiredOrder.sourceChain, 'r2', [expiredOrder.id], 'Expired order');
         try {
           await this.refundOrder(
             expiredOrder,
@@ -1718,7 +1716,7 @@ module.exports = class LiskDEXModule {
         if (this.passiveMode) {
           return;
         }
-        let protocolMessage = this._computeProtocolMessage('r3', [targetOrder.id, orderTxn.id], 'Closed order');
+        let protocolMessage = this._computeProtocolMessage(refundTxn.sourceChain, 'r3', [targetOrder.id, orderTxn.id], 'Closed order');
         try {
           await this.execRefundTransaction(
             refundTxn,
@@ -1784,6 +1782,7 @@ module.exports = class LiskDEXModule {
             height: latestChainHeights[takerTargetChain]
           };
           let protocolMessage = this._computeProtocolMessage(
+            takerTargetChain,
             't1',
             [result.taker.sourceChain, result.taker.id, result.makers.length],
             'Orders taken'
@@ -1817,7 +1816,7 @@ module.exports = class LiskDEXModule {
             if (refundTxn.sourceChainAmount <= 0n) {
               return;
             }
-            let protocolMessage = this._computeProtocolMessage('r4', [orderTxn.id], 'Unmatched market order part');
+            let protocolMessage = this._computeProtocolMessage(refundTxn.sourceChain, 'r4', [orderTxn.id], 'Unmatched market order part');
             try {
               await this.execRefundTransaction(refundTxn, latestBlockTimestamp, protocolMessage, {type: 'r4', originOrderId: orderTxn.id});
             } catch (error) {
@@ -1850,6 +1849,7 @@ module.exports = class LiskDEXModule {
             height: latestChainHeights[makerOrder.targetChain]
           };
           let protocolMessage = this._computeProtocolMessage(
+            makerOrder.targetChain,
             't2',
             [makerOrder.sourceChain, makerOrder.id, result.taker.id],
             'Order made'
@@ -1918,7 +1918,7 @@ module.exports = class LiskDEXModule {
             timestamp: latestBlockTimestamp,
             height: chainHeight
           };
-          let protocolMessage = this._computeProtocolMessage('d1', [fromHeight + 1, toHeight], 'Member dividend');
+          let protocolMessage = this._computeProtocolMessage(chainSymbol, 'd1', [fromHeight + 1, toHeight], 'Member dividend');
           try {
             await this.execMultisigTransaction(chainSymbol, dividendTxn, protocolMessage);
           } catch (error) {
@@ -2406,7 +2406,7 @@ module.exports = class LiskDEXModule {
       allOrders.map(async (order) => {
         let movedToAddress = movedToAddresses[order.sourceChain];
         if (movedToAddress) {
-          let protocolMessage = this._computeProtocolMessage('r5', [order.id, movedToAddress], 'DEX has moved');
+          let protocolMessage = this._computeProtocolMessage(order.sourceChain, 'r5', [order.id, movedToAddress], 'DEX has moved');
           await this.refundOrder(
             order,
             timestamp,
@@ -2415,7 +2415,7 @@ module.exports = class LiskDEXModule {
             {type: 'r5', originOrderId: order.id}
           );
         } else {
-          let protocolMessage = this._computeProtocolMessage('r6', [order.id], 'DEX has been disabled');
+          let protocolMessage = this._computeProtocolMessage(order.sourceChain, 'r6', [order.id], 'DEX has been disabled');
           allOrders.map(async (order) => {
             await this.refundOrder(
               order,
@@ -2444,12 +2444,15 @@ module.exports = class LiskDEXModule {
     await this.execRefundTransaction(refundTxn, timestamp, reason, extraTransferData);
   }
 
-  _computeProtocolMessage(code, args, reasonMessage) {
-    let sanitizedArgs = args.map(arg => String(arg).slice(0, this.protocolMaxArgumentLength));
+  _computeProtocolMessage(chainSymbol, code, args, reasonMessage) {
+    let chainOptions = this.options.chains[chainSymbol];
+    let maxArgLength = chainOptions.protocolMaxArgumentLength || DEFAULT_PROTOCOL_MAX_ARGUMENT_LENGTH;
+    let excludeReason = chainOptions.protocolExcludeReason || DEFAULT_PROTOCOL_EXCLUDE_REASON;
+    let sanitizedArgs = args.map(arg => String(arg).slice(0, maxArgLength));
     let messageHeaderParts = [code, ...sanitizedArgs];
     let messageHeader = messageHeaderParts.join(',');
     let messageParts = [messageHeader];
-    if (!this.protocolExcludeReason && reasonMessage) {
+    if (!excludeReason && reasonMessage) {
       messageParts.push(reasonMessage);
     }
     return messageParts.join(': ');
