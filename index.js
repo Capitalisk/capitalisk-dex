@@ -1131,6 +1131,17 @@ module.exports = class LiskDEXModule {
       );
     }
 
+    let isTargetAddressValid = (targetChainSymbol, targetWalletAddress) => {
+      if (!targetWalletAddress) {
+        return false;
+      }
+      let targetChainOptions = this.options.chains[targetChainSymbol];
+      if (targetWalletAddress === targetChainOptions.multisigAddress) {
+        return false;
+      }
+      return true;
+    };
+
     let processBlock = async ({chainSymbol, chainHeight, latestChainHeights, blockData}) => {
       this.logger.info(
         `Chain ${chainSymbol}: Processing block at height ${chainHeight}`
@@ -1410,11 +1421,11 @@ module.exports = class LiskDEXModule {
             );
             return orderTxn;
           }
-          if (!targetWalletAddress) {
+          if (!isTargetAddressValid(orderTxn.targetChain, targetWalletAddress)) {
             orderTxn.type = 'invalid';
             orderTxn.reason = 'Invalid wallet address';
             this.logger.debug(
-              `Chain ${chainSymbol}: Incoming limit order ${orderTxn.id} has an invalid wallet address`
+              `Chain ${chainSymbol}: Incoming limit order ${orderTxn.id} has an invalid target wallet address`
             );
             return orderTxn;
           }
@@ -1441,11 +1452,11 @@ module.exports = class LiskDEXModule {
         } else if (dataParts[1] === 'market') {
           // E.g. clsk,market,9205805648791671841L
           let targetWalletAddress = dataParts[2];
-          if (!targetWalletAddress) {
+          if (!isTargetAddressValid(orderTxn.targetChain, targetWalletAddress)) {
             orderTxn.type = 'invalid';
             orderTxn.reason = 'Invalid wallet address';
             this.logger.debug(
-              `Chain ${chainSymbol}: Incoming market order ${orderTxn.id} has an invalid wallet address`
+              `Chain ${chainSymbol}: Incoming market order ${orderTxn.id} has an invalid target wallet address`
             );
             return orderTxn;
           }
