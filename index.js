@@ -1656,38 +1656,11 @@ module.exports = class LiskDEXModule {
         if (this.passiveMode) {
           return;
         }
-        let refundTimestamp;
-        if (expiredOrder.expiryHeight === chainHeight) {
-          refundTimestamp = latestBlockTimestamp;
-        } else {
-          try {
-            let expiryBlock = await this._getBlockAtHeight(chainSymbol, expiredOrder.expiryHeight);
-            if (!expiryBlock) {
-              throw new Error(
-                `No block found at height ${expiredOrder.expiryHeight}`
-              );
-            }
-            refundTimestamp = expiryBlock.timestamp;
-          } catch (error) {
-            this.logger.error(
-              `Chain ${chainSymbol}: Failed to create multisig refund transaction for expired order ID ${
-                expiredOrder.id
-              } to ${
-                expiredOrder.sourceWalletAddress
-              } on chain ${
-                expiredOrder.sourceChain
-              } because it could not calculate the timestamp due to error: ${
-                error.message
-              }`
-            );
-            return;
-          }
-        }
         let protocolMessage = this._computeProtocolMessage(expiredOrder.sourceChain, 'r2', [expiredOrder.id], 'Expired order');
         try {
           await this.refundOrder(
             expiredOrder,
-            refundTimestamp,
+            latestBlockTimestamp,
             expiredOrder.expiryHeight,
             protocolMessage,
             {type: 'r2', originOrderId: expiredOrder.id}
