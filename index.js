@@ -850,16 +850,16 @@ module.exports = class LiskDEXModule {
     return 0;
   }
 
-  _getTakerOrderIdFromTransaction(transaction) {
+  _getTakerOrderIdFromTransaction(transaction, maxIdLength) {
     let transactionData = transaction.message || '';
     let header = transactionData.split(':')[0];
     let parts = header.split(',');
     let txnType = parts[0];
     if (txnType === 't1') {
-      return parts[2];
+      return parts[2].slice(0, maxIdLength);
     }
     if (txnType === 't2') {
-      return parts[3];
+      return parts[3].slice(0, maxIdLength);
     }
     return null;
   }
@@ -905,10 +905,14 @@ module.exports = class LiskDEXModule {
     let quoteChainMakers = {};
     let quoteChainTakers = {};
 
+    let baseChainMaxIdLength = baseChainOptions.protocolMaxArgumentLength || DEFAULT_PROTOCOL_MAX_ARGUMENT_LENGTH;
+    let quoteChainMaxIdLength = quoteChainOptions.protocolMaxArgumentLength || DEFAULT_PROTOCOL_MAX_ARGUMENT_LENGTH;
+    let maxTakerIdLength = Math.min(baseChainMaxIdLength, quoteChainMaxIdLength);
+
     for (let txn of quoteChainTxns) {
       let isMaker = this._isMakerTransaction(txn);
       let isTaker = this._isTakerTransaction(txn);
-      let takerOrderId = this._getTakerOrderIdFromTransaction(txn);
+      let takerOrderId = this._getTakerOrderIdFromTransaction(txn, maxTakerIdLength);
       if (isMaker) {
         if (!quoteChainMakers[takerOrderId]) {
           quoteChainMakers[takerOrderId] = [];
@@ -929,7 +933,7 @@ module.exports = class LiskDEXModule {
         continue;
       }
 
-      let counterpartyTakerId = this._getTakerOrderIdFromTransaction(txn);
+      let counterpartyTakerId = this._getTakerOrderIdFromTransaction(txn, maxTakerIdLength);
       let counterpartyTxns = quoteChainMakers[counterpartyTakerId] || quoteChainTakers[counterpartyTakerId] || [];
 
       if (!counterpartyTxns.length) {
