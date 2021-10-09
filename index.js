@@ -1304,7 +1304,7 @@ module.exports = class LiskDEXModule {
             latestBlockTimestamp
           });
         } catch (error) {
-          this.logger.error(
+          throw new Error(
             `Failed to process dividends at target height ${dividendTargetHeight} because of error: ${error.message}`
           );
         }
