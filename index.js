@@ -1889,6 +1889,9 @@ module.exports = class LiskDEXModule {
 
       while (currentBlock) {
         let blocksToProcess = await this._getBlocksBetweenHeights(chainSymbol, currentBlock.height, toHeight, readMaxBlocks);
+        this.logger.info(
+          `Chain ${chainSymbol}: Processing blocks between heights ${currentBlock.height} and ${toHeight} as part of dividend calculation`
+        );
         for (let block of blocksToProcess) {
           if (block.numberOfTransactions === 0) {
             continue;
