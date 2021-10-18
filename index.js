@@ -112,7 +112,9 @@ module.exports = class LiskDEXModule {
     this.priceDecimalPrecision = this.options.priceDecimalPrecision == null ?
       DEFAULT_PRICE_DECIMAL_PRECISION : this.options.priceDecimalPrecision;
 
-    this.outboundTransactionBlockCache = new Map();
+    this.outboundTransactionBlockCaches = {};
+    this.outboundTransactionBlockCaches[this.baseChainSymbol] = new Map();
+    this.outboundTransactionBlockCaches[this.quoteChainSymbol] = new Map();
 
     if (this.priceDecimalPrecision <= 0) {
       throw new Error('DEX module priceDecimalPrecision config must be greater than 0');
@@ -2366,8 +2368,9 @@ module.exports = class LiskDEXModule {
   }
 
   async _getOutboundTransactionsFromBlock(chainSymbol, walletAddress, blockId) {
-    let cacheKey = `${chainSymbol},${walletAddress},${blockId}`;
-    let cachedTransactions = this.outboundTransactionBlockCache.get(cacheKey);
+    let chainCache = this.outboundTransactionBlockCaches[chainSymbol];
+    let cacheKey = `${walletAddress},${blockId}`;
+    let cachedTransactions = chainCache.get(cacheKey);
     if (cachedTransactions) {
       return cachedTransactions;
     }
@@ -2381,14 +2384,14 @@ module.exports = class LiskDEXModule {
 
     this._normalizeListTimestamps(chainSymbol, transactions);
 
-    this.outboundTransactionBlockCache.set(cacheKey, transactions);
+    chainCache.set(cacheKey, transactions);
 
     let cacheSize = chainOptions.outboundTransactionBlockCacheSize == null ?
       DEFAULT_OUTBOUND_TRANSACTION_BLOCK_CACHE_SIZE : chainOptions.outboundTransactionBlockCacheSize;
 
-    while (this.outboundTransactionBlockCache.size > cacheSize) {
-      let nextKey = this.outboundTransactionBlockCache.keys().next().value;
-      this.outboundTransactionBlockCache.delete(nextKey);
+    while (chainCache.size > cacheSize) {
+      let nextKey = chainCache.keys().next().value;
+      chainCache.delete(nextKey);
     }
     return transactions;
   }
