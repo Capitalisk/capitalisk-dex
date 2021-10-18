@@ -1288,7 +1288,7 @@ module.exports = class LiskDEXModule {
         }
       }
 
-      if (!blockData.numberOfTransactions) {
+      if (blockData.numberOfTransactions === 0) {
         this.logger.info(
           `Chain ${chainSymbol}: No transactions in block ${blockData.id} at height ${chainHeight}`
         );
@@ -1890,6 +1890,9 @@ module.exports = class LiskDEXModule {
       while (currentBlock) {
         let blocksToProcess = await this._getBlocksBetweenHeights(chainSymbol, currentBlock.height, toHeight, readMaxBlocks);
         for (let block of blocksToProcess) {
+          if (block.numberOfTransactions === 0) {
+            continue;
+          }
           let outboundTxns = await this._getOutboundTransactionsFromBlock(chainSymbol, chainOptions.multisigAddress, block.id);
           outboundTxns.forEach((txn) => {
             let contributionList = this._computeContributions(chainSymbol, txn, chainOptions.exchangeFeeRate);
