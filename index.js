@@ -1910,6 +1910,14 @@ module.exports = class LiskDEXModule {
       await Promise.all(
         dividendList.map(async (dividend) => {
           let txnAmount = dividend.amount - BigInt(chainOptions.exchangeFeeBase);
+          if (txnAmount <= 0n) {
+            this.logger.debug(
+              `Chain ${chainSymbol}: Skipped dividend distribution to member address ${
+                dividend.walletAddress
+              } because the amount due after fees was less than or equal to 0`
+            );
+            return;
+          }
           let dividendTxn = {
             recipientAddress: dividend.walletAddress,
             amount: txnAmount.toString(),
