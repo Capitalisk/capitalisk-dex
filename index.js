@@ -25,6 +25,7 @@ const DEFAULT_MULTISIG_READY_DELAY = 5000;
 const DEFAULT_PROTOCOL_EXCLUDE_REASON = false;
 const DEFAULT_PROTOCOL_MAX_ARGUMENT_LENGTH = 64;
 const DEFAULT_PRICE_DECIMAL_PRECISION = 4;
+const DEFAULT_OUTBOUND_TRANSACTION_BLOCK_CACHE_SIZE = 62000;
 
 /**
  * Lisk DEX module specification
@@ -110,6 +111,8 @@ module.exports = class LiskDEXModule {
 
     this.priceDecimalPrecision = this.options.priceDecimalPrecision == null ?
       DEFAULT_PRICE_DECIMAL_PRECISION : this.options.priceDecimalPrecision;
+
+    this.outboundTransactionBlockCache = new Map();
 
     if (this.priceDecimalPrecision <= 0) {
       throw new Error('DEX module priceDecimalPrecision config must be greater than 0');
@@ -2363,6 +2366,11 @@ module.exports = class LiskDEXModule {
   }
 
   async _getOutboundTransactionsFromBlock(chainSymbol, walletAddress, blockId) {
+    let cacheKey = `${chainSymbol},${walletAddress},${blockId}`;
+    let cachedTransactions = this.outboundTransactionBlockCache.get(cacheKey);
+    if (cachedTransactions) {
+      return cachedTransactions;
+    }
     let chainOptions = this.options.chains[chainSymbol];
     let txns = await this.channel.invoke(`${chainOptions.moduleAlias}:getOutboundTransactionsFromBlock`, {walletAddress, blockId});
 
@@ -2372,6 +2380,16 @@ module.exports = class LiskDEXModule {
     })).sort((a, b) => this._transactionComparator(a, b));
 
     this._normalizeListTimestamps(chainSymbol, transactions);
+
+    this.outboundTransactionBlockCache.set(cacheKey, transactions);
+
+    let cacheSize = chainOptions.outboundTransactionBlockCacheSize == null ?
+      DEFAULT_OUTBOUND_TRANSACTION_BLOCK_CACHE_SIZE : chainOptions.outboundTransactionBlockCacheSize;
+
+    while (this.outboundTransactionBlockCache.size > cacheSize) {
+      let nextKey = this.outboundTransactionBlockCache.keys().next().value;
+      this.outboundTransactionBlockCache.delete(nextKey);
+    }
     return transactions;
   }
 
