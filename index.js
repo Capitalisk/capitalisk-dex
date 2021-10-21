@@ -702,7 +702,11 @@ module.exports = class LiskDEXModule {
   }
 
   _getSignatureQuota(targetChain, transaction) {
-    return transaction.signatures.length - (this.multisigWalletInfo[targetChain] || {}).requiredSignatureCount;
+    let walletInfo = this.multisigWalletInfo[targetChain];
+    if (!walletInfo) {
+      return NaN;
+    }
+    return transaction.signatures.length - walletInfo.requiredSignatureCount;
   }
 
   async _verifySignature(targetChain, transaction, signaturePacket) {
