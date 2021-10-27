@@ -1772,8 +1772,53 @@ module.exports = class LiskDEXModule {
         takerAmount -= BigInt(takerChainOptions.exchangeFeeBase);
         takerAmount -= feeCalc.multiplyBigIntByDecimal(takerAmount, takerChainOptions.exchangeFeeRate);
 
+        let makerCount = 0;
+
+        result.makers.forEach(async (makerOrder) => {
+          let makerChainOptions = this.options.chains[makerOrder.targetChain];
+          let makerAddress = makerOrder.targetWalletAddress;
+          let makerAmount = makerOrder.targetChain === this.baseChainSymbol ? makerOrder.lastValueTaken : makerOrder.lastSizeTaken;
+          let feeCalc = this.bigIntFeeCalculators[makerOrder.targetChain];
+          makerAmount -= BigInt(makerChainOptions.exchangeFeeBase);
+          makerAmount -= feeCalc.multiplyBigIntByDecimal(makerAmount, makerChainOptions.exchangeFeeRate);
+
+          if (makerAmount <= 0n) {
+            this.logger.error(
+              `Chain ${chainSymbol}: Did not post the maker trade order ${makerOrder.id} because the amount after fees was less than or equal to 0`
+            );
+            return;
+          }
+          makerCount++;
+
+          let makerTxn = {
+            recipientAddress: makerAddress,
+            amount: makerAmount.toString(),
+            fee: makerChainOptions.exchangeFeeBase.toString(),
+            timestamp: latestBlockTimestamp,
+            height: latestChainHeights[makerOrder.targetChain]
+          };
+          let protocolMessage = this._computeProtocolMessage(
+            makerOrder.targetChain,
+            't2',
+            [makerOrder.sourceChain, makerOrder.id, result.taker.id],
+            'Order made'
+          );
+          try {
+            await this.execMultisigTransaction(
+              makerOrder.targetChain,
+              makerTxn,
+              protocolMessage,
+              {type: 't2', originOrderId: makerOrder.id, makerOrderId: makerOrder.id, takerOrderId: result.taker.id}
+            );
+          } catch (error) {
+            this.logger.error(
+              `Chain ${chainSymbol}: Failed to post multisig transaction of maker ${makerAddress} on chain ${makerOrder.targetChain} because of error: ${error.message}`
+            );
+          }
+        });
+
         (async () => {
-          if (!result.makers.length) {
+          if (!makerCount) {
             return;
           }
           if (takerAmount <= 0n) {
@@ -1792,7 +1837,7 @@ module.exports = class LiskDEXModule {
           let protocolMessage = this._computeProtocolMessage(
             takerTargetChain,
             't1',
-            [result.taker.sourceChain, result.taker.id, result.makers.length],
+            [result.taker.sourceChain, result.taker.id, makerCount],
             'Orders taken'
           );
           try {
@@ -1800,7 +1845,7 @@ module.exports = class LiskDEXModule {
               takerTargetChain,
               takerTxn,
               protocolMessage,
-              {type: 't1', originOrderId: result.taker.id, takerOrderId: result.taker.id, makerCount: result.makers.length}
+              {type: 't1', originOrderId: result.taker.id, takerOrderId: result.taker.id, makerCount}
             );
           } catch (error) {
             this.logger.error(
@@ -1834,47 +1879,6 @@ module.exports = class LiskDEXModule {
             }
           }
         })();
-
-        result.makers.forEach(async (makerOrder) => {
-          let makerChainOptions = this.options.chains[makerOrder.targetChain];
-          let makerAddress = makerOrder.targetWalletAddress;
-          let makerAmount = makerOrder.targetChain === this.baseChainSymbol ? makerOrder.lastValueTaken : makerOrder.lastSizeTaken;
-          let feeCalc = this.bigIntFeeCalculators[makerOrder.targetChain];
-          makerAmount -= BigInt(makerChainOptions.exchangeFeeBase);
-          makerAmount -= feeCalc.multiplyBigIntByDecimal(makerAmount, makerChainOptions.exchangeFeeRate);
-
-          if (makerAmount <= 0n) {
-            this.logger.error(
-              `Chain ${chainSymbol}: Failed to post the maker trade order ${makerOrder.id} because the amount after fees was less than or equal to 0`
-            );
-            return;
-          }
-          let makerTxn = {
-            recipientAddress: makerAddress,
-            amount: makerAmount.toString(),
-            fee: makerChainOptions.exchangeFeeBase.toString(),
-            timestamp: latestBlockTimestamp,
-            height: latestChainHeights[makerOrder.targetChain]
-          };
-          let protocolMessage = this._computeProtocolMessage(
-            makerOrder.targetChain,
-            't2',
-            [makerOrder.sourceChain, makerOrder.id, result.taker.id],
-            'Order made'
-          );
-          try {
-            await this.execMultisigTransaction(
-              makerOrder.targetChain,
-              makerTxn,
-              protocolMessage,
-              {type: 't2', originOrderId: makerOrder.id, makerOrderId: makerOrder.id, takerOrderId: result.taker.id}
-            );
-          } catch (error) {
-            this.logger.error(
-              `Chain ${chainSymbol}: Failed to post multisig transaction of maker ${makerAddress} on chain ${makerOrder.targetChain} because of error: ${error.message}`
-            );
-          }
-        });
       });
 
       this.processedHeights = {...latestChainHeights};
