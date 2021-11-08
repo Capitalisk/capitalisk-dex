@@ -283,7 +283,7 @@ module.exports = class LiskDEXModule {
     return {
       author: 'Jonathan Gros-Dubois',
       version: packageJSON.version,
-      name: DEFAULT_MODULE_ALIAS,
+      name: DEFAULT_MODULE_ALIAS
     };
   }
 
@@ -436,7 +436,7 @@ module.exports = class LiskDEXModule {
 
   get events() {
     return [
-      'bootstrap',
+      'bootstrap'
     ];
   }
 
