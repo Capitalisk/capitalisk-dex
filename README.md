@@ -74,6 +74,11 @@ These status codes and messages appear in transactions created by the DEX (as pa
 - For trades and refunds, only the first part of message is mandatory, the part which begins with the column character is optional depending on the market implementation.
 - If one of the blockchains involved in a market does not provide sufficient space in a transaction to store a full protocol message, order IDs and wallet addresses may be trimmed down to fit within the available space.
 
+### Scope
+
+This project is intended to be simple. Fewer lines of code and fewer dependencies means more security.
+If additional features want to be added beyond the current feature set (e.g. such as loans, NFTs, liquidity pools and alternative matching engines), this project should be forked into a separate project 'distro'.
+
 ### Sponsors
 
 Special thanks to [carolina](https://explorer.lisk.io/address/18069265829053472143L) delegate for being an early sponsor of this project.
