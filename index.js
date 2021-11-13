@@ -91,6 +91,7 @@ module.exports = class LiskDEXModule {
     this.multisigWalletInfo = {};
     this.isForked = false;
     this.lastSnapshot = null;
+    this.finalizedSnapshot = null;
     this.pendingTransfers = new Map();
     this.chainSymbols.forEach((chainSymbol) => {
       this.multisigWalletInfo[chainSymbol] = {
@@ -1980,8 +1981,8 @@ module.exports = class LiskDEXModule {
         }
         isInForkRecovery = false;
         this.pendingTransfers.clear();
-        lastProcessedTimestamp = await this.revertToLastSnapshot();
-        
+        lastProcessedTimestamp = await this.revertToSafeSnapshot();
+
         await Promise.all(
           this.chainSymbols.map(async (chainSymbol) => {
             let chainCrypto = this.chainCrypto[chainSymbol];
@@ -2627,7 +2628,10 @@ module.exports = class LiskDEXModule {
     return this._getBaseChainBlockTimestamp(baseChainHeight);
   }
 
-  async revertToLastSnapshot() {
+  async revertToSafeSnapshot() {
+    if (this.finalizedSnapshot) {
+      this.lastSnapshot = this.finalizedSnapshot;
+    }
     if (!this.lastSnapshot) {
       this.tradeEngine.clear();
       return;
@@ -2641,6 +2645,7 @@ module.exports = class LiskDEXModule {
     if (filePath == null) {
       filePath = this.options.orderBookSnapshotFilePath;
     }
+    this.finalizedSnapshot = snapshot;
     let baseChainHeight = snapshot.chainHeights[this.baseChainSymbol];
     let serializedSnapshot = JSON.stringify(snapshot);
     await writeFile(filePath, serializedSnapshot);
