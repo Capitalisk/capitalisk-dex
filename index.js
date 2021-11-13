@@ -1059,9 +1059,30 @@ module.exports = class LiskDEXModule {
   async load(channel) {
     this.channel = channel;
 
+    try {
+      await mkdir(this.options.orderBookSnapshotBackupDirPath, {recursive: true});
+    } catch (error) {
+      this.logger.error(
+        `Failed to create snapshot directory ${
+          this.options.orderBookSnapshotBackupDirPath
+        } because of error: ${
+          error.message
+        }`
+      );
+    }
+
+    let lastProcessedTimestamp = null;
+    try {
+      lastProcessedTimestamp = await this.loadSnapshot();
+    } catch (error) {
+      this.logger.error(
+        `Failed to load initial snapshot because of error: ${error.message} - DEX node will start with an empty order book`
+      );
+    }
+
     await Promise.all(
       this.chainSymbols.map(async (chainSymbol) => {
-        return this.chainCrypto[chainSymbol].load(channel);
+        return this.chainCrypto[chainSymbol].load(channel, lastProcessedTimestamp);
       })
     );
 
@@ -1110,18 +1131,6 @@ module.exports = class LiskDEXModule {
       );
     });
 
-    try {
-      await mkdir(this.options.orderBookSnapshotBackupDirPath, {recursive: true});
-    } catch (error) {
-      this.logger.error(
-        `Failed to create snapshot directory ${
-          this.options.orderBookSnapshotBackupDirPath
-        } because of error: ${
-          error.message
-        }`
-      );
-    }
-
     let loadMultisigWalletInfo = async () => {
       return Promise.all(
         this.chainSymbols.map(async (chainSymbol) => {
@@ -1134,15 +1143,6 @@ module.exports = class LiskDEXModule {
         })
       );
     };
-
-    let lastProcessedTimestamp = null;
-    try {
-      lastProcessedTimestamp = await this.loadSnapshot();
-    } catch (error) {
-      this.logger.error(
-        `Failed to load initial snapshot because of error: ${error.message} - DEX node will start with an empty order book`
-      );
-    }
 
     let isTargetAddressValid = (targetChainSymbol, targetWalletAddress) => {
       if (!targetWalletAddress) {
@@ -1981,6 +1981,15 @@ module.exports = class LiskDEXModule {
         isInForkRecovery = false;
         this.pendingTransfers.clear();
         lastProcessedTimestamp = await this.revertToLastSnapshot();
+        
+        await Promise.all(
+          this.chainSymbols.map(async (chainSymbol) => {
+            let chainCrypto = this.chainCrypto[chainSymbol];
+            if (chainCrypto.reset) {
+              await chainCrypto.reset(lastProcessedTimestamp);
+            }
+          })
+        );
       }
       let orderedChainSymbols = [
         this.baseChainSymbol,
