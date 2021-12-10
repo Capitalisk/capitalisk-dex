@@ -246,7 +246,7 @@ module.exports = class LiskDEXModule {
         );
       }
 
-      let ChainCryptoClass = require(chainOptions.chainCryptoLibPath);
+      let ChainCryptoClass = require(path.resolve(chainOptions.chainCryptoLibPath));
 
       this.chainCrypto[chainSymbol] = new ChainCryptoClass({
         chainSymbol,
@@ -256,7 +256,7 @@ module.exports = class LiskDEXModule {
     });
 
     if (this.options.dividendLibPath) {
-      this.computeDividends = require(this.options.dividendLibPath);
+      this.computeDividends = require(path.resolve(this.options.dividendLibPath));
     } else {
       this.computeDividends = async ({chainSymbol, contributionData, chainOptions, memberCount}) => {
         return Object.keys(contributionData).map((walletAddress) => {
@@ -269,6 +269,9 @@ module.exports = class LiskDEXModule {
         });
       };
     }
+    this.orderBookSnapshotBackupDirPath = path.resolve(this.options.orderBookSnapshotBackupDirPath);
+    this.orderBookUpdateSnapshotDirPath = path.resolve(this.options.orderBookUpdateSnapshotDirPath);
+    this.orderBookSnapshotFilePath = path.resolve(this.options.orderBookSnapshotFilePath);
   }
 
   get dependencies() {
@@ -1061,11 +1064,11 @@ module.exports = class LiskDEXModule {
     this.channel = channel;
 
     try {
-      await mkdir(this.options.orderBookSnapshotBackupDirPath, {recursive: true});
+      await mkdir(this.orderBookSnapshotBackupDirPath, {recursive: true});
     } catch (error) {
       this.logger.error(
         `Failed to create snapshot directory ${
-          this.options.orderBookSnapshotBackupDirPath
+          this.orderBookSnapshotBackupDirPath
         } because of error: ${
           error.message
         }`
@@ -1236,7 +1239,7 @@ module.exports = class LiskDEXModule {
             let updateSnapshotFilePath = this._getUpdateSnapshotFilePath(update.id);
             let error;
             try {
-              await mkdir(this.options.orderBookUpdateSnapshotDirPath, {recursive: true});
+              await mkdir(this.orderBookUpdateSnapshotDirPath, {recursive: true});
               await this.saveSnapshot(snapshot, updateSnapshotFilePath);
             } catch (err) {
               error = err;
@@ -2588,12 +2591,12 @@ module.exports = class LiskDEXModule {
   }
 
   _getUpdateSnapshotFilePath(updateId) {
-    return path.join(this.options.orderBookUpdateSnapshotDirPath, `snapshot-${updateId}.json`);
+    return path.join(this.orderBookUpdateSnapshotDirPath, `snapshot-${updateId}.json`);
   }
 
   async loadSnapshot() {
     let serializedSafeSnapshot = await readFile(
-      this.options.orderBookSnapshotFilePath,
+      this.orderBookSnapshotFilePath,
       {encoding: 'utf8'}
     );
     let safeSnapshot = JSON.parse(serializedSafeSnapshot);
@@ -2643,7 +2646,7 @@ module.exports = class LiskDEXModule {
 
   async saveSnapshot(snapshot, filePath) {
     if (filePath == null) {
-      filePath = this.options.orderBookSnapshotFilePath;
+      filePath = this.orderBookSnapshotFilePath;
     }
     this.finalizedSnapshot = snapshot;
     let baseChainHeight = snapshot.chainHeights[this.baseChainSymbol];
@@ -2653,12 +2656,12 @@ module.exports = class LiskDEXModule {
     try {
       await writeFile(
         path.join(
-          this.options.orderBookSnapshotBackupDirPath,
+          this.orderBookSnapshotBackupDirPath,
           `snapshot-${baseChainHeight}.json`
         ),
         serializedSnapshot
       );
-      let allSnapshots = await readdir(this.options.orderBookSnapshotBackupDirPath);
+      let allSnapshots = await readdir(this.orderBookSnapshotBackupDirPath);
       let heightRegex = /[0-9]+/g;
       allSnapshots.sort((a, b) => {
         let snapshotHeightA = parseInt(a.match(heightRegex)[0] || 0);
@@ -2675,14 +2678,14 @@ module.exports = class LiskDEXModule {
       await Promise.all(
         snapshotsToDelete.map(async (fileName) => {
           await unlink(
-            path.join(this.options.orderBookSnapshotBackupDirPath, fileName)
+            path.join(this.orderBookSnapshotBackupDirPath, fileName)
           );
         })
       );
     } catch (error) {
       this.logger.error(
         `Failed to backup snapshot in directory ${
-          this.options.orderBookSnapshotBackupDirPath
+          this.orderBookSnapshotBackupDirPath
         } because of error: ${
           error.message
         }`
