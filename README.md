@@ -82,3 +82,8 @@ If additional features want to be added beyond the current feature set (e.g. suc
 ### Sponsors
 
 Special thanks to [carolina](https://explorer.lisk.io/address/18069265829053472143L) delegate for being an early sponsor of this project.
+
+### License
+
+The license is `GPL-3.0` with one additional condition:
+Misrepresenting the origin of this code or code derived from it is not permitted.
