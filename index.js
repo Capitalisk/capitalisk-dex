@@ -2097,6 +2097,15 @@ module.exports = class LiskDEXModule {
         return 0;
       }
 
+      if (!this._isBlockSequenceValid(baseChainBlocks)) {
+        this.logger.error(`The sequence of blocks provided by the ${this.baseChainSymbol} chain was invalid`);
+        return 0;
+      }
+      if (!this._isBlockSequenceValid(quoteChainBlocks)) {
+        this.logger.error(`The sequence of blocks provided by the ${this.quoteChainSymbol} chain was invalid`);
+        return 0;
+      }
+
       let lastBaseChainBlock = baseChainBlocks[baseChainBlocks.length - 1];
       let lastQuoteChainBlock = quoteChainBlocks[quoteChainBlocks.length - 1];
 
@@ -2252,6 +2261,17 @@ module.exports = class LiskDEXModule {
       }
     });
     channel.publish(`${this.alias}:bootstrap`);
+  }
+
+  _isBlockSequenceValid(blockList) {
+    let previousHeight = null;
+    for (let block of blockList) {
+      if (previousHeight != null && block.height - previousHeight !== 1) {
+        return false;
+      }
+      previousHeight = block.height;
+    }
+    return true;
   }
 
   _computeContributions(chainSymbol, transaction, exchangeFeeRate) {
