@@ -272,6 +272,8 @@ module.exports = class LiskDEXModule {
     this.orderBookSnapshotBackupDirPath = path.resolve(this.options.orderBookSnapshotBackupDirPath);
     this.orderBookUpdateSnapshotDirPath = path.resolve(this.options.orderBookUpdateSnapshotDirPath);
     this.orderBookSnapshotFilePath = path.resolve(this.options.orderBookSnapshotFilePath);
+    this.latestBasePriceTimestamp = null;
+    this.latestQuotePriceTimestamp = null;
   }
 
   get dependencies() {
@@ -889,7 +891,7 @@ module.exports = class LiskDEXModule {
     return header.split(',')[0] === 't2';
   }
 
-  async _getRecentPrices(fromBaseTimestamp, fromQuoteTimestamp) {
+  async _getRecentPrices() {
     let tradeHistorySize = this.options.tradeHistorySize;
     if (!tradeHistorySize) {
       return [];
@@ -901,18 +903,19 @@ module.exports = class LiskDEXModule {
     let baseChainReadMaxTransactions = baseChainOptions.readMaxTransactions == null ? tradeHistorySize : baseChainOptions.readMaxTransactions;
     let quoteChainReadMaxTransactions = quoteChainOptions.readMaxTransactions == null ? tradeHistorySize : quoteChainOptions.readMaxTransactions;
 
-    if (fromBaseTimestamp == null) {
-      fromBaseTimestamp = this.options.tradeHistoryStartTimestamp == null ? 0 :
+    let historyStartTimestamp = this.options.tradeHistoryStartTimestamp == null ? 0 : this.options.tradeHistoryStartTimestamp;
+    if (this.latestBasePriceTimestamp == null) {
+      this.latestBasePriceTimestamp = this.options.tradeHistoryStartTimestamp == null ? 0 :
         this._denormalizeTimestamp(this.baseChainSymbol, this.options.tradeHistoryStartTimestamp);
     }
-    if (fromQuoteTimestamp == null) {
-      fromQuoteTimestamp = this.options.tradeHistoryStartTimestamp == null ? 0 :
+    if (this.latestQuotePriceTimestamp == null) {
+      this.latestQuotePriceTimestamp = this.options.tradeHistoryStartTimestamp == null ? 0 :
         this._denormalizeTimestamp(this.quoteChainSymbol, this.options.tradeHistoryStartTimestamp);
     }
 
     let [baseChainTxns, quoteChainTxns] = await Promise.all([
-      this._getOutboundTransactions(this.baseChainSymbol, this.baseAddress, fromBaseTimestamp, baseChainReadMaxTransactions),
-      this._getOutboundTransactions(this.quoteChainSymbol, this.quoteAddress, fromQuoteTimestamp, quoteChainReadMaxTransactions)
+      this._getOutboundTransactions(this.baseChainSymbol, this.baseAddress, this.latestBasePriceTimestamp, baseChainReadMaxTransactions),
+      this._getOutboundTransactions(this.quoteChainSymbol, this.quoteAddress, this.latestQuotePriceTimestamp, quoteChainReadMaxTransactions)
     ]);
 
     let quoteChainMakers = {};
@@ -1012,14 +1015,22 @@ module.exports = class LiskDEXModule {
       });
     }
 
+    if (baseChainTxns.length) {
+      let lastBaseChainTxn = baseChainTxns[baseChainTxns.length - 1];
+      this.latestBasePriceTimestamp = lastBaseChainTxn.timestamp;
+    }
+    if (quoteChainTxns.length) {
+      let lastQuoteChainTxn = quoteChainTxns[quoteChainTxns.length - 1];
+      this.latestQuotePriceTimestamp = lastQuoteChainTxn.timestamp;
+    }
+
     return priceHistory;
   }
 
   async updateTradeHistory() {
-    let latestPriceItem = this.recentPricesSkipList.maxValue() || {};
     let recentPriceList;
     try {
-      recentPriceList = await this._getRecentPrices(latestPriceItem.baseTimestamp, latestPriceItem.quoteTimestamp);
+      recentPriceList = await this._getRecentPrices();
     } catch (error) {
       this.logger.error(
         `Failed to fetch recent trade history because of error: ${
