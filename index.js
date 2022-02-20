@@ -2105,6 +2105,13 @@ module.exports = class LiskDEXModule {
       );
 
       if (!baseChainBlocks.length || !quoteChainBlocks.length) {
+        this.logger.debug(
+          `One or more chains had no new blocks - Base chain count: ${
+            baseChainBlocks.length
+          }, quote chain count: ${
+            quoteChainBlocks.length
+          }`
+        );
         return 0;
       }
 
