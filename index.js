@@ -2115,11 +2115,11 @@ module.exports = class LiskDEXModule {
         return 0;
       }
 
-      if (!this._isBlockSequenceValid(baseChainBlocks)) {
+      if (!this._isBlockSequenceValid(baseChainBlocks, baseChainLastProcessedHeight)) {
         this.logger.error(`The sequence of blocks provided by the ${this.baseChainSymbol} chain was invalid`);
         return 0;
       }
-      if (!this._isBlockSequenceValid(quoteChainBlocks)) {
+      if (!this._isBlockSequenceValid(quoteChainBlocks, quoteChainLastProcessedHeight)) {
         this.logger.error(`The sequence of blocks provided by the ${this.quoteChainSymbol} chain was invalid`);
         return 0;
       }
@@ -2281,8 +2281,8 @@ module.exports = class LiskDEXModule {
     channel.publish(`${this.alias}:bootstrap`);
   }
 
-  _isBlockSequenceValid(blockList) {
-    let previousHeight = null;
+  _isBlockSequenceValid(blockList, lastProcessedHeight) {
+    let previousHeight = lastProcessedHeight;
     for (let block of blockList) {
       if (previousHeight != null && block.height - previousHeight !== 1) {
         return false;
