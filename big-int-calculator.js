@@ -9,14 +9,14 @@ class BigIntCalculator {
   }
 
   multiplyBigIntByDecimal(bigIntValue, decimalValue) {
-    return bigIntValue * BigInt(Math.floor(decimalValue * this.decimalPrecisionFactor)) / BigInt(this.decimalPrecisionFactor);
+    return bigIntValue * BigInt(Math.round(decimalValue * this.decimalPrecisionFactor)) / BigInt(this.decimalPrecisionFactor);
   }
 
   divideBigIntByDecimal(bigIntValue, decimalValue) {
     if (decimalValue === 0) {
       return NaN;
     }
-    return bigIntValue * BigInt(this.decimalPrecisionFactor) / BigInt(Math.floor(decimalValue * this.decimalPrecisionFactor));
+    return bigIntValue * BigInt(this.decimalPrecisionFactor) / BigInt(Math.round(decimalValue * this.decimalPrecisionFactor));
   }
 
   divideBigIntByBigInt(bigIntValueA, bigIntValueB) {

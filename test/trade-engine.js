@@ -425,7 +425,7 @@ describe('TradeEngine unit tests', async () => {
       });
 
       assert.notEqual(result.makers[0], null);
-      assert.equal(Math.floor(Number(result.makers[0].lastSizeTaken)), 24110);
+      assert.equal(Math.round(Number(result.makers[0].lastSizeTaken)), 24110);
     });
 
     it('Market bid order', async () => {
