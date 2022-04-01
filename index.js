@@ -274,6 +274,8 @@ module.exports = class LiskDEXModule {
     this.orderBookSnapshotFilePath = path.resolve(this.options.orderBookSnapshotFilePath);
     this.latestBasePriceTimestamp = null;
     this.latestQuotePriceTimestamp = null;
+    this.unprocessedBaseTransactions = [];
+    this.unprocessedQuoteTransactions = [];
   }
 
   get dependencies() {
@@ -913,10 +915,13 @@ module.exports = class LiskDEXModule {
         this._denormalizeTimestamp(this.quoteChainSymbol, this.options.tradeHistoryStartTimestamp);
     }
 
-    let [baseChainTxns, quoteChainTxns] = await Promise.all([
+    let [baseChainTxnList, quoteChainTxnlist] = await Promise.all([
       this._getOutboundTransactions(this.baseChainSymbol, this.baseAddress, this.latestBasePriceTimestamp, baseChainReadMaxTransactions),
       this._getOutboundTransactions(this.quoteChainSymbol, this.quoteAddress, this.latestQuotePriceTimestamp, quoteChainReadMaxTransactions)
     ]);
+
+    let baseChainTxns = [...this.unprocessedBaseTransactions, ...baseChainTxnList];
+    let quoteChainTxns = [...this.unprocessedQuoteTransactions, ...quoteChainTxnlist];
 
     let quoteChainMakers = {};
     let quoteChainTakers = {};
@@ -982,6 +987,12 @@ module.exports = class LiskDEXModule {
       return txnPair.base.length >= expectedBaseCount && txnPair.quote.length >= expectedQuoteCount;
     });
 
+    let lastBaseTimestamp;
+    let lastQuoteTimestamp;
+
+    let processedBaseTxnIdSet = new Set();
+    let processedQuoteTxnIdSet = new Set();
+
     for (let txnPair of txnPairsList) {
       let baseChainFeeBase = this.chainExchangeFeeBases[this.baseChainSymbol];
       let baseChainFeeRate = baseChainOptions.exchangeFeeRate;
@@ -1007,13 +1018,33 @@ module.exports = class LiskDEXModule {
 
       let price = this.bigIntPriceCalculator.divideBigIntByBigInt(fullBaseAmount, fullQuoteAmount);
 
+      lastBaseTimestamp = txnPair.base[txnPair.base.length - 1].timestamp;
+      lastQuoteTimestamp = txnPair.quote[txnPair.quote.length - 1].timestamp;
+
+      for (let txn of txnPair.base) {
+        processedBaseTxnIdSet.add(txn.id);
+      }
+      for (let txn of txnPair.quote) {
+        processedQuoteTxnIdSet.add(txn.id);
+      }
+
       priceHistory.push({
-        baseTimestamp: txnPair.base[txnPair.base.length - 1].timestamp,
-        quoteTimestamp: txnPair.quote[txnPair.quote.length - 1].timestamp,
+        baseTimestamp: lastBaseTimestamp,
+        quoteTimestamp: lastQuoteTimestamp,
         price,
         volume: fullBaseAmount
       });
     }
+
+    this.unprocessedBaseTransactions = baseChainTxns.filter((txn) => {
+      let isTrade = this._isMakerTransaction(txn) || this._isTakerTransaction(txn);
+      return isTrade && txn.timestamp >= lastBaseTimestamp && !processedBaseTxnIdSet.has(txn.id);
+    });
+
+    this.unprocessedQuoteTransactions = quoteChainTxns.filter((txn) => {
+      let isTrade = this._isMakerTransaction(txn) || this._isTakerTransaction(txn);
+      return isTrade && txn.timestamp >= lastQuoteTimestamp && !processedQuoteTxnIdSet.has(txn.id);
+    });
 
     if (baseChainTxns.length) {
       let lastBaseChainTxn = baseChainTxns[baseChainTxns.length - 1];
