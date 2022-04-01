@@ -920,8 +920,23 @@ module.exports = class LiskDEXModule {
       this._getOutboundTransactions(this.quoteChainSymbol, this.quoteAddress, this.latestQuotePriceTimestamp, quoteChainReadMaxTransactions)
     ]);
 
-    let baseChainTxns = [...this.unprocessedBaseTransactions, ...baseChainTxnList];
-    let quoteChainTxns = [...this.unprocessedQuoteTransactions, ...quoteChainTxnlist];
+    let baseChainTxns = [...this.unprocessedBaseTransactions];
+    let quoteChainTxns = [...this.unprocessedQuoteTransactions];
+
+    let unprocessedBaseTransactionIdSet = new Set(baseChainTxns.map(txn => txn.id));
+    let unprocessedQuoteTransactionIdSet = new Set(quoteChainTxns.map(txn => txn.id));
+
+    for (let baseTxn of baseChainTxnList) {
+      if (!unprocessedBaseTransactionIdSet.has(baseTxn.id)) {
+        baseChainTxns.push(baseTxn);
+      }
+    }
+
+    for (let quoteTxn of quoteChainTxnlist) {
+      if (!unprocessedQuoteTransactionIdSet.has(quoteTxn.id)) {
+        quoteChainTxns.push(quoteTxn);
+      }
+    }
 
     let quoteChainMakers = {};
     let quoteChainTakers = {};
@@ -987,11 +1002,11 @@ module.exports = class LiskDEXModule {
       return txnPair.base.length >= expectedBaseCount && txnPair.quote.length >= expectedQuoteCount;
     });
 
-    let lastBaseTimestamp;
-    let lastQuoteTimestamp;
-
     let processedBaseTxnIdSet = new Set();
     let processedQuoteTxnIdSet = new Set();
+
+    let lastBaseEntryTimestamp = 0;
+    let lastQuoteEntryTimestamp = 0;
 
     for (let txnPair of txnPairsList) {
       let baseChainFeeBase = this.chainExchangeFeeBases[this.baseChainSymbol];
@@ -1018,9 +1033,6 @@ module.exports = class LiskDEXModule {
 
       let price = this.bigIntPriceCalculator.divideBigIntByBigInt(fullBaseAmount, fullQuoteAmount);
 
-      lastBaseTimestamp = txnPair.base[txnPair.base.length - 1].timestamp;
-      lastQuoteTimestamp = txnPair.quote[txnPair.quote.length - 1].timestamp;
-
       for (let txn of txnPair.base) {
         processedBaseTxnIdSet.add(txn.id);
       }
@@ -1028,23 +1040,16 @@ module.exports = class LiskDEXModule {
         processedQuoteTxnIdSet.add(txn.id);
       }
 
+      lastBaseEntryTimestamp = txnPair.base[txnPair.base.length - 1].timestamp;
+      lastQuoteEntryTimestamp = txnPair.quote[txnPair.quote.length - 1].timestamp;
+
       priceHistory.push({
-        baseTimestamp: lastBaseTimestamp,
-        quoteTimestamp: lastQuoteTimestamp,
+        baseTimestamp: lastBaseEntryTimestamp,
+        quoteTimestamp: lastQuoteEntryTimestamp,
         price,
         volume: fullBaseAmount
       });
     }
-
-    this.unprocessedBaseTransactions = baseChainTxns.filter((txn) => {
-      let isTrade = this._isMakerTransaction(txn) || this._isTakerTransaction(txn);
-      return isTrade && txn.timestamp >= lastBaseTimestamp && !processedBaseTxnIdSet.has(txn.id);
-    });
-
-    this.unprocessedQuoteTransactions = quoteChainTxns.filter((txn) => {
-      let isTrade = this._isMakerTransaction(txn) || this._isTakerTransaction(txn);
-      return isTrade && txn.timestamp >= lastQuoteTimestamp && !processedQuoteTxnIdSet.has(txn.id);
-    });
 
     if (baseChainTxns.length) {
       let lastBaseChainTxn = baseChainTxns[baseChainTxns.length - 1];
@@ -1054,6 +1059,19 @@ module.exports = class LiskDEXModule {
       let lastQuoteChainTxn = quoteChainTxns[quoteChainTxns.length - 1];
       this.latestQuotePriceTimestamp = lastQuoteChainTxn.timestamp;
     }
+
+    let unprocessedBaseExpiry = this._normalizeTimestamp(this.baseChainSymbol, lastBaseEntryTimestamp) - this.options.tradeHistoryUnprocessedTransactionExpiry;
+    let unprocessedQuoteExpiry = this._normalizeTimestamp(this.quoteChainSymbol, lastQuoteEntryTimestamp) - this.options.tradeHistoryUnprocessedTransactionExpiry;
+
+    this.unprocessedBaseTransactions = baseChainTxns.filter((txn) => {
+      let isTrade = this._isMakerTransaction(txn) || this._isTakerTransaction(txn);
+      return isTrade && !processedBaseTxnIdSet.has(txn.id) && this._normalizeTimestamp(this.baseChainSymbol, txn.timestamp) > unprocessedBaseExpiry;
+    });
+
+    this.unprocessedQuoteTransactions = quoteChainTxns.filter((txn) => {
+      let isTrade = this._isMakerTransaction(txn) || this._isTakerTransaction(txn);
+      return isTrade && !processedQuoteTxnIdSet.has(txn.id) && this._normalizeTimestamp(this.quoteChainSymbol, txn.timestamp) > unprocessedQuoteExpiry;
+    });
 
     return priceHistory;
   }
