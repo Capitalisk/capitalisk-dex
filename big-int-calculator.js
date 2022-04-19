@@ -23,7 +23,7 @@ class BigIntCalculator {
     if (bigIntValueB === 0n) {
       return NaN;
     }
-    return Number(bigIntValueA * BigInt(this.decimalPrecisionFactor) / bigIntValueB) / this.decimalPrecisionFactor;
+    return Math.round(Number(bigIntValueA * BigInt(this.decimalPrecisionFactor * 10) / bigIntValueB) / 10) / this.decimalPrecisionFactor;
   }
 }
 
