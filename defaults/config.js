@@ -23,7 +23,7 @@ module.exports = {
   tradeHistorySize: 10000,
   tradeHistoryUpdateInterval: 10000,
   tradeHistoryUnprocessedTransactionExpiry: 600000,
-  readBlocksInterval: 3000,
+  readBlocksInterval: 10000,
   // The base chain height at which to enable the DEX.
   dexEnabledFromHeight: 0,
   // Can be used to disable the DEX starting at a specific base chain height.
