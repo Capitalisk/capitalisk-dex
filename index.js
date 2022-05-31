@@ -843,7 +843,7 @@ module.exports = class LiskDEXModule {
             transaction
           });
         } catch (error) {
-          this.logger.error(
+          this.logger.warn(
             `Error encountered while attempting to post transaction ${
               transaction.id
             } to the ${targetChain} network - ${error.message}`
