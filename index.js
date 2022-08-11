@@ -1510,7 +1510,7 @@ module.exports = class LiskDEXModule {
             orderTxn.type = 'invalid';
             orderTxn.reason = 'Too small to convert';
             this.logger.debug(
-              `Chain ${chainSymbol}: Incoming limit order ${orderTxn.id} was too small to cover base blockchain fees`
+              `Chain ${chainSymbol}: Incoming limit order ${orderTxn.id} was too small to cover fees`
             );
             return orderTxn;
           }
@@ -1541,7 +1541,7 @@ module.exports = class LiskDEXModule {
             orderTxn.type = 'invalid';
             orderTxn.reason = 'Too small to convert';
             this.logger.debug(
-              `Chain ${chainSymbol}: Incoming market order ${orderTxn.id} was too small to cover base blockchain fees`
+              `Chain ${chainSymbol}: Incoming market order ${orderTxn.id} was too small to cover fees`
             );
             return orderTxn;
           }
@@ -2374,25 +2374,33 @@ module.exports = class LiskDEXModule {
   _isLimitOrderTooSmallToConvert(chainSymbol, amount, price) {
     if (chainSymbol === this.baseChainSymbol) {
       let quoteChainValue = this.bigIntPriceCalculator.divideBigIntByDecimal(amount, price);
-      let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
-      return quoteChainValue <= this.chainExchangeFeeBases[this.quoteChainSymbol];
+      return (
+        quoteChainValue <= this.chainExchangeFeeBases[this.quoteChainSymbol] ||
+        quoteChainValue < this.tradeEngine.quoteMinPartialTake
+      );
     }
     let baseChainValue = this.bigIntPriceCalculator.multiplyBigIntByDecimal(amount, price);
-    let baseChainOptions = this.options.chains[this.baseChainSymbol];
-    return baseChainValue <= this.chainExchangeFeeBases[this.baseChainSymbol];
+    return (
+      baseChainValue <= this.chainExchangeFeeBases[this.baseChainSymbol] ||
+      baseChainValue < this.tradeEngine.baseMinPartialTake
+    );
   }
 
   _isMarketOrderTooSmallToConvert(chainSymbol, amount) {
     if (chainSymbol === this.baseChainSymbol) {
       let { price: quoteChainPrice } = this.tradeEngine.peekAsks() || {};
       let quoteChainValue = this.bigIntPriceCalculator.divideBigIntByDecimal(amount, quoteChainPrice);
-      let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
-      return quoteChainValue <= this.chainExchangeFeeBases[this.quoteChainSymbol];
+      return (
+        quoteChainValue <= this.chainExchangeFeeBases[this.quoteChainSymbol] ||
+        quoteChainValue < this.tradeEngine.quoteMinPartialTake
+      );
     }
     let { price: baseChainPrice } = this.tradeEngine.peekBids() || {};
     let baseChainValue = this.bigIntPriceCalculator.multiplyBigIntByDecimal(amount, baseChainPrice);
-    let baseChainOptions = this.options.chains[this.baseChainSymbol];
-    return baseChainValue <= this.chainExchangeFeeBases[this.baseChainSymbol];
+    return (
+      baseChainValue <= this.chainExchangeFeeBases[this.baseChainSymbol] ||
+      baseChainValue < this.tradeEngine.baseMinPartialTake
+    );
   }
 
   _sha1(string) {
