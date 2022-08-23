@@ -16,10 +16,10 @@ const BigIntCalculator = require('./big-int-calculator');
 const { mapListFields } = require('./utils');
 const packageJSON = require('./package.json');
 
-const DEFAULT_MODULE_ALIAS = 'lisk_dex';
-const { LISK_DEX_PASSWORD } = process.env;
+const DEFAULT_MODULE_ALIAS = 'capitalisk_dex';
+const { CAPITALISK_DEX_PASSWORD } = process.env;
 const CIPHER_ALGORITHM = 'aes-192-cbc';
-const CIPHER_KEY = LISK_DEX_PASSWORD ? crypto.scryptSync(LISK_DEX_PASSWORD, 'salt', 24) : undefined;
+const CIPHER_KEY = CAPITALISK_DEX_PASSWORD ? crypto.scryptSync(CAPITALISK_DEX_PASSWORD, 'salt', 24) : undefined;
 const CIPHER_IV = Buffer.alloc(16, 0);
 const DEFAULT_MULTISIG_READY_DELAY = 5000;
 const DEFAULT_PROTOCOL_EXCLUDE_REASON = false;
@@ -28,12 +28,9 @@ const DEFAULT_PRICE_DECIMAL_PRECISION = 4;
 const DEFAULT_OUTBOUND_TRANSACTION_BLOCK_CACHE_SIZE = 62000;
 
 /**
- * Lisk DEX module specification
- *
- * @namespace Framework.Modules
- * @type {module.LiskDEXModule}
+ * Capitalisk DEX module specification
  */
-module.exports = class LiskDEXModule {
+module.exports = class CapitaliskDEXModule {
   constructor({alias, config, updates, appConfig, logger, updater}) {
     this.options = {...defaultConfig, ...config};
     this.appConfig = appConfig;
@@ -168,13 +165,13 @@ module.exports = class LiskDEXModule {
       this.chainExchangeFeeBases[chainSymbol] = BigInt(chainOptions.exchangeFeeBase);
 
       if (chainOptions.encryptedPassphrase) {
-        if (!LISK_DEX_PASSWORD) {
+        if (!CAPITALISK_DEX_PASSWORD) {
           throw new Error(
             `Cannot decrypt the encryptedPassphrase from the ${
               this.alias
             } module config for the ${
               chainSymbol
-            } chain without a valid LISK_DEX_PASSWORD environment variable`
+            } chain without a valid CAPITALISK_DEX_PASSWORD environment variable`
           );
         }
         if (chainOptions.passphrase) {
@@ -197,18 +194,18 @@ module.exports = class LiskDEXModule {
               this.alias
             } config for chain ${
               chainSymbol
-            } - Check that the LISK_DEX_PASSWORD environment variable is correct`
+            } - Check that the CAPITALISK_DEX_PASSWORD environment variable is correct`
           );
         }
       }
       if (chainOptions.encryptedSharedPassphrase) {
-        if (!LISK_DEX_PASSWORD) {
+        if (!CAPITALISK_DEX_PASSWORD) {
           throw new Error(
             `Cannot decrypt the encryptedSharedPassphrase from the ${
               this.alias
             } config for the ${
               chainSymbol
-            } chain without a valid LISK_DEX_PASSWORD environment variable`
+            } chain without a valid CAPITALISK_DEX_PASSWORD environment variable`
           );
         }
         if (chainOptions.sharedPassphrase) {
@@ -231,7 +228,7 @@ module.exports = class LiskDEXModule {
               this.alias
             } config for chain ${
               chainSymbol
-            } - Check that the LISK_DEX_PASSWORD environment variable is correct`
+            } - Check that the CAPITALISK_DEX_PASSWORD environment variable is correct`
           );
         }
       }
@@ -453,7 +450,7 @@ module.exports = class LiskDEXModule {
       getStatus: {
         handler: () => {
           return {
-            version: LiskDEXModule.info.version,
+            version: CapitaliskDEXModule.info.version,
             orderBookHash: this.tradeEngine.orderBookHash,
             processedHeights: this.processedHeights,
             baseChain: this.options.baseChain,

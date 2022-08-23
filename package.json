@@ -1,5 +1,5 @@
 {
-  "name": "lisk-dex",
+  "name": "capitalisk-dex",
   "version": "17.0.0",
   "description": "Decentralized exchange module.",
   "main": "index.js",
@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Capitalisk/lisk-dex.git"
+    "url": "git+https://github.com/Capitalisk/capitalisk-dex.git"
   },
   "keywords": [
     "dex",
@@ -26,7 +26,7 @@
     "mocha": "^7.2.0"
   },
   "bugs": {
-    "url": "https://github.com/Capitalisk/lisk-dex/issues"
+    "url": "https://github.com/Capitalisk/capitalisk-dex/issues"
   },
-  "homepage": "https://github.com/Capitalisk/lisk-dex#readme"
+  "homepage": "https://github.com/Capitalisk/capitalisk-dex#readme"
 }

@@ -1,5 +1,5 @@
-# lisk-dex
-Decentralized exchange module for the Lisk network. Note that lisk-dex is a community project and is not affiliated with Lightcurve or Lisk Foundation.
+# capitalisk-dex
+Decentralized exchange module for the Capitalisk network.
 
 ## DEX protocol
 
@@ -81,7 +81,7 @@ If additional features want to be added beyond the current feature set (e.g. suc
 
 ### Sponsors
 
-Special thanks to [carolina](https://explorer.lisk.io/address/18069265829053472143L) delegate for being an early sponsor of this project.
+Special thanks to Carolina delegate for being an early sponsor of this project.
 
 ## License
 
