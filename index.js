@@ -135,13 +135,16 @@ module.exports = class CapitaliskDEXModule {
       [this.baseChainSymbol]: 0,
       [this.quoteChainSymbol]: 0
     };
+    this.lastProcessedBlocks = {
+      [this.baseChainSymbol]: null,
+      [this.quoteChainSymbol]: null
+    };
 
     this.chainCrypto = {};
     this.recentPricesSkipList = new ProperSkipList();
     this.recentTransfersSkipList = new ProperSkipList();
 
     this.timestampTransforms = {};
-    this.lastSkippedBlocks = {};
 
     this.bigIntPriceCalculator = new BigIntCalculator({
       decimalPrecision: this.priceDecimalPrecision
@@ -1943,6 +1946,7 @@ module.exports = class CapitaliskDEXModule {
       });
 
       this.processedHeights = {...latestChainHeights};
+      this.lastProcessedBlocks[blockData.chainSymbol] = blockData;
     }
 
     let processDividends = async ({chainSymbol, chainHeight, toHeight, latestBlockTimestamp}) => {
@@ -1957,7 +1961,7 @@ module.exports = class CapitaliskDEXModule {
       let currentBlock = await this._getBlockAtHeight(chainSymbol, fromHeight);
 
       while (currentBlock) {
-        let blocksToProcess = await this._getBlocksBetweenHeights(chainSymbol, currentBlock.height, toHeight, readMaxBlocks);
+        let blocksToProcess = await this._getBlocksBetweenHeights(chainSymbol, currentBlock.height, toHeight, readMaxBlocks, false);
         this.logger.info(
           `Chain ${chainSymbol}: Processing blocks between heights ${currentBlock.height} and ${toHeight} as part of dividend calculation`
         );
@@ -2017,65 +2021,110 @@ module.exports = class CapitaliskDEXModule {
       );
     };
 
-    let isInForkRecovery = false;
+    let forkRecoveryBaseChainHeight = 0;
+    let forkRecoveryQuoteChainHeight = 0;
 
     let processBlockchains = async () => {
-      if (lastProcessedTimestamp == null) {
-        return 0;
-      }
-      if (isInForkRecovery) {
-        if (this.isForked) {
-          return 0;
-        }
-        if (this.updater.activeUpdate) {
-          // If there was a fork in one of the blockchains during a DEX update,
-          // revert the update. This will cause the module process to restart,
-          // resync from the last safe snapshot and then try to apply the update again.
-          this.logger.error(
-            `DEX module recovered from a blockchain fork while update ${
-              this.updater.activeUpdate.id
-            } was in progress - The incomplete update will be reverted and the DEX module will relaunch and try again`
-          );
-          this.updater.revertActiveUpdate();
-          process.exit();
-        }
-        isInForkRecovery = false;
-        this.pendingTransfers.clear();
-        lastProcessedTimestamp = await this.revertToSafeSnapshot();
-
-        await Promise.all(
-          this.chainSymbols.map(async (chainSymbol) => {
-            let chainCrypto = this.chainCrypto[chainSymbol];
-            if (chainCrypto.reset) {
-              await chainCrypto.reset(lastProcessedTimestamp);
-            }
-          })
-        );
-      }
       let orderedChainSymbols = [
         this.baseChainSymbol,
         this.quoteChainSymbol
       ];
 
+      if (lastProcessedTimestamp == null) {
+        let [baseMaxHeight, quoteMaxHeight] = await Promise.all(orderedChainSymbols.map(async (chainSymbol) => this._getMaxBlockHeight(chainSymbol, false)));
+        let [baseMaxBlock, quoteMaxBlock] = await Promise.all([
+          this._getBlockAtHeight(this.baseChainSymbol, baseMaxHeight),
+          this._getBlockAtHeight(this.quoteChainSymbol, quoteMaxHeight)
+        ]);
+        lastProcessedTimestamp = Math.max(baseMaxBlock.timestamp, quoteMaxBlock.timestamp);
+      }
+
       let [
-        baseChainLastProcessedHeight,
-        quoteChainLastProcessedHeight,
+        baseChainLastProcessedBlock,
+        quoteChainLastProcessedBlock,
         baseChainMaxHeight,
         quoteChainMaxHeight
       ] = await Promise.all([
         ...orderedChainSymbols.map(async (chainSymbol) => {
           try {
             let lastProcessedBlock = await this._getLastBlockAtTimestamp(chainSymbol, lastProcessedTimestamp);
-            return lastProcessedBlock.height;
+            return lastProcessedBlock;
           } catch (error) {
             if (error.sourceError && error.sourceError.name === 'BlockDidNotExistError') {
-              return 0;
+              return null;
             }
             throw error;
           }
         }),
-        ...orderedChainSymbols.map(async (chainSymbol) => this._getMaxBlockHeight(chainSymbol))
+        ...orderedChainSymbols.map(async (chainSymbol) => this._getMaxBlockHeight(chainSymbol, true))
       ]);
+
+      if (this.isForked) {
+        // If chains start progressing again after a fork.
+        if (baseChainMaxHeight > forkRecoveryBaseChainHeight && quoteChainMaxHeight > forkRecoveryQuoteChainHeight) {
+          if (this.updater.activeUpdate) {
+            // If there was a fork in one of the blockchains during a DEX update,
+            // revert the update. This will cause the module process to restart,
+            // resync from the last safe snapshot and then try to apply the update again.
+            this.logger.error(
+              `DEX module recovered from a blockchain fork while update ${
+                this.updater.activeUpdate.id
+              } was in progress - The incomplete update will be reverted and the DEX module will relaunch and try again`
+            );
+            this.updater.revertActiveUpdate();
+            process.exit();
+          }
+          this.pendingTransfers.clear();
+          lastProcessedTimestamp = await this.revertToSafeSnapshot();
+
+          await Promise.all(
+            this.chainSymbols.map(async (chainSymbol) => {
+              let chainCrypto = this.chainCrypto[chainSymbol];
+              if (chainCrypto.reset) {
+                await chainCrypto.reset(lastProcessedTimestamp);
+              }
+            })
+          );
+          this.lastProcessedBlocks[this.baseChainSymbol] = null;
+          this.lastProcessedBlocks[this.quoteChainSymbol] = null;
+          this.isForked = false;
+
+          return 0;
+        }
+        if (baseChainMaxHeight < forkRecoveryBaseChainHeight) {
+          forkRecoveryBaseChainHeight = baseChainMaxHeight;
+        }
+        if (quoteChainMaxHeight < forkRecoveryQuoteChainHeight) {
+          forkRecoveryQuoteChainHeight = quoteChainMaxHeight;
+        }
+        return 0;
+      }
+
+      let baseChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.baseChainSymbol];
+      let quoteChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.quoteChainSymbol];
+      let isBaseChainForked = (
+        baseChainLastDEXProcessedBlock && baseChainLastProcessedBlock &&
+        (
+          baseChainLastDEXProcessedBlock.height !== baseChainLastProcessedBlock.height ||
+          baseChainLastDEXProcessedBlock.id !== baseChainLastProcessedBlock.id
+        )
+      );
+      let isQuoteChainForked = (
+        quoteChainLastDEXProcessedBlock && quoteChainLastProcessedBlock &&
+        (
+          quoteChainLastDEXProcessedBlock.height !== quoteChainLastProcessedBlock.height ||
+          quoteChainLastDEXProcessedBlock.id !== quoteChainLastProcessedBlock.id
+        )
+      );
+      this.isForked = isBaseChainForked || isQuoteChainForked;
+      if (this.isForked) {
+        forkRecoveryBaseChainHeight = baseChainMaxHeight;
+        forkRecoveryQuoteChainHeight = quoteChainMaxHeight;
+        return 0;
+      }
+
+      let baseChainLastProcessedHeight = baseChainLastProcessedBlock ? baseChainLastProcessedBlock.height : 0;
+      let quoteChainLastProcessedHeight = quoteChainLastProcessedBlock ? quoteChainLastProcessedBlock.height : 0;
 
       let latestProcessedChainHeights = {
         [this.baseChainSymbol]: baseChainLastProcessedHeight,
@@ -2094,16 +2143,6 @@ module.exports = class CapitaliskDEXModule {
           let maxBlockHeight = maxChainHeights[chainSymbol];
           let maxSafeBlockHeight;
 
-          let lastSkippedChainBlock = this.lastSkippedBlocks[chainSymbol];
-          let recentSkippedChainBlock;
-
-          if (
-            lastSkippedChainBlock &&
-            lastSkippedChainBlock.timestamp > lastProcessedTimestamp
-          ) {
-            recentSkippedChainBlock = lastSkippedChainBlock;
-          }
-
           if (
             chainSymbol === this.baseChainSymbol &&
             this.options.dexDisabledFromHeight != null &&
@@ -2111,9 +2150,6 @@ module.exports = class CapitaliskDEXModule {
             maxBlockHeight < this.options.dexDisabledFromHeight + this.options.dexDisabledRefundHeightOffset
           ) {
             maxSafeBlockHeight = this.options.dexDisabledFromHeight - 1;
-          } else if (recentSkippedChainBlock) {
-            // Ignore requiredConfirmations if there is a skipped block. The skipped block acts as a checkpoint.
-            maxSafeBlockHeight = maxBlockHeight;
           } else {
             maxSafeBlockHeight = maxBlockHeight - chainOptions.requiredConfirmations;
           }
@@ -2126,27 +2162,12 @@ module.exports = class CapitaliskDEXModule {
             chainSymbol,
             lastProcessedheight,
             maxSafeBlockHeight,
-            chainOptions.readMaxBlocks
+            chainOptions.readMaxBlocks,
+            true
           );
-          let sanitizedBlockList = timestampedBlockList
+          return timestampedBlockList
             .filter(block => block.timestamp >= lastProcessedTimestamp)
             .map(block => ({...block, chainSymbol}));
-
-          if (
-            recentSkippedChainBlock &&
-            (
-              !sanitizedBlockList.length ||
-              recentSkippedChainBlock.height === sanitizedBlockList[sanitizedBlockList.length - 1].height + 1
-            )
-          ) {
-            sanitizedBlockList.push({
-              ...recentSkippedChainBlock,
-              chainSymbol,
-              isSkipped: true
-            });
-          }
-
-          return sanitizedBlockList;
         })
       );
 
@@ -2199,9 +2220,6 @@ module.exports = class CapitaliskDEXModule {
       });
 
       for (let block of orderedBlockList) {
-        if (isInForkRecovery) {
-          return orderedBlockList.length;
-        }
         latestProcessedChainHeights[block.chainSymbol] = block.height;
         try {
           if (!block.isSkipped) {
@@ -2253,77 +2271,6 @@ module.exports = class CapitaliskDEXModule {
 
     startProcessingBlockchains();
 
-    let progressingChains = {};
-
-    this.chainSymbols.forEach((chainSymbol) => {
-      progressingChains[chainSymbol] = true;
-    });
-
-    let areAllChainsProgressing = () => {
-      return Object.keys(progressingChains).every((chainSymbol) => progressingChains[chainSymbol]);
-    }
-
-    this.chainSymbols.forEach(async (chainSymbol) => {
-      let chainOptions = this.options.chains[chainSymbol];
-      let chainModuleAlias = chainOptions.moduleAlias;
-
-      // This is to detect forks in the underlying blockchains.
-
-      if (chainOptions.useBlocksChangeChannel) {
-        // This approach supports compatibility with older Lisk chain module interface.
-
-        let lastSeenChainHeight = 0;
-
-        channel.subscribe(`${chainModuleAlias}:blocks:change`, async (event) => {
-          let chainHeight = parseInt(event.data.height);
-
-          progressingChains[chainSymbol] = chainHeight > lastSeenChainHeight;
-          lastSeenChainHeight = chainHeight;
-
-          // If starting without a snapshot, use the timestamp of the first new block.
-          if (lastProcessedTimestamp == null) {
-            lastProcessedTimestamp = this._normalizeTimestamp(chainSymbol, parseInt(event.data.timestamp));
-          }
-          if (areAllChainsProgressing()) {
-            this.isForked = false;
-          } else {
-            this.isForked = true;
-            isInForkRecovery = true;
-          }
-        });
-      } else {
-        // This approach is recommended and is the default.
-
-        channel.subscribe(`${chainModuleAlias}:chainChanges`, async (event) => {
-          let type = event.data.type;
-          if (type !== 'addBlock' && type !== 'removeBlock' && type !== 'skipBlock') {
-            return;
-          }
-
-          if (type === 'skipBlock') {
-            let skippedBlock = event.data.block;
-            this.lastSkippedBlocks[chainSymbol] = {
-              timestamp: this._normalizeTimestamp(chainSymbol, parseInt(skippedBlock.timestamp)),
-              height: skippedBlock.height
-            };
-          }
-
-          progressingChains[chainSymbol] = type !== 'removeBlock';
-
-          // If starting without a snapshot, use the timestamp of the first new block.
-          if (lastProcessedTimestamp == null) {
-            lastProcessedTimestamp = this._normalizeTimestamp(chainSymbol, parseInt(event.data.block.timestamp));
-          }
-
-          if (areAllChainsProgressing()) {
-            this.isForked = false;
-          } else {
-            this.isForked = true;
-            isInForkRecovery = true;
-          }
-        });
-      }
-    });
     channel.publish(`${this.alias}:bootstrap`);
   }
 
@@ -2523,14 +2470,14 @@ module.exports = class CapitaliskDEXModule {
     return block;
   }
 
-  async _getMaxBlockHeight(chainSymbol) {
+  async _getMaxBlockHeight(chainSymbol, includeSkipped) {
     let chainOptions = this.options.chains[chainSymbol];
-    return this.channel.invoke(`${chainOptions.moduleAlias}:getMaxBlockHeight`, {});
+    return this.channel.invoke(`${chainOptions.moduleAlias}:getMaxBlockHeight`, {includeSkipped: !!includeSkipped});
   }
 
-  async _getBlocksBetweenHeights(chainSymbol, fromHeight, toHeight, limit) {
+  async _getBlocksBetweenHeights(chainSymbol, fromHeight, toHeight, limit, includeSkipped) {
     let chainOptions = this.options.chains[chainSymbol];
-    let blocks = await this.channel.invoke(`${chainOptions.moduleAlias}:getBlocksBetweenHeights`, {fromHeight, toHeight, limit});
+    let blocks = await this.channel.invoke(`${chainOptions.moduleAlias}:getBlocksBetweenHeights`, {fromHeight, toHeight, limit, includeSkipped: !!includeSkipped});
     this._normalizeListTimestamps(chainSymbol, blocks);
     return blocks;
   }
