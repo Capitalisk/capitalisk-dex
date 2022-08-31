@@ -2188,7 +2188,12 @@ module.exports = class CapitaliskDEXModule {
             true
           );
           return timestampedBlockList
-            .filter(block => block.timestamp >= lastProcessedTimestamp)
+            .filter(block => {
+              if (block.isSkipped) {
+                return block.timestamp > lastProcessedTimestamp;
+              }
+              return block.timestamp >= lastProcessedTimestamp;
+            })
             .map(block => ({...block, chainSymbol}));
         })
       );
