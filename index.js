@@ -2099,6 +2099,8 @@ module.exports = class CapitaliskDEXModule {
           this.lastProcessedBlocks[this.quoteChainSymbol] = null;
           this.isForked = false;
 
+          this.logger.debug('DEX module recovered from a blockchain fork');
+
           return 0;
         }
         if (baseChainMaxHeight < forkRecoveryBaseChainHeight) {
@@ -2126,6 +2128,16 @@ module.exports = class CapitaliskDEXModule {
           quoteChainLastDEXProcessedBlock.id !== quoteChainLastProcessedBlock.id
         )
       );
+      if (isBaseChainForked) {
+        this.logger.debug(
+          `A fork was detected on the ${this.baseChainSymbol} chain at height ${baseChainLastDEXProcessedBlock.height}`
+        );
+      }
+      if (isQuoteChainForked) {
+        this.logger.debug(
+          `A fork was detected on the ${this.quoteChainSymbol} chain at height ${quoteChainLastDEXProcessedBlock.height}`
+        );
+      }
       this.isForked = isBaseChainForked || isQuoteChainForked;
       if (this.isForked) {
         forkRecoveryBaseChainHeight = baseChainMaxHeight;
