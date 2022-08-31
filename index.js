@@ -2032,6 +2032,16 @@ module.exports = class CapitaliskDEXModule {
 
       if (lastProcessedTimestamp == null) {
         let [baseMaxHeight, quoteMaxHeight] = await Promise.all(orderedChainSymbols.map(async (chainSymbol) => this._getMaxBlockHeight(chainSymbol, false)));
+
+        if (!baseMaxHeight) {
+          this.logger.error(`The ${this.baseChainSymbol} chain had a height of 0`);
+          return 0;
+        }
+        if (!quoteMaxHeight) {
+          this.logger.error(`The ${this.quoteChainSymbol} chain had a height of 0`);
+          return 0;
+        }
+
         let [baseMaxBlock, quoteMaxBlock] = await Promise.all([
           this._getBlockAtHeight(this.baseChainSymbol, baseMaxHeight),
           this._getBlockAtHeight(this.quoteChainSymbol, quoteMaxHeight)
