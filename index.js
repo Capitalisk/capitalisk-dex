@@ -21,6 +21,7 @@ const { CAPITALISK_DEX_PASSWORD } = process.env;
 const CIPHER_ALGORITHM = 'aes-192-cbc';
 const CIPHER_KEY = CAPITALISK_DEX_PASSWORD ? crypto.scryptSync(CAPITALISK_DEX_PASSWORD, 'salt', 24) : undefined;
 const CIPHER_IV = Buffer.alloc(16, 0);
+const DEFAULT_INIT_RETRY_DELAY = 5000;
 const DEFAULT_MULTISIG_READY_DELAY = 5000;
 const DEFAULT_PROTOCOL_EXCLUDE_REASON = false;
 const DEFAULT_PROTOCOL_MAX_ARGUMENT_LENGTH = 64;
@@ -87,6 +88,8 @@ module.exports = class CapitaliskDEXModule {
     this.logger = logger;
     this.multisigWalletInfo = {};
     this.isForked = false;
+    this.isBaseChainForked = false;
+    this.isQuoteChainForked = false;
     this.lastSnapshot = null;
     this.finalizedSnapshot = null;
     this.pendingTransfers = new Map();
@@ -105,6 +108,7 @@ module.exports = class CapitaliskDEXModule {
     let quoteChainOptions = this.options.chains[this.quoteChainSymbol];
     this.baseAddress = baseChainOptions.multisigAddress;
     this.quoteAddress = quoteChainOptions.multisigAddress;
+    this.initRetryDelay = this.options.initRetryDelay || DEFAULT_INIT_RETRY_DELAY;
     this.multisigReadyDelay = this.options.multisigReadyDelay || DEFAULT_MULTISIG_READY_DELAY;
 
     this.priceDecimalPrecision = this.options.priceDecimalPrecision == null ?
@@ -1135,13 +1139,36 @@ module.exports = class CapitaliskDEXModule {
       );
     }
 
-    let lastProcessedTimestamp = null;
+    let lastProcessedTimestamp;
     try {
       lastProcessedTimestamp = await this.loadSnapshot();
     } catch (error) {
       this.logger.error(
         `Failed to load initial snapshot because of error: ${error.message} - DEX node will start with an empty order book`
       );
+
+      while (lastProcessedTimestamp == null) {
+        let [baseMaxHeight, quoteMaxHeight] = await Promise.all([
+          this._getMaxBlockHeight(this.baseChainSymbol, false),
+          this._getMaxBlockHeight(this.quoteChainSymbol, false)
+        ]);
+        if (!baseMaxHeight) {
+          this.logger.error(`The ${this.baseChainSymbol} chain had a height of 0`);
+        }
+        if (!quoteMaxHeight) {
+          this.logger.error(`The ${this.quoteChainSymbol} chain had a height of 0`);
+        }
+        if (!baseMaxHeight || !quoteMaxHeight) {
+          this.logger.debug('Retrying chain time initialization...');
+          await wait(this.initRetryDelay);
+          continue;
+        }
+        let [baseMaxBlock, quoteMaxBlock] = await Promise.all([
+          this._getBlockAtHeight(this.baseChainSymbol, baseMaxHeight),
+          this._getBlockAtHeight(this.quoteChainSymbol, quoteMaxHeight)
+        ]);
+        lastProcessedTimestamp = Math.max(baseMaxBlock.timestamp, quoteMaxBlock.timestamp);
+      }
     }
 
     await Promise.all(
@@ -2030,25 +2057,6 @@ module.exports = class CapitaliskDEXModule {
         this.quoteChainSymbol
       ];
 
-      if (lastProcessedTimestamp == null) {
-        let [baseMaxHeight, quoteMaxHeight] = await Promise.all(orderedChainSymbols.map(async (chainSymbol) => this._getMaxBlockHeight(chainSymbol, false)));
-
-        if (!baseMaxHeight) {
-          this.logger.error(`The ${this.baseChainSymbol} chain had a height of 0`);
-          return 0;
-        }
-        if (!quoteMaxHeight) {
-          this.logger.error(`The ${this.quoteChainSymbol} chain had a height of 0`);
-          return 0;
-        }
-
-        let [baseMaxBlock, quoteMaxBlock] = await Promise.all([
-          this._getBlockAtHeight(this.baseChainSymbol, baseMaxHeight),
-          this._getBlockAtHeight(this.quoteChainSymbol, quoteMaxHeight)
-        ]);
-        lastProcessedTimestamp = Math.max(baseMaxBlock.timestamp, quoteMaxBlock.timestamp);
-      }
-
       let [
         baseChainLastProcessedBlock,
         quoteChainLastProcessedBlock,
@@ -2070,8 +2078,39 @@ module.exports = class CapitaliskDEXModule {
       ]);
 
       if (this.isForked) {
+        this.logger.debug('Resolving blockchain fork...');
+
+        if (baseChainMaxHeight > forkRecoveryBaseChainHeight) {
+          this.isBaseChainForked = false;
+        } else if (baseChainMaxHeight < forkRecoveryBaseChainHeight) {
+          this.isBaseChainForked = true;
+          forkRecoveryBaseChainHeight = baseChainMaxHeight;
+          this.logger.debug(
+            `Waiting for ${
+              this.baseChainSymbol
+            } chain to settle at a good height after fork - Current height is ${
+              forkRecoveryBaseChainHeight
+            }`
+          );
+        }
+        if (quoteChainMaxHeight > forkRecoveryQuoteChainHeight) {
+          this.isQuoteChainForked = false;
+        } else if (quoteChainMaxHeight < forkRecoveryQuoteChainHeight) {
+          this.isQuoteChainForked = true;
+          forkRecoveryQuoteChainHeight = quoteChainMaxHeight;
+          this.logger.debug(
+            `Waiting for ${
+              this.quoteChainSymbol
+            } chain to settle at a good height after fork - Current height is ${
+              forkRecoveryQuoteChainHeight
+            }`
+          );
+        }
+
+        this.isForked = this.isBaseChainForked || this.isQuoteChainForked;
+
         // If chains start progressing again after a fork.
-        if (baseChainMaxHeight > forkRecoveryBaseChainHeight && quoteChainMaxHeight > forkRecoveryQuoteChainHeight) {
+        if (!this.isForked) {
           if (this.updater.activeUpdate) {
             // If there was a fork in one of the blockchains during a DEX update,
             // revert the update. This will cause the module process to restart,
@@ -2097,48 +2136,41 @@ module.exports = class CapitaliskDEXModule {
           );
           this.lastProcessedBlocks[this.baseChainSymbol] = null;
           this.lastProcessedBlocks[this.quoteChainSymbol] = null;
-          this.isForked = false;
 
-          this.logger.debug('DEX module recovered from a blockchain fork');
+          this.logger.debug('Recovered from blockchain fork');
 
-          return 0;
-        }
-        if (baseChainMaxHeight < forkRecoveryBaseChainHeight) {
-          forkRecoveryBaseChainHeight = baseChainMaxHeight;
-        }
-        if (quoteChainMaxHeight < forkRecoveryQuoteChainHeight) {
-          forkRecoveryQuoteChainHeight = quoteChainMaxHeight;
+          return 2;
         }
         return 0;
       }
 
       let baseChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.baseChainSymbol];
       let quoteChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.quoteChainSymbol];
-      let isBaseChainForked = (
+      this.isBaseChainForked = (
         baseChainLastDEXProcessedBlock && baseChainLastProcessedBlock &&
         (
           baseChainLastDEXProcessedBlock.height !== baseChainLastProcessedBlock.height ||
           baseChainLastDEXProcessedBlock.id !== baseChainLastProcessedBlock.id
         )
       );
-      let isQuoteChainForked = (
+      this.isQuoteChainForked = (
         quoteChainLastDEXProcessedBlock && quoteChainLastProcessedBlock &&
         (
           quoteChainLastDEXProcessedBlock.height !== quoteChainLastProcessedBlock.height ||
           quoteChainLastDEXProcessedBlock.id !== quoteChainLastProcessedBlock.id
         )
       );
-      if (isBaseChainForked) {
+      if (this.isBaseChainForked) {
         this.logger.debug(
           `A fork was detected on the ${this.baseChainSymbol} chain at height ${baseChainLastDEXProcessedBlock.height}`
         );
       }
-      if (isQuoteChainForked) {
+      if (this.isQuoteChainForked) {
         this.logger.debug(
           `A fork was detected on the ${this.quoteChainSymbol} chain at height ${quoteChainLastDEXProcessedBlock.height}`
         );
       }
-      this.isForked = isBaseChainForked || isQuoteChainForked;
+      this.isForked = this.isBaseChainForked || this.isQuoteChainForked;
       if (this.isForked) {
         forkRecoveryBaseChainHeight = baseChainMaxHeight;
         forkRecoveryQuoteChainHeight = quoteChainMaxHeight;
