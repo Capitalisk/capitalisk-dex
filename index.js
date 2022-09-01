@@ -2048,8 +2048,10 @@ module.exports = class CapitaliskDEXModule {
       );
     };
 
-    let forkRecoveryBaseChainHeight = 0;
-    let forkRecoveryQuoteChainHeight = 0;
+    let baseChainForkTargetHeight = 0;
+    let quoteChainForkTargetHeight = 0;
+    let baseChainLastDEXProcessedBlock = null;
+    let quoteChainLastDEXProcessedBlock = null;
 
     let processBlockchains = async () => {
       let orderedChainSymbols = [
@@ -2065,8 +2067,7 @@ module.exports = class CapitaliskDEXModule {
       ] = await Promise.all([
         ...orderedChainSymbols.map(async (chainSymbol) => {
           try {
-            let lastProcessedBlock = await this._getLastBlockAtTimestamp(chainSymbol, lastProcessedTimestamp);
-            return lastProcessedBlock;
+            return await this._getLastBlockAtTimestamp(chainSymbol, lastProcessedTimestamp);
           } catch (error) {
             if (error.sourceError && error.sourceError.name === 'BlockDidNotExistError') {
               return null;
@@ -2080,29 +2081,29 @@ module.exports = class CapitaliskDEXModule {
       if (this.isForked) {
         this.logger.debug('Resolving blockchain fork...');
 
-        if (baseChainMaxHeight > forkRecoveryBaseChainHeight) {
+        if (baseChainMaxHeight > baseChainForkTargetHeight) {
           this.isBaseChainForked = false;
-        } else if (baseChainMaxHeight < forkRecoveryBaseChainHeight) {
+        } else if (baseChainMaxHeight < baseChainForkTargetHeight) {
           this.isBaseChainForked = true;
-          forkRecoveryBaseChainHeight = baseChainMaxHeight;
+          baseChainForkTargetHeight = baseChainMaxHeight;
           this.logger.debug(
             `Waiting for ${
               this.baseChainSymbol
             } chain to settle at a good height after fork - Current height is ${
-              forkRecoveryBaseChainHeight
+              baseChainForkTargetHeight
             }`
           );
         }
-        if (quoteChainMaxHeight > forkRecoveryQuoteChainHeight) {
+        if (quoteChainMaxHeight > quoteChainForkTargetHeight) {
           this.isQuoteChainForked = false;
-        } else if (quoteChainMaxHeight < forkRecoveryQuoteChainHeight) {
+        } else if (quoteChainMaxHeight < quoteChainForkTargetHeight) {
           this.isQuoteChainForked = true;
-          forkRecoveryQuoteChainHeight = quoteChainMaxHeight;
+          quoteChainForkTargetHeight = quoteChainMaxHeight;
           this.logger.debug(
             `Waiting for ${
               this.quoteChainSymbol
             } chain to settle at a good height after fork - Current height is ${
-              forkRecoveryQuoteChainHeight
+              quoteChainForkTargetHeight
             }`
           );
         }
@@ -2134,8 +2135,8 @@ module.exports = class CapitaliskDEXModule {
               }
             })
           );
-          this.lastProcessedBlocks[this.baseChainSymbol] = null;
-          this.lastProcessedBlocks[this.quoteChainSymbol] = null;
+          baseChainLastDEXProcessedBlock = null;
+          quoteChainLastDEXProcessedBlock = null;
 
           this.logger.debug('Recovered from blockchain fork');
 
@@ -2144,8 +2145,6 @@ module.exports = class CapitaliskDEXModule {
         return 0;
       }
 
-      let baseChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.baseChainSymbol];
-      let quoteChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.quoteChainSymbol];
       this.isBaseChainForked = (
         baseChainLastDEXProcessedBlock && baseChainLastProcessedBlock &&
         (
@@ -2172,8 +2171,8 @@ module.exports = class CapitaliskDEXModule {
       }
       this.isForked = this.isBaseChainForked || this.isQuoteChainForked;
       if (this.isForked) {
-        forkRecoveryBaseChainHeight = baseChainMaxHeight;
-        forkRecoveryQuoteChainHeight = quoteChainMaxHeight;
+        baseChainForkTargetHeight = baseChainMaxHeight;
+        quoteChainForkTargetHeight = quoteChainMaxHeight;
         return 0;
       }
 
@@ -2291,6 +2290,8 @@ module.exports = class CapitaliskDEXModule {
           }
           if (block.chainSymbol === this.quoteChainSymbol) {
             lastProcessedTimestamp = block.timestamp;
+            baseChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.baseChainSymbol];
+            quoteChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.quoteChainSymbol];
           }
         } catch (error) {
           this.logger.error(
@@ -2304,6 +2305,8 @@ module.exports = class CapitaliskDEXModule {
 
       if (lastQuoteChainBlock.timestamp > highestTimestampOfOldestChain) {
         lastProcessedTimestamp = highestTimestampOfOldestChain;
+        baseChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.baseChainSymbol];
+        quoteChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.quoteChainSymbol];
       }
 
       return orderedBlockList.length;
