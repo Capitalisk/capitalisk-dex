@@ -139,6 +139,10 @@ module.exports = class CapitaliskDEXModule {
       [this.baseChainSymbol]: 0,
       [this.quoteChainSymbol]: 0
     };
+    this.lastProcessedBlockTimestamps = {
+      [this.baseChainSymbol]: 0,
+      [this.quoteChainSymbol]: 0
+    };
     this.lastProcessedBlocks = {
       [this.baseChainSymbol]: null,
       [this.quoteChainSymbol]: null
@@ -1130,7 +1134,7 @@ module.exports = class CapitaliskDEXModule {
     try {
       await mkdir(this.orderBookSnapshotBackupDirPath, {recursive: true});
     } catch (error) {
-      this.logger.error(
+      throw new Error(
         `Failed to create snapshot directory ${
           this.orderBookSnapshotBackupDirPath
         } because of error: ${
@@ -1139,41 +1143,59 @@ module.exports = class CapitaliskDEXModule {
       );
     }
 
-    let lastProcessedTimestamp;
     try {
-      lastProcessedTimestamp = await this.loadSnapshot();
+      let lastProcessedHeights = await this.loadSnapshot();
+      this.processedHeights[this.baseChainSymbol] = lastProcessedHeights.baseChainHeight;
+      this.processedHeights[this.quoteChainSymbol] = lastProcessedHeights.quoteChainHeight;
     } catch (error) {
       this.logger.error(
         `Failed to load initial snapshot because of error: ${error.message} - DEX node will start with an empty order book`
       );
 
-      while (lastProcessedTimestamp == null) {
-        let [baseMaxHeight, quoteMaxHeight] = await Promise.all([
-          this._getMaxBlockHeight(this.baseChainSymbol, false),
-          this._getMaxBlockHeight(this.quoteChainSymbol, false)
-        ]);
-        if (!baseMaxHeight) {
-          this.logger.error(`The ${this.baseChainSymbol} chain had a height of 0`);
+      while (this.processedHeights[this.baseChainSymbol] == null || this.processedHeights[this.quoteChainSymbol] == null) {
+        try {
+          let [baseMaxHeight, quoteMaxHeight] = await Promise.all([
+            this._getMaxBlockHeight(this.baseChainSymbol, false),
+            this._getMaxBlockHeight(this.quoteChainSymbol, false)
+          ]);
+          if (!baseMaxHeight) {
+            this.logger.error(`The ${this.baseChainSymbol} chain had a height of 0`);
+          }
+          if (!quoteMaxHeight) {
+            this.logger.error(`The ${this.quoteChainSymbol} chain had a height of 0`);
+          }
+          if (!baseMaxHeight || !quoteMaxHeight) {
+            this.logger.debug('Retrying chain time initialization...');
+            await wait(this.initRetryDelay);
+            continue;
+          }
+          this.processedHeights[this.baseChainSymbol] = baseMaxHeight;
+          this.processedHeights[this.quoteChainSymbol] = quoteMaxHeight;
+        } catch (orderBookInitError) {
+          throw new Error(
+            `Failed to initialize new order book because of error: ${orderBookInitError.message}`
+          );
         }
-        if (!quoteMaxHeight) {
-          this.logger.error(`The ${this.quoteChainSymbol} chain had a height of 0`);
-        }
-        if (!baseMaxHeight || !quoteMaxHeight) {
-          this.logger.debug('Retrying chain time initialization...');
-          await wait(this.initRetryDelay);
-          continue;
-        }
-        let [baseMaxBlock, quoteMaxBlock] = await Promise.all([
-          this._getBlockAtHeight(this.baseChainSymbol, baseMaxHeight),
-          this._getBlockAtHeight(this.quoteChainSymbol, quoteMaxHeight)
-        ]);
-        lastProcessedTimestamp = Math.max(baseMaxBlock.timestamp, quoteMaxBlock.timestamp);
       }
+    }
+
+    try {
+      let [baseMaxBlock, quoteMaxBlock] = await Promise.all([
+        this._getBlockAtHeight(this.baseChainSymbol, this.processedHeights[this.baseChainSymbol]),
+        this._getBlockAtHeight(this.quoteChainSymbol, this.processedHeights[this.quoteChainSymbol])
+      ]);
+
+      this.lastProcessedBlocks[this.baseChainSymbol] = baseMaxBlock;
+      this.lastProcessedBlocks[this.quoteChainSymbol] = quoteMaxBlock;
+    } catch (error) {
+      throw new Error(
+        `Failed to load last processed blocks because of error: ${error.message}`
+      );
     }
 
     await Promise.all(
       this.chainSymbols.map(async (chainSymbol) => {
-        return this.chainCrypto[chainSymbol].load(channel, lastProcessedTimestamp);
+        return this.chainCrypto[chainSymbol].load(channel, this.processedHeights[chainSymbol]);
       })
     );
 
@@ -1334,8 +1356,9 @@ module.exports = class CapitaliskDEXModule {
             }
             if (!error) {
               this.updater.activateUpdate(update);
+              process.exit();
             }
-            process.exit();
+            process.exit(1);
           }
         }
 
@@ -2050,8 +2073,6 @@ module.exports = class CapitaliskDEXModule {
 
     let baseChainForkTargetHeight = 0;
     let quoteChainForkTargetHeight = 0;
-    let baseChainLastDEXProcessedBlock = null;
-    let quoteChainLastDEXProcessedBlock = null;
 
     let processBlockchains = async () => {
       let orderedChainSymbols = [
@@ -2067,7 +2088,7 @@ module.exports = class CapitaliskDEXModule {
       ] = await Promise.all([
         ...orderedChainSymbols.map(async (chainSymbol) => {
           try {
-            return await this._getLastBlockAtTimestamp(chainSymbol, lastProcessedTimestamp);
+            return await this._getBlockAtHeight(chainSymbol, this.processedHeights[chainSymbol]);
           } catch (error) {
             if (error.sourceError && error.sourceError.name === 'BlockDidNotExistError') {
               return null;
@@ -2125,21 +2146,28 @@ module.exports = class CapitaliskDEXModule {
             process.exit();
           }
           this.pendingTransfers.clear();
-          lastProcessedTimestamp = await this.revertToSafeSnapshot();
+          let lastProcessedHeights = await this.revertToSafeSnapshot();
+          this.processedHeights[this.baseChainSymbol] = lastProcessedHeights.baseChainHeight;
+          this.processedHeights[this.quoteChainSymbol] = lastProcessedHeights.quoteChainHeight;
 
           await Promise.all(
             this.chainSymbols.map(async (chainSymbol) => {
               let chainCrypto = this.chainCrypto[chainSymbol];
               if (chainCrypto.reset) {
-                await chainCrypto.reset(lastProcessedTimestamp);
+                await chainCrypto.reset(this.processedHeights[chainSymbol]);
               }
             })
           );
 
-          this.lastProcessedBlocks[this.baseChainSymbol] = null;
-          this.lastProcessedBlocks[this.quoteChainSymbol] = null;
-          baseChainLastDEXProcessedBlock = null;
-          quoteChainLastDEXProcessedBlock = null;
+          let [baseMaxBlock, quoteMaxBlock] = await Promise.all([
+            this._getBlockAtHeight(this.baseChainSymbol, this.processedHeights[this.baseChainSymbol]),
+            this._getBlockAtHeight(this.quoteChainSymbol, this.processedHeights[this.quoteChainSymbol])
+          ]);
+
+          this.lastProcessedBlocks[this.baseChainSymbol] = baseMaxBlock;
+          this.lastProcessedBlocks[this.quoteChainSymbol] = quoteMaxBlock;
+          this.lastProcessedBlockTimestamps[this.baseChainSymbol] = baseMaxBlock.timestamp;
+          this.lastProcessedBlockTimestamps[this.quoteChainSymbol] = quoteMaxBlock.timestamp;
 
           this.logger.debug('Recovered from blockchain fork');
 
@@ -2148,19 +2176,16 @@ module.exports = class CapitaliskDEXModule {
         return 0;
       }
 
+      let baseChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.baseChainSymbol];
+      let quoteChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.quoteChainSymbol];
+
       this.isBaseChainForked = (
-        baseChainLastDEXProcessedBlock && baseChainLastProcessedBlock &&
-        (
-          baseChainLastDEXProcessedBlock.height !== baseChainLastProcessedBlock.height ||
-          baseChainLastDEXProcessedBlock.id !== baseChainLastProcessedBlock.id
-        )
+        !baseChainLastProcessedBlock ||
+        baseChainLastProcessedBlock.id !== baseChainLastDEXProcessedBlock.id
       );
       this.isQuoteChainForked = (
-        quoteChainLastDEXProcessedBlock && quoteChainLastProcessedBlock &&
-        (
-          quoteChainLastDEXProcessedBlock.height !== quoteChainLastProcessedBlock.height ||
-          quoteChainLastDEXProcessedBlock.id !== quoteChainLastProcessedBlock.id
-        )
+        !quoteChainLastProcessedBlock ||
+        quoteChainLastProcessedBlock.id !== quoteChainLastDEXProcessedBlock.id
       );
       if (this.isBaseChainForked) {
         this.logger.debug(
@@ -2222,12 +2247,7 @@ module.exports = class CapitaliskDEXModule {
             true
           );
           return timestampedBlockList
-            .filter(block => {
-              if (block.isSkipped) {
-                return block.timestamp > lastProcessedTimestamp;
-              }
-              return block.timestamp >= lastProcessedTimestamp;
-            })
+            .filter(block => !block.isSkipped || block.timestamp > this.lastProcessedBlockTimestamps[chainSymbol])
             .map(block => ({...block, chainSymbol}));
         })
       );
@@ -2291,11 +2311,7 @@ module.exports = class CapitaliskDEXModule {
               blockData: {...block}
             });
           }
-          if (block.chainSymbol === this.quoteChainSymbol) {
-            lastProcessedTimestamp = block.timestamp;
-            baseChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.baseChainSymbol];
-            quoteChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.quoteChainSymbol];
-          }
+          this.lastProcessedBlockTimestamps[block.chainSymbol] = block.timestamp;
         } catch (error) {
           this.logger.error(
             `Encountered the following error while processing block with id ${
@@ -2304,12 +2320,6 @@ module.exports = class CapitaliskDEXModule {
           );
           return orderedBlockList.length;
         }
-      }
-
-      if (lastQuoteChainBlock.timestamp > highestTimestampOfOldestChain) {
-        lastProcessedTimestamp = highestTimestampOfOldestChain;
-        baseChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.baseChainSymbol];
-        quoteChainLastDEXProcessedBlock = this.lastProcessedBlocks[this.quoteChainSymbol];
       }
 
       return orderedBlockList.length;
@@ -2527,14 +2537,6 @@ module.exports = class CapitaliskDEXModule {
     return transactions;
   }
 
-  async _getLastBlockAtTimestamp(chainSymbol, timestamp) {
-    timestamp = this._denormalizeTimestamp(chainSymbol, timestamp);
-    let chainOptions = this.options.chains[chainSymbol];
-    let block = await this.channel.invoke(`${chainOptions.moduleAlias}:getLastBlockAtTimestamp`, {timestamp});
-    this._normalizeObjectTimestamp(chainSymbol, block);
-    return block;
-  }
-
   async _getMaxBlockHeight(chainSymbol, includeSkipped) {
     let chainOptions = this.options.chains[chainSymbol];
     return this.channel.invoke(`${chainOptions.moduleAlias}:getMaxBlockHeight`, {includeSkipped: !!includeSkipped});
@@ -2553,11 +2555,6 @@ module.exports = class CapitaliskDEXModule {
     this._normalizeObjectTimestamp(chainSymbol, block);
     return block;
   }
-
-  async _getBaseChainBlockTimestamp(height) {
-    let firstBaseChainBlock = await this._getBlockAtHeight(this.baseChainSymbol, height);
-    return firstBaseChainBlock.timestamp;
-  };
 
   async refundOrderBook(snapshot, timestamp, movedToAddresses) {
     let allOrders = snapshot.orderBook.bidLimitOrders.concat(snapshot.orderBook.askLimitOrders);
@@ -2732,7 +2729,8 @@ module.exports = class CapitaliskDEXModule {
     this.lastSnapshot = safeSnapshot;
     this.tradeEngine.setSnapshot(snapshot.orderBook);
     let baseChainHeight = snapshot.chainHeights[this.baseChainSymbol];
-    return this._getBaseChainBlockTimestamp(baseChainHeight);
+    let quoteChainHeight = snapshot.chainHeights[this.quoteChainSymbol];
+    return {baseChainHeight, quoteChainHeight};
   }
 
   async revertToSafeSnapshot() {
@@ -2745,7 +2743,8 @@ module.exports = class CapitaliskDEXModule {
     }
     this.tradeEngine.setSnapshot(this.lastSnapshot.orderBook);
     let baseChainHeight = this.lastSnapshot.chainHeights[this.baseChainSymbol];
-    return this._getBaseChainBlockTimestamp(baseChainHeight);
+    let quoteChainHeight = this.lastSnapshot.chainHeights[this.quoteChainSymbol];
+    return {baseChainHeight, quoteChainHeight};
   }
 
   async saveSnapshot(snapshot, filePath) {
