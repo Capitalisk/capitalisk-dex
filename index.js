@@ -2135,6 +2135,9 @@ module.exports = class CapitaliskDEXModule {
               }
             })
           );
+
+          this.lastProcessedBlocks[this.baseChainSymbol] = null;
+          this.lastProcessedBlocks[this.quoteChainSymbol] = null;
           baseChainLastDEXProcessedBlock = null;
           quoteChainLastDEXProcessedBlock = null;
 
