@@ -1152,7 +1152,7 @@ module.exports = class CapitaliskDEXModule {
         `Failed to load initial snapshot because of error: ${error.message} - DEX node will start with an empty order book`
       );
 
-      while (this.processedHeights[this.baseChainSymbol] == null || this.processedHeights[this.quoteChainSymbol] == null) {
+      while (!this.processedHeights[this.baseChainSymbol] || !this.processedHeights[this.quoteChainSymbol]) {
         try {
           let [baseMaxHeight, quoteMaxHeight] = await Promise.all([
             this._getMaxBlockHeight(this.baseChainSymbol, false),
@@ -1184,7 +1184,6 @@ module.exports = class CapitaliskDEXModule {
         this._getBlockAtHeight(this.baseChainSymbol, this.processedHeights[this.baseChainSymbol]),
         this._getBlockAtHeight(this.quoteChainSymbol, this.processedHeights[this.quoteChainSymbol])
       ]);
-
       this.lastProcessedBlocks[this.baseChainSymbol] = baseMaxBlock;
       this.lastProcessedBlocks[this.quoteChainSymbol] = quoteMaxBlock;
     } catch (error) {
