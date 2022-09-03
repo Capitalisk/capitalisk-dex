@@ -1180,12 +1180,12 @@ module.exports = class CapitaliskDEXModule {
     }
 
     try {
-      let [baseMaxBlock, quoteMaxBlock] = await Promise.all([
+      let [baseChainMaxBlock, quoteChainMaxBlock] = await Promise.all([
         this._getBlockAtHeight(this.baseChainSymbol, this.processedHeights[this.baseChainSymbol]),
         this._getBlockAtHeight(this.quoteChainSymbol, this.processedHeights[this.quoteChainSymbol])
       ]);
-      this.lastProcessedBlocks[this.baseChainSymbol] = baseMaxBlock;
-      this.lastProcessedBlocks[this.quoteChainSymbol] = quoteMaxBlock;
+      this.lastProcessedBlocks[this.baseChainSymbol] = baseChainMaxBlock;
+      this.lastProcessedBlocks[this.quoteChainSymbol] = quoteChainMaxBlock;
     } catch (error) {
       throw new Error(
         `Failed to load last processed blocks because of error: ${error.message}`
@@ -2149,6 +2149,16 @@ module.exports = class CapitaliskDEXModule {
           this.processedHeights[this.baseChainSymbol] = lastProcessedHeights.baseChainHeight;
           this.processedHeights[this.quoteChainSymbol] = lastProcessedHeights.quoteChainHeight;
 
+          let [baseChainNewTipBlock, quoteChainNewTipBlock] = await Promise.all([
+            this._getBlockAtHeight(this.baseChainSymbol, this.processedHeights[this.baseChainSymbol]),
+            this._getBlockAtHeight(this.quoteChainSymbol, this.processedHeights[this.quoteChainSymbol])
+          ]);
+
+          this.lastProcessedBlocks[this.baseChainSymbol] = baseChainNewTipBlock;
+          this.lastProcessedBlocks[this.quoteChainSymbol] = quoteChainNewTipBlock;
+          this.lastProcessedBlockTimestamps[this.baseChainSymbol] = baseChainNewTipBlock.timestamp;
+          this.lastProcessedBlockTimestamps[this.quoteChainSymbol] = quoteChainNewTipBlock.timestamp;
+
           await Promise.all(
             this.chainSymbols.map(async (chainSymbol) => {
               let chainCrypto = this.chainCrypto[chainSymbol];
@@ -2157,16 +2167,6 @@ module.exports = class CapitaliskDEXModule {
               }
             })
           );
-
-          let [baseMaxBlock, quoteMaxBlock] = await Promise.all([
-            this._getBlockAtHeight(this.baseChainSymbol, this.processedHeights[this.baseChainSymbol]),
-            this._getBlockAtHeight(this.quoteChainSymbol, this.processedHeights[this.quoteChainSymbol])
-          ]);
-
-          this.lastProcessedBlocks[this.baseChainSymbol] = baseMaxBlock;
-          this.lastProcessedBlocks[this.quoteChainSymbol] = quoteMaxBlock;
-          this.lastProcessedBlockTimestamps[this.baseChainSymbol] = baseMaxBlock.timestamp;
-          this.lastProcessedBlockTimestamps[this.quoteChainSymbol] = quoteMaxBlock.timestamp;
 
           this.logger.debug('Recovered from blockchain fork');
 
@@ -2196,15 +2196,18 @@ module.exports = class CapitaliskDEXModule {
           `A fork was detected on the ${this.quoteChainSymbol} chain at height ${quoteChainLastDEXProcessedBlock.height}`
         );
       }
+
       this.isForked = this.isBaseChainForked || this.isQuoteChainForked;
+
       if (this.isForked) {
         baseChainForkTargetHeight = baseChainMaxHeight;
         quoteChainForkTargetHeight = quoteChainMaxHeight;
+
         return 0;
       }
 
-      let baseChainLastProcessedHeight = baseChainLastProcessedBlock ? baseChainLastProcessedBlock.height : 0;
-      let quoteChainLastProcessedHeight = quoteChainLastProcessedBlock ? quoteChainLastProcessedBlock.height : 0;
+      let baseChainLastProcessedHeight = baseChainLastProcessedBlock.height;
+      let quoteChainLastProcessedHeight = quoteChainLastProcessedBlock.height;
 
       let latestProcessedChainHeights = {
         [this.baseChainSymbol]: baseChainLastProcessedHeight,
