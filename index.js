@@ -1440,6 +1440,9 @@ module.exports = class CapitaliskDEXModule {
       let [inboundTxns, outboundTxns] = blockTransactions;
 
       outboundTxns.forEach((txn) => {
+        this.logger.debug(
+          `Chain ${chainSymbol}: Observed outbound transfer ${txn.id} at height ${chainHeight}`
+        );
         let pendingTransfer = this.pendingTransfers.get(txn.id);
         if (pendingTransfer) {
           let recentTransfer = {...pendingTransfer, transaction: txn};
@@ -1450,6 +1453,9 @@ module.exports = class CapitaliskDEXModule {
             this.recentTransfersSkipList.upsert(recentTransfer.timestamp, {[txn.id]: recentTransfer});
           }
           this.pendingTransfers.delete(txn.id);
+          this.logger.debug(
+            `Chain ${chainSymbol}: Removed pending transfer ${txn.id} from queue`
+          );
         }
       });
 
