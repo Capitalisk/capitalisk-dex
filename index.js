@@ -459,6 +459,7 @@ module.exports = class CapitaliskDEXModule {
   get actions() {
     return {
       getStatus: {
+        isPublic: true,
         handler: () => {
           return {
             version: CapitaliskDEXModule.info.version,
@@ -475,6 +476,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getMarket: {
+        isPublic: true,
         handler: () => {
           return {
             baseSymbol: this.baseChainSymbol,
@@ -483,6 +485,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getBids: {
+        isPublic: true,
         handler: (action) => {
           let query = {...action.params};
           // Optimization.
@@ -508,6 +511,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getAsks: {
+        isPublic: true,
         handler: (action) => {
           let query = {...action.params};
           // Optimization.
@@ -533,6 +537,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getOrders: {
+        isPublic: true,
         handler: (action) => {
           let query = {...action.params};
           let orderIterator;
@@ -556,6 +561,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getOrderBook: {
+        isPublic: true,
         handler: (action) => {
           let query = {...action.params};
           let { depth } = query;
@@ -571,7 +577,18 @@ module.exports = class CapitaliskDEXModule {
             error.name = 'InvalidQueryError';
             throw error;
           }
+          let halfAPIMaxPageLimit = Math.floor(this.options.apiMaxPageLimit / 2);
+          if (depth > halfAPIMaxPageLimit) {
+            let error = new Error(
+              `The depth parameter of the query cannot be greater than ${
+                halfAPIMaxPageLimit
+              }`
+            );
+            error.name = 'InvalidQueryError';
+            throw error;
+          }
           let doubleDepth = depth * 2;
+
           let askLevelIterator = this.tradeEngine.getAskLevelIteratorFromMin();
           let bidLevelIterator = this.tradeEngine.getBidLevelIteratorFromMax();
 
@@ -616,6 +633,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getRecentPrices: {
+        isPublic: true,
         handler: (action) => {
           let priceEntryIterator = this.recentPricesSkipList.findEntriesFromMax();
           let priceGenerator = this._getValuesGenerator(priceEntryIterator);
@@ -626,6 +644,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getPendingTransfers: {
+        isPublic: true,
         handler: (action) => {
           let transferList = this._execQueryAgainstIterator(
             action.params,
@@ -655,6 +674,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getRecentTransfers: {
+        isPublic: true,
         handler: (action) => {
           let recentTransfersIterator = this.recentTransfersSkipList.findEntriesFromMax();
           let transferGenerator = this._getNestedObjectValuesGenerator(recentTransfersIterator);
