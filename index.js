@@ -459,7 +459,7 @@ module.exports = class CapitaliskDEXModule {
   get actions() {
     return {
       getStatus: {
-        isPublic: true,
+        isPublic: this.options.apiIsPublic,
         handler: () => {
           return {
             version: CapitaliskDEXModule.info.version,
@@ -476,7 +476,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getMarket: {
-        isPublic: true,
+        isPublic: this.options.apiIsPublic,
         handler: () => {
           return {
             baseSymbol: this.baseChainSymbol,
@@ -485,7 +485,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getBids: {
-        isPublic: true,
+        isPublic: this.options.apiIsPublic,
         handler: (action) => {
           let query = {...action.params};
           // Optimization.
@@ -511,7 +511,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getAsks: {
-        isPublic: true,
+        isPublic: this.options.apiIsPublic,
         handler: (action) => {
           let query = {...action.params};
           // Optimization.
@@ -537,7 +537,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getOrders: {
-        isPublic: true,
+        isPublic: this.options.apiIsPublic,
         handler: (action) => {
           let query = {...action.params};
           let orderIterator;
@@ -561,7 +561,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getOrderBook: {
-        isPublic: true,
+        isPublic: this.options.apiIsPublic,
         handler: (action) => {
           let query = {...action.params};
           let { depth } = query;
@@ -633,7 +633,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getRecentPrices: {
-        isPublic: true,
+        isPublic: this.options.apiIsPublic,
         handler: (action) => {
           let priceEntryIterator = this.recentPricesSkipList.findEntriesFromMax();
           let priceGenerator = this._getValuesGenerator(priceEntryIterator);
@@ -644,7 +644,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getPendingTransfers: {
-        isPublic: true,
+        isPublic: this.options.apiIsPublic,
         handler: (action) => {
           let transferList = this._execQueryAgainstIterator(
             action.params,
@@ -674,7 +674,7 @@ module.exports = class CapitaliskDEXModule {
         }
       },
       getRecentTransfers: {
-        isPublic: true,
+        isPublic: this.options.apiIsPublic,
         handler: (action) => {
           let recentTransfersIterator = this.recentTransfersSkipList.findEntriesFromMax();
           let transferGenerator = this._getNestedObjectValuesGenerator(recentTransfersIterator);
