@@ -2036,10 +2036,27 @@ module.exports = class CapitaliskDEXModule {
       let currentBlock = await this._getBlockAtHeight(chainSymbol, fromHeight);
 
       while (currentBlock) {
-        let blocksToProcess = await this._getBlocksBetweenHeights(chainSymbol, currentBlock.height, toHeight, readMaxBlocks, false);
         this.logger.info(
           `Chain ${chainSymbol}: Processing blocks between heights ${currentBlock.height} and ${toHeight} as part of dividend calculation`
         );
+        let blocksToProcess;
+        try {
+          blocksToProcess = await this._getBlocksBetweenHeights(chainSymbol, currentBlock.height, toHeight, readMaxBlocks, false);
+        } catch (error) {
+          this.logger.error(
+            `Chain ${
+              chainSymbol
+            }: Failed to fetch blocks between heights ${
+              currentBlock.height
+            } and ${
+              toHeight
+            } during dividend calculation because of error: ${
+              error.message
+            }`
+          );
+          await wait(this.options.readBlocksInterval);
+          continue;
+        }
         for (let block of blocksToProcess) {
           if (block.numberOfTransactions === 0) {
             continue;
