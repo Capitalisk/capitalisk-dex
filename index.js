@@ -23,6 +23,9 @@ const CIPHER_KEY = CAPITALISK_DEX_PASSWORD ? crypto.scryptSync(CAPITALISK_DEX_PA
 const CIPHER_IV = Buffer.alloc(16, 0);
 const DEFAULT_INIT_RETRY_DELAY = 5000;
 const DEFAULT_MULTISIG_READY_DELAY = 5000;
+const DEFAULT_MULTISIG_RETRY_INTERVAL = 60000;
+const DEFAULT_SIGNATURE_READY_DELAY = 10000;
+const DEFAULT_SIGNATURE_RETRY_INTERVAL = 60000;
 const DEFAULT_PROTOCOL_EXCLUDE_REASON = false;
 const DEFAULT_PROTOCOL_MAX_ARGUMENT_LENGTH = 64;
 const DEFAULT_PRICE_DECIMAL_PRECISION = 4;
@@ -110,6 +113,9 @@ module.exports = class CapitaliskDEXModule {
     this.quoteAddress = quoteChainOptions.multisigAddress;
     this.initRetryDelay = this.options.initRetryDelay || DEFAULT_INIT_RETRY_DELAY;
     this.multisigReadyDelay = this.options.multisigReadyDelay || DEFAULT_MULTISIG_READY_DELAY;
+    this.signatureReadyDelay = this.options.signatureReadyDelay || DEFAULT_SIGNATURE_READY_DELAY;
+    this.multisigRetryInterval = this.options.multisigRetryInterval || DEFAULT_MULTISIG_RETRY_INTERVAL;
+    this.signatureRetryInterval = this.options.signatureRetryInterval || DEFAULT_SIGNATURE_RETRY_INTERVAL;
 
     this.priceDecimalPrecision = this.options.priceDecimalPrecision == null ?
       DEFAULT_PRICE_DECIMAL_PRECISION : this.options.priceDecimalPrecision;
@@ -805,9 +811,16 @@ module.exports = class CapitaliskDEXModule {
     processedSignerAddressSet.add(signerAddress);
     transaction.signatures.push(signaturePacket);
 
+    let now = Date.now();
+
+    if (transfer.signatureBroadcastTimestamps[signerAddress] == null) {
+      transfer.signatureBroadcastTimestamps[signerAddress] = now;
+    }
+
     let signatureQuota = this._getSignatureQuota(targetChain, transaction);
     if (signatureQuota >= 0 && transfer.readyTimestamp == null) {
-      transfer.readyTimestamp = Date.now();
+      transfer.readyTimestamp = now;
+      transfer.multisigBroadcastTimestamp = now + this.multisigReadyDelay;
     }
   }
 
@@ -822,43 +835,61 @@ module.exports = class CapitaliskDEXModule {
   }
 
   flushPendingMultisigTransactions() {
-    let transactionsToBroadcastPerChain = {};
+    let transfersToBroadcastPerChain = {};
     let now = Date.now();
 
     for (let transfer of this.pendingTransfers.values()) {
-      if (transfer.readyTimestamp != null && transfer.readyTimestamp + this.multisigReadyDelay <= now) {
-        if (!transactionsToBroadcastPerChain[transfer.targetChain]) {
-          transactionsToBroadcastPerChain[transfer.targetChain] = [];
+      if (transfer.multisigBroadcastTimestamp != null && transfer.multisigBroadcastTimestamp <= now) {
+        if (!transfersToBroadcastPerChain[transfer.targetChain]) {
+          transfersToBroadcastPerChain[transfer.targetChain] = [];
         }
-        transactionsToBroadcastPerChain[transfer.targetChain].push(transfer.transaction);
+        transfersToBroadcastPerChain[transfer.targetChain].push(transfer);
       }
     }
 
-    let chainSymbolList = Object.keys(transactionsToBroadcastPerChain);
+    let chainSymbolList = Object.keys(transfersToBroadcastPerChain);
     for (let chainSymbol of chainSymbolList) {
-      let maxBatchSize = this.options.multisigMaxBatchSize;
-      let transactionsToBroadcast = transactionsToBroadcastPerChain[chainSymbol].slice(0, maxBatchSize);
+      let transfersToBroadcast = transfersToBroadcastPerChain[chainSymbol]
+        .slice(0, this.options.multisigMaxBatchSize);
+
+      for (let transfer of transfersToBroadcast) {
+        transfer.multisigBroadcastTimestamp = now + this.multisigRetryInterval;
+      }
+
+      let transactionsToBroadcast = transfersToBroadcast
+        .map(transfer => transfer.transaction);
       this._broadcastTransactionsToChain(chainSymbol, transactionsToBroadcast);
     }
   }
 
   flushPendingSignatures() {
-    let signaturesToBroadcast = [];
+    let pendingSignatureInfoList = [];
+    let now = Date.now();
 
     for (let transfer of this.pendingTransfers.values()) {
       for (let signaturePacket of transfer.transaction.signatures) {
-        signaturesToBroadcast.push({
-          signaturePacket,
-          transactionId: transfer.transaction.id
-        });
+        let broadcastTimestamp = transfer.signatureBroadcastTimestamps[signaturePacket.signerAddress];
+        if (broadcastTimestamp != null && broadcastTimestamp <= now) {
+          pendingSignatureInfoList.push({
+            signaturePacket,
+            transactionId: transfer.transaction.id,
+            transfer
+          });
+        }
       }
     }
 
-    if (signaturesToBroadcast.length) {
-      let maxBatchSize = this.options.signatureMaxBatchSize;
-      this._broadcastSignaturesToSubnet(
-        signaturesToBroadcast.slice(0, maxBatchSize)
-      );
+    if (pendingSignatureInfoList.length) {
+      let signatureInfosToBroadcast = pendingSignatureInfoList.slice(0, this.options.signatureMaxBatchSize);
+      for (let signatureInfo of signatureInfosToBroadcast) {
+        let { signaturePacket, transfer } = signatureInfo;
+        transfer.signatureBroadcastTimestamps[signaturePacket.signerAddress] = Date.now() + this.signatureRetryInterval;
+      }
+      let signaturesToBroadcast = signatureInfosToBroadcast.map(signatureInfo => {
+        let { transfer, ...signatureData } = signatureInfo;
+        return signatureData;
+      });
+      this._broadcastSignaturesToSubnet(signaturesToBroadcast);
     }
   }
 
@@ -2723,6 +2754,7 @@ module.exports = class CapitaliskDEXModule {
     if (this.pendingTransfers.has(preparedTxn.id)) {
       this.pendingTransfers.delete(preparedTxn.id);
     }
+    let now = Date.now();
     let transfer = {
       id: preparedTxn.id,
       transaction: preparedTxn,
@@ -2730,7 +2762,10 @@ module.exports = class CapitaliskDEXModule {
       targetChain,
       processedSignerAddressSet,
       height: transactionData.height,
-      timestamp: Date.now(),
+      timestamp: now,
+      signatureBroadcastTimestamps: {
+        [multisigSignaturePacket.signerAddress]: now + this.signatureReadyDelay
+      },
       ...extraTransferData
     };
     this.pendingTransfers.set(preparedTxn.id, transfer);
