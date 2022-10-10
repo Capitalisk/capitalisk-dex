@@ -21,7 +21,7 @@ const { CAPITALISK_DEX_PASSWORD } = process.env;
 const CIPHER_ALGORITHM = 'aes-192-cbc';
 const CIPHER_KEY = CAPITALISK_DEX_PASSWORD ? crypto.scryptSync(CAPITALISK_DEX_PASSWORD, 'salt', 24) : undefined;
 const CIPHER_IV = Buffer.alloc(16, 0);
-const DEFAULT_INIT_RETRY_DELAY = 5000;
+const DEFAULT_INIT_RETRY_DELAY = 20000;
 const DEFAULT_MULTISIG_READY_DELAY = 5000;
 const DEFAULT_MULTISIG_RETRY_INTERVAL = 60000;
 const DEFAULT_SIGNATURE_READY_DELAY = 10000;
@@ -1203,7 +1203,7 @@ module.exports = class CapitaliskDEXModule {
         `Failed to load initial snapshot because of error: ${error.message} - DEX node will start with an empty order book`
       );
 
-      while (!this.processedHeights[this.baseChainSymbol] || !this.processedHeights[this.quoteChainSymbol]) {
+      while (true) {
         try {
           let [baseMaxHeight, quoteMaxHeight] = await Promise.all([
             this._getMaxBlockHeight(this.baseChainSymbol, false),
@@ -1216,31 +1216,37 @@ module.exports = class CapitaliskDEXModule {
             this.logger.error(`The ${this.quoteChainSymbol} chain had a height of 0`);
           }
           if (!baseMaxHeight || !quoteMaxHeight) {
-            this.logger.debug('Retrying chain time initialization...');
-            await wait(this.initRetryDelay);
-            continue;
+            throw new Error('Invalid chain heights');
           }
           this.processedHeights[this.baseChainSymbol] = baseMaxHeight;
           this.processedHeights[this.quoteChainSymbol] = quoteMaxHeight;
-        } catch (orderBookInitError) {
-          throw new Error(
-            `Failed to initialize new order book because of error: ${orderBookInitError.message}`
+          break;
+        } catch (initHeightError) {
+          this.logger.error(
+            `Failed to initialize last processed heights because of error: ${initHeightError.message}`
           );
+          this.logger.debug('Retrying initialization of last processed heights...');
+          await wait(this.initRetryDelay);
         }
       }
     }
 
-    try {
-      let [baseChainMaxBlock, quoteChainMaxBlock] = await Promise.all([
-        this._getBlockAtHeight(this.baseChainSymbol, this.processedHeights[this.baseChainSymbol]),
-        this._getBlockAtHeight(this.quoteChainSymbol, this.processedHeights[this.quoteChainSymbol])
-      ]);
-      this.lastProcessedBlocks[this.baseChainSymbol] = baseChainMaxBlock;
-      this.lastProcessedBlocks[this.quoteChainSymbol] = quoteChainMaxBlock;
-    } catch (error) {
-      throw new Error(
-        `Failed to load last processed blocks because of error: ${error.message}`
-      );
+    while (true) {
+      try {
+        let [baseChainMaxBlock, quoteChainMaxBlock] = await Promise.all([
+          this._getBlockAtHeight(this.baseChainSymbol, this.processedHeights[this.baseChainSymbol]),
+          this._getBlockAtHeight(this.quoteChainSymbol, this.processedHeights[this.quoteChainSymbol])
+        ]);
+        this.lastProcessedBlocks[this.baseChainSymbol] = baseChainMaxBlock;
+        this.lastProcessedBlocks[this.quoteChainSymbol] = quoteChainMaxBlock;
+        break;
+      } catch (error) {
+        this.logger.error(
+          `Failed to initialize last processed blocks because of error: ${error.message}`
+        );
+        this.logger.debug('Retrying initialization of last processed blocks...');
+        await wait(this.initRetryDelay);
+      }
     }
 
     await Promise.all(

@@ -1,7 +1,7 @@
 module.exports = {
   passiveMode: false,
   priceDecimalPrecision: null,
-  initRetryDelay: 5000,
+  initRetryDelay: 20000,
   multisigExpiry: 86400000,
   multisigExpiryCheckInterval: 60000,
   multisigFlushInterval: 15000,
