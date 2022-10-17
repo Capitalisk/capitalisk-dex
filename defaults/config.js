@@ -5,7 +5,7 @@ module.exports = {
   multisigExpiry: 86400000,
   multisigExpiryCheckInterval: 60000,
   multisigFlushInterval: 15000,
-  multisigReadyDelay: 5000,
+  multisigReadyDelay: 15000,
   multisigMaxBatchSize: 25,
   multisigRetryInterval: 60000,
   recentTransfersExpiry: 1800000,
