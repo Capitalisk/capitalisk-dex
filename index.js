@@ -1479,7 +1479,7 @@ module.exports = class CapitaliskDEXModule {
           });
         } catch (error) {
           throw new Error(
-            `Failed to post dividends at target height ${dividendTargetHeight} because of error: ${error.message}`
+            `Failed to process dividends at target height ${dividendTargetHeight} because of error: ${error.message}`
           );
         }
       }
@@ -2663,7 +2663,7 @@ module.exports = class CapitaliskDEXModule {
     let refundAmount = txn.sourceChainAmount - BigInt(refundChainOptions.exchangeFeeBase);
 
     if (refundAmount <= 0n) {
-      this.logger.error(
+      this.logger.debug(
         `${failureMessage} because amount was less than or equal to 0`
       );
       return;
