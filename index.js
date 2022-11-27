@@ -2712,19 +2712,23 @@ module.exports = class CapitaliskDEXModule {
   }
 
   async flushScheduledTransactions() {
-    await Promise.all(
-      this.scheduledTransferInfos.map(
-        async ({targetChain, transactionData, message, extraTransferData, failureMessage}) => {
-          try {
-            await this.execMultisigTransaction({targetChain, transactionData, message, extraTransferData});
-          } catch (error) {
-            this.logger.error(
-              `${failureMessage} because of error: ${error.message}`
-            );
-          }
-        }
-      )
-    );
+    for (let scheduledTransferInfo of this.scheduledTransferInfos) {
+      let {
+        targetChain,
+        transactionData,
+        message,
+        extraTransferData,
+        failureMessage
+      } = scheduledTransferInfo;
+
+      try {
+        await this.execMultisigTransaction(targetChain, transactionData, message, extraTransferData);
+      } catch (error) {
+        this.logger.debug(
+          `${failureMessage} because of error: ${error.message}`
+        );
+      }
+    }
     this.scheduledTransferInfos = [];
   }
 
