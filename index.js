@@ -1330,6 +1330,8 @@ module.exports = class CapitaliskDEXModule {
         `Chain ${chainSymbol}: Processing block at height ${chainHeight}`
       );
 
+      this.scheduledTransferInfos = [];
+
       let baseChainHeight = latestChainHeights[this.baseChainSymbol];
       if (baseChainHeight < this.options.dexEnabledFromHeight) {
         this.logger.info(
