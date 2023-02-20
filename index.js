@@ -832,6 +832,13 @@ module.exports = class CapitaliskDEXModule {
         break;
       }
       this.pendingTransfers.delete(txnId);
+      this.logger.error(
+        `Outbound multisig transaction ${
+          txnId
+        } expired before it could be processed by the ${
+          transfer.targetChain
+        } blockchain`
+      );
     }
   }
 
