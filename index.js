@@ -2238,12 +2238,12 @@ module.exports = class CapitaliskDEXModule {
         quoteChainLastProcessedBlock.id !== quoteChainLastDEXProcessedBlock.id
       );
       if (this.isBaseChainForked) {
-        this.logger.debug(
+        this.logger.error(
           `A fork was detected on the ${this.baseChainSymbol} chain at height ${baseChainLastDEXProcessedBlock.height}`
         );
       }
       if (this.isQuoteChainForked) {
-        this.logger.debug(
+        this.logger.error(
           `A fork was detected on the ${this.quoteChainSymbol} chain at height ${quoteChainLastDEXProcessedBlock.height}`
         );
       }
