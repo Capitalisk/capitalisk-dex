@@ -1448,7 +1448,7 @@ module.exports = class CapitaliskDEXModule {
         if (
           !this.passiveMode &&
           this.options.dexDisabledFromHeight != null &&
-          chainHeight % this.options.dexDisabledFromHeight === 0
+          chainHeight === this.options.dexDisabledFromHeight
         ) {
           let currentOrderBook = this.tradeEngine.getSnapshot();
           this.tradeEngine.clear();
@@ -2196,6 +2196,7 @@ module.exports = class CapitaliskDEXModule {
             process.exit();
           }
           this.pendingTransfers.clear();
+
           let lastProcessedHeights = await this.revertToSafeSnapshot();
           this.processedHeights[this.baseChainSymbol] = lastProcessedHeights.baseChainHeight;
           this.processedHeights[this.quoteChainSymbol] = lastProcessedHeights.quoteChainHeight;
