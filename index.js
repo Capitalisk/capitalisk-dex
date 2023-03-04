@@ -142,6 +142,10 @@ module.exports = class CapitaliskDEXModule {
       quoteMinPartialTake: BigInt(quoteChainOptions.minPartialTake || 0),
       priceDecimalPrecision: this.priceDecimalPrecision
     });
+    this.initialHeights = {
+      [this.baseChainSymbol]: 0,
+      [this.quoteChainSymbol]: 0
+    };
     this.processedHeights = {
       [this.baseChainSymbol]: 0,
       [this.quoteChainSymbol]: 0
@@ -1238,6 +1242,8 @@ module.exports = class CapitaliskDEXModule {
         }
       }
     }
+
+    this.initialHeights = {...this.processedHeights};
 
     while (true) {
       try {
@@ -2833,13 +2839,17 @@ module.exports = class CapitaliskDEXModule {
     if (this.finalizedSnapshot) {
       this.lastSnapshot = this.finalizedSnapshot;
     }
+    let baseChainHeight;
+    let quoteChainHeight;
     if (!this.lastSnapshot) {
       this.tradeEngine.clear();
-      return;
+      baseChainHeight = this.initialHeights[this.baseChainSymbol];
+      quoteChainHeight = this.initialHeights[this.quoteChainSymbol];
+      return {baseChainHeight, quoteChainHeight};
     }
     this.tradeEngine.setSnapshot(this.lastSnapshot.orderBook);
-    let baseChainHeight = this.lastSnapshot.chainHeights[this.baseChainSymbol];
-    let quoteChainHeight = this.lastSnapshot.chainHeights[this.quoteChainSymbol];
+    baseChainHeight = this.lastSnapshot.chainHeights[this.baseChainSymbol];
+    quoteChainHeight = this.lastSnapshot.chainHeights[this.quoteChainSymbol];
     return {baseChainHeight, quoteChainHeight};
   }
 
