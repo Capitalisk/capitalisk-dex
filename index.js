@@ -2195,11 +2195,16 @@ module.exports = class CapitaliskDEXModule {
             this.updater.revertActiveUpdate();
             process.exit();
           }
-          this.pendingTransfers.clear();
 
-          let lastProcessedHeights = await this.revertToSafeSnapshot();
+          let lastProcessedHeights = this.revertToSafeSnapshot();
           this.processedHeights[this.baseChainSymbol] = lastProcessedHeights.baseChainHeight;
           this.processedHeights[this.quoteChainSymbol] = lastProcessedHeights.quoteChainHeight;
+
+          for (let [txnId, transfer] of this.pendingTransfers) {
+            if (transfer.height >= this.processedHeights[transfer.targetChain]) {
+              this.pendingTransfers.delete(txnId);
+            }
+          }
 
           let [baseChainNewTipBlock, quoteChainNewTipBlock] = await Promise.all([
             this._getBlockAtHeight(this.baseChainSymbol, this.processedHeights[this.baseChainSymbol]),
@@ -2824,7 +2829,7 @@ module.exports = class CapitaliskDEXModule {
     return {baseChainHeight, quoteChainHeight};
   }
 
-  async revertToSafeSnapshot() {
+  revertToSafeSnapshot() {
     if (this.finalizedSnapshot) {
       this.lastSnapshot = this.finalizedSnapshot;
     }
