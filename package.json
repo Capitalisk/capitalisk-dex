@@ -1,6 +1,6 @@
 {
   "name": "capitalisk-dex",
-  "version": "18.0.4",
+  "version": "18.0.5",
   "description": "Decentralized exchange module.",
   "main": "index.js",
   "scripts": {
