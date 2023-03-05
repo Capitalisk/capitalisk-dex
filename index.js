@@ -39,6 +39,10 @@ module.exports = class CapitaliskDEXModule {
     this.options = {...defaultConfig, ...config};
     this.appConfig = appConfig;
     this.alias = alias || DEFAULT_MODULE_ALIAS;
+    this.networkAlias = (
+      (this.options.moduleRedirects && this.options.moduleRedirects[this.alias]) ||
+      this.alias
+    );
     this.updater = updater;
     if (!updates) {
       updates = [];
@@ -1296,7 +1300,7 @@ module.exports = class CapitaliskDEXModule {
 
     let hasMultisigWalletsInfo = false;
 
-    this.channel.subscribe(`network:event:${this.alias}:signatures`, async ({data}) => {
+    this.channel.subscribe(`network:event:${this.networkAlias}:signatures`, async ({data}) => {
       if (!hasMultisigWalletsInfo) {
         return;
       }
@@ -2709,7 +2713,7 @@ module.exports = class CapitaliskDEXModule {
 
   // Broadcast the signature to all DEX nodes with a matching baseAddress and quoteAddress
   async _broadcastSignaturesToSubnet(signatureDataList) {
-    let actionRouteString = `${this.alias}?baseAddress=${this.baseAddress}&quoteAddress=${this.quoteAddress}`;
+    let actionRouteString = `${this.networkAlias}?baseAddress=${this.baseAddress}&quoteAddress=${this.quoteAddress}`;
     try {
       await this.channel.invoke('network:emit', {
         event: `${actionRouteString}:signatures`,
