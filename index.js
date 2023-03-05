@@ -39,10 +39,7 @@ module.exports = class CapitaliskDEXModule {
     this.options = {...defaultConfig, ...config};
     this.appConfig = appConfig;
     this.alias = alias || DEFAULT_MODULE_ALIAS;
-    this.networkAlias = (
-      (this.options.moduleRedirects && this.options.moduleRedirects[this.alias]) ||
-      this.alias
-    );
+    this.networkAlias = this.options.networkAlias || this.alias;
     this.updater = updater;
     if (!updates) {
       updates = [];
