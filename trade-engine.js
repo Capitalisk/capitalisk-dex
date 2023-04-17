@@ -47,6 +47,22 @@ class TradeEngine {
     };
   }
 
+  _orderComparator(a, b) {
+    if (a.expiryHeight < b.expiryHeight) {
+      return -1;
+    }
+    if (a.expiryHeight > b.expiryHeight) {
+      return 1;
+    }
+    if (a.id < b.id) {
+      return -1;
+    }
+    if (a.id > b.id) {
+      return 1;
+    }
+    return 0;
+  }
+
   expireBidOrders(heightThreshold) {
     let expiredOrders = [];
     for (let [orderId, order] of this._bidMap) {
@@ -59,7 +75,7 @@ class TradeEngine {
       this._orderMap.delete(orderId);
       this._removeFromWalletOrderMap(order.sourceWalletAddress, orderId);
     }
-    return expiredOrders;
+    return expiredOrders.sort((a, b) => this._orderComparator(a, b));
   }
 
   expireAskOrders(heightThreshold) {
@@ -74,7 +90,7 @@ class TradeEngine {
       this._orderMap.delete(orderId);
       this._removeFromWalletOrderMap(order.sourceWalletAddress, orderId);
     }
-    return expiredOrders;
+    return expiredOrders.sort((a, b) => this._orderComparator(a, b));
   }
 
   wasOrderProcessed(orderId, orderSourceChain, orderHeight) {
