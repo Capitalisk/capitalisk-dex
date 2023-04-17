@@ -48,17 +48,17 @@ class TradeEngine {
   }
 
   _orderComparator(a, b) {
-    if (a.expiryHeight < b.expiryHeight) {
-      return -1;
-    }
     if (a.expiryHeight > b.expiryHeight) {
       return 1;
     }
-    if (a.id < b.id) {
+    if (a.expiryHeight < b.expiryHeight) {
       return -1;
     }
     if (a.id > b.id) {
       return 1;
+    }
+    if (a.id < b.id) {
+      return -1;
     }
     return 0;
   }
