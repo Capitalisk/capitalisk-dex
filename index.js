@@ -1266,7 +1266,17 @@ module.exports = class CapitaliskDEXModule {
 
     await Promise.all(
       this.chainSymbols.map(async (chainSymbol) => {
-        return this.chainCrypto[chainSymbol].load(channel, this.processedHeights[chainSymbol]);
+        try {
+          await this.chainCrypto[chainSymbol].load(channel, this.processedHeights[chainSymbol]);
+        } catch (error) {
+          throw new Error(
+            `Failed to load ChainCrypto plugin for the ${
+              chainSymbol
+            } blockchain because of error: ${
+              error.stack
+            }`
+          );
+        }
       })
     );
 
@@ -2227,7 +2237,17 @@ module.exports = class CapitaliskDEXModule {
             this.chainSymbols.map(async (chainSymbol) => {
               let chainCrypto = this.chainCrypto[chainSymbol];
               if (chainCrypto.reset) {
-                await chainCrypto.reset(this.processedHeights[chainSymbol]);
+                try {
+                  await chainCrypto.reset(this.processedHeights[chainSymbol]);
+                } catch (error) {
+                  throw new Error(
+                    `Failed to reset ChainCrypto plugin for the ${
+                      chainSymbol
+                    } blockchain because of error: ${
+                      error.stack
+                    }`
+                  );
+                }
               }
             })
           );
@@ -2757,16 +2777,27 @@ module.exports = class CapitaliskDEXModule {
   async execMultisigTransaction(targetChain, transactionData, message, extraTransferData) {
     let chainTimestamp = this._denormalizeTimestamp(targetChain, transactionData.timestamp);
     let chainCrypto = this.chainCrypto[targetChain];
-    let {
-      transaction: preparedTxn,
-      signature: multisigSignaturePacket
-    } = await chainCrypto.prepareTransaction({
-      recipientAddress: transactionData.recipientAddress,
-      amount: transactionData.amount,
-      fee: transactionData.fee,
-      timestamp: chainTimestamp,
-      message
-    });
+    let prepareTxnResult;
+
+    try {
+      prepareTxnResult = await chainCrypto.prepareTransaction({
+        recipientAddress: transactionData.recipientAddress,
+        amount: transactionData.amount,
+        fee: transactionData.fee,
+        timestamp: chainTimestamp,
+        message
+      });
+    } catch (error) {
+      throw new Error(
+        `ChainCrypto plugin for the ${
+          targetChain
+        } blockchain failed to execute prepareTransaction because of error: ${
+          error.stack
+        }`
+      );
+    }
+
+    let { transaction: preparedTxn, signature: multisigSignaturePacket } = prepareTxnResult;
 
     let processedSignerAddressSet = new Set([multisigSignaturePacket.signerAddress]);
     preparedTxn.signatures.push(multisigSignaturePacket);
