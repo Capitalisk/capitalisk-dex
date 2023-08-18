@@ -2387,9 +2387,9 @@ module.exports = class CapitaliskDEXModule {
       });
 
       for (let block of orderedBlockList) {
-        latestProcessedChainHeights[block.chainSymbol] = block.height;
         try {
           if (!block.isSkipped) {
+            latestProcessedChainHeights[block.chainSymbol] = block.height;
             await processBlock({
               chainSymbol: block.chainSymbol,
               chainHeight: block.height,
