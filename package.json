@@ -17,7 +17,7 @@
     "module"
   ],
   "author": "Jonathan Gros-Dubois",
-  "license": "GPL-3.0",
+  "license": "AGPL-3.0",
   "dependencies": {
     "big-order-book": "^2.0.0",
     "proper-skip-list": "^4.1.0"
