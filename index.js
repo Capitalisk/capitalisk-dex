@@ -2822,6 +2822,12 @@ module.exports = class CapitaliskDEXModule {
       },
       ...extraTransferData
     };
+    // In case this is a single-member market, signature quota could be met instantly.
+    let signatureQuota = this._getSignatureQuota(targetChain, preparedTxn);
+    if (signatureQuota >= 0) {
+      transfer.readyTimestamp = now;
+      transfer.multisigBroadcastTimestamp = now + this.multisigReadyDelay;
+    }
     this.pendingTransfers.set(preparedTxn.id, transfer);
   }
 
