@@ -13,7 +13,7 @@ To send an order to the DEX, a user needs to send a regular transfer transaction
 - **Credit**: `credit`
 
 ### Parameters
-- **targetChain** is the name of trading pair for a given market (e.g. LSH)
+- **targetChain** is the symbol of the opposite blockchain within a given market (e.g. LSH)
 - **bidOrAskPrice** is a limit order price.
 - **targetWalletAddress** is the wallet address on the opposite blockchain where tokens should be sent to.
 - **orderId** is the order ID (which matches the blockchain transaction ID).
