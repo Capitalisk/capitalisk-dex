@@ -2527,8 +2527,6 @@ module.exports = class CapitaliskDEXModule {
         a.id
       } and ${
         b.id
-      } from block ID ${
-        blockId
       } because they had the same sortKey - This may lead to nondeterministic output`
     );
     return 0;
