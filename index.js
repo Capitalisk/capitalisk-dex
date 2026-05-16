@@ -977,7 +977,6 @@ module.exports = class CapitaliskDEXModule {
     let baseChainReadMaxTransactions = baseChainOptions.readMaxTransactions == null ? tradeHistorySize : baseChainOptions.readMaxTransactions;
     let quoteChainReadMaxTransactions = quoteChainOptions.readMaxTransactions == null ? tradeHistorySize : quoteChainOptions.readMaxTransactions;
 
-    let historyStartTimestamp = this.options.tradeHistoryStartTimestamp == null ? 0 : this.options.tradeHistoryStartTimestamp;
     if (this.latestBasePriceTimestamp == null) {
       this.latestBasePriceTimestamp = this.options.tradeHistoryStartTimestamp == null ? 0 :
         this._denormalizeTimestamp(this.baseChainSymbol, this.options.tradeHistoryStartTimestamp);
