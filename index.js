@@ -1060,7 +1060,7 @@ module.exports = class CapitaliskDEXModule {
 
     let priceHistory = [];
 
-    // Filter out all entries which are incompete.
+    // Filter out all entries which are incomplete.
     let txnPairsList = Object.values(txnPairsMap).filter((txnPair) => {
       let firstBaseTxn = txnPair.base[0];
       let firstQuoteTxn = txnPair.quote[0];
