@@ -1124,11 +1124,27 @@ module.exports = class CapitaliskDEXModule {
 
     if (baseChainTxns.length) {
       let lastBaseChainTxn = baseChainTxns[baseChainTxns.length - 1];
+      let prevLatestBasePriceTimestamp = this.latestBasePriceTimestamp;
       this.latestBasePriceTimestamp = lastBaseChainTxn.timestamp;
+      if (this.latestBasePriceTimestamp === prevLatestBasePriceTimestamp) {
+        // If the latest base timestamp is the same as before, then force increment to ensure that
+        // the price history always progresses including in situations where many transactions
+        // have the same timestamp; in such cases, the price at that specific timestamp will be
+        // based on a sample.
+        this.latestBasePriceTimestamp++;
+      }
     }
     if (quoteChainTxns.length) {
       let lastQuoteChainTxn = quoteChainTxns[quoteChainTxns.length - 1];
+      let prevLatestQuotePriceTimestamp = this.latestQuotePriceTimestamp;
       this.latestQuotePriceTimestamp = lastQuoteChainTxn.timestamp;
+      if (this.latestQuotePriceTimestamp === prevLatestQuotePriceTimestamp) {
+        // If the latest quote timestamp is the same as before, then force increment to ensure that
+        // the price history always progresses including in situations where many transactions
+        // have the same timestamp; in such cases, the price at that specific timestamp will be
+        // based on a sample.
+        this.latestQuotePriceTimestamp++;
+      }
     }
 
     let unprocessedBaseExpiry = this._normalizeTimestamp(this.baseChainSymbol, lastBaseEntryTimestamp) - this.options.tradeHistoryUnprocessedTransactionExpiry;
