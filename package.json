@@ -19,7 +19,7 @@
   "author": "Jonathan Gros-Dubois",
   "license": "AGPL-3.0",
   "dependencies": {
-    "big-order-book": "^2.0.0",
+    "big-order-book": "^2.0.1",
     "proper-skip-list": "^4.1.0"
   },
   "devDependencies": {
