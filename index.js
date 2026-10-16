@@ -30,6 +30,7 @@ const DEFAULT_PROTOCOL_EXCLUDE_REASON = false;
 const DEFAULT_PROTOCOL_MAX_ARGUMENT_LENGTH = 64;
 const DEFAULT_PRICE_DECIMAL_PRECISION = 4;
 const DEFAULT_OUTBOUND_TRANSACTION_BLOCK_CACHE_SIZE = 62000;
+const BLOCK_PROCESSING_FAILURE_ALERT_THRESHOLD = 5;
 
 /**
  * Capitalisk DEX module specification
@@ -131,6 +132,7 @@ module.exports = class CapitaliskDEXModule {
     }
 
     this.validPriceRegex = new RegExp(`^([0-9]+[.]?|[0-9]*[.][0-9]{1,${this.priceDecimalPrecision}})$`);
+    this.priceDecimalPrecisionFactor = 10 ** this.priceDecimalPrecision;
 
     this.defaultMaxOrderAmount = BigInt(Number.MAX_SAFE_INTEGER);
 
@@ -622,6 +624,10 @@ module.exports = class CapitaliskDEXModule {
           }
 
           orderBook.reverse();
+
+          // A locked order book can hold a bid at the same price as an ask, so the last
+          // ask level must not be carried over into the bid loop.
+          lastEntry = {};
 
           for (let bidLevel of bidLevelIterator) {
             if (bidLevel.price === lastEntry.price) {
@@ -1638,7 +1644,7 @@ module.exports = class CapitaliskDEXModule {
           let priceString = dataParts[2];
           let price = Number(priceString);
           let targetWalletAddress = dataParts[3];
-          if (!this.validPriceRegex.test(priceString) || isNaN(price) || price === 0) {
+          if (!this._isLimitPriceValid(priceString)) {
             orderTxn.type = 'invalid';
             orderTxn.reason = 'Invalid price';
             this.logger.debug(
@@ -1940,7 +1946,17 @@ module.exports = class CapitaliskDEXModule {
         try {
           result = this.tradeEngine.addOrder(orderTxn);
         } catch (error) {
-          this.logger.warn(error);
+          this.logger.error(
+            `Chain ${chainSymbol}: Order ${
+              orderTxn.id
+            } from ${
+              orderTxn.sourceWalletAddress
+            } for an amount of ${
+              orderTxn.sourceChainAmount
+            } was rejected by the trade engine and needs to be refunded manually - ${
+              error.message
+            }`
+          );
           return;
         }
         this.logger.info(
@@ -2153,6 +2169,8 @@ module.exports = class CapitaliskDEXModule {
       }
     };
 
+    let lastFailedBlockId = null;
+    let consecutiveBlockFailureCount = 0;
     let baseChainForkTargetHeight = 0;
     let quoteChainForkTargetHeight = 0;
 
@@ -2401,6 +2419,8 @@ module.exports = class CapitaliskDEXModule {
         return 1;
       });
 
+      let processedBlockCount = 0;
+
       for (let block of orderedBlockList) {
         try {
           if (!block.isSkipped) {
@@ -2413,17 +2433,49 @@ module.exports = class CapitaliskDEXModule {
             });
           }
           this.lastProcessedBlockTimestamps[block.chainSymbol] = block.timestamp;
+          lastFailedBlockId = null;
+          consecutiveBlockFailureCount = 0;
+          processedBlockCount++;
         } catch (error) {
-          this.logger.error(
-            `Encountered the following error while processing block with id ${
-              block.id
-            } on chain ${block.chainSymbol} at height ${block.height}: ${error.stack}`
-          );
-          return orderedBlockList.length;
+          if (block.id === lastFailedBlockId) {
+            consecutiveBlockFailureCount++;
+          } else {
+            lastFailedBlockId = block.id;
+            consecutiveBlockFailureCount = 1;
+          }
+          // Once the same block has failed repeatedly, it is not going to succeed on its
+          // own; stop repeating the stack trace and state the situation once instead.
+          if (consecutiveBlockFailureCount <= BLOCK_PROCESSING_FAILURE_ALERT_THRESHOLD) {
+            this.logger.error(
+              `Encountered the following error while processing block with id ${
+                block.id
+              } on chain ${block.chainSymbol} at height ${block.height}: ${error.stack}`
+            );
+          }
+          if (consecutiveBlockFailureCount === BLOCK_PROCESSING_FAILURE_ALERT_THRESHOLD) {
+            this.logger.fatal(
+              `Failed to process the block with id ${
+                block.id
+              } on chain ${
+                block.chainSymbol
+              } at height ${
+                block.height
+              } ${
+                consecutiveBlockFailureCount
+              } times in a row - The DEX cannot advance beyond this height and requires manual intervention; it will keep retrying every ${
+                this.options.readBlocksInterval
+              }ms`
+            );
+          }
+          // The failed block is still the next one to process, so coming back immediately
+          // cannot make progress. Returning 0 makes the caller wait for readBlocksInterval
+          // before the next attempt, which keeps a failing block from spinning the module
+          // and flooding the underlying chain modules with requests.
+          return 0;
         }
       }
 
-      return orderedBlockList.length;
+      return processedBlockCount;
     };
 
     this._processBlockchains = true;
@@ -2491,6 +2543,21 @@ module.exports = class CapitaliskDEXModule {
     }).filter(dividend => !!dividend);
   }
 
+  // The price has to survive conversion into an integer number of price units; the order
+  // book rejects any price which does not and such an order would otherwise be dropped
+  // after the sender's funds had already been accepted.
+  _isLimitPriceValid(priceString) {
+    if (!this.validPriceRegex.test(priceString)) {
+      return false;
+    }
+    let price = Number(priceString);
+    if (!Number.isFinite(price) || price === 0) {
+      return false;
+    }
+    let priceUnits = Math.round(price * this.priceDecimalPrecisionFactor);
+    return Number.isSafeInteger(priceUnits) && priceUnits > 0;
+  }
+
   _isLimitOrderTooSmallToConvert(chainSymbol, amount, price) {
     if (chainSymbol === this.baseChainSymbol) {
       let quoteChainValue = this.bigIntPriceCalculator.divideBigIntByDecimal(amount, price);
@@ -2509,6 +2576,12 @@ module.exports = class CapitaliskDEXModule {
   _isMarketOrderTooSmallToConvert(chainSymbol, amount) {
     if (chainSymbol === this.baseChainSymbol) {
       let { price: quoteChainPrice } = this.tradeEngine.peekAsks() || {};
+      if (quoteChainPrice == null) {
+        // Nothing is resting on the opposite side of the order book, so there is no price
+        // to convert at. The order is valid; it will not match and the trade engine will
+        // hand back its full amount to be refunded as an unmatched market order part.
+        return false;
+      }
       let quoteChainValue = this.bigIntPriceCalculator.divideBigIntByDecimal(amount, quoteChainPrice);
       return (
         quoteChainValue <= this.chainExchangeFeeBases[this.quoteChainSymbol] ||
@@ -2516,6 +2589,9 @@ module.exports = class CapitaliskDEXModule {
       );
     }
     let { price: baseChainPrice } = this.tradeEngine.peekBids() || {};
+    if (baseChainPrice == null) {
+      return false;
+    }
     let baseChainValue = this.bigIntPriceCalculator.multiplyBigIntByDecimal(amount, baseChainPrice);
     return (
       baseChainValue <= this.chainExchangeFeeBases[this.baseChainSymbol] ||
@@ -2690,10 +2766,12 @@ module.exports = class CapitaliskDEXModule {
       sourceWalletAddress: order.sourceWalletAddress,
       height: refundHeight
     };
+    // Orders which come from a serialized order book snapshot carry their amounts as
+    // strings, so they have to be converted back before any arithmetic.
     if (order.sourceChain === this.baseChainSymbol) {
-      refundTxn.sourceChainAmount = order.valueRemaining;
+      refundTxn.sourceChainAmount = BigInt(order.valueRemaining);
     } else {
-      refundTxn.sourceChainAmount = order.sizeRemaining;
+      refundTxn.sourceChainAmount = BigInt(order.sizeRemaining);
     }
     this.scheduleRefundTransaction(refundTxn, timestamp, reason, extraTransferData, failureMessage);
   }
@@ -2715,7 +2793,7 @@ module.exports = class CapitaliskDEXModule {
   scheduleRefundTransaction(txn, timestamp, reason, extraTransferData, failureMessage) {
     let refundChainOptions = this.options.chains[txn.sourceChain];
     // Refunds do not charge the exchangeFeeRate.
-    let refundAmount = txn.sourceChainAmount - BigInt(refundChainOptions.exchangeFeeBase);
+    let refundAmount = BigInt(txn.sourceChainAmount) - BigInt(refundChainOptions.exchangeFeeBase);
 
     if (refundAmount <= 0n) {
       this.logger.debug(
